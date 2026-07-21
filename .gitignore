@@ -1,0 +1,38 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Native builds
+native/ArmaBridge/build/
+*.dll
+*.pdb
+*.lib
+*.exp
+
+# Arma build output
+arma3/@AI_Copilot/addons/*.pbo
+arma3/@AI_Copilot/addons/*.bisign
+arma3/@AI_Copilot/*.dll
+arma3/@AI_Copilot/*.pdb
+
+# Packages / artifacts
+artifacts/
+*.zip
+
+# Local configuration and secrets
+settings.json
+*.local.json
+.env
+
+# Logs
+logs/
+*.log
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

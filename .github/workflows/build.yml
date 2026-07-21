@@ -1,0 +1,42 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build application
+        shell: pwsh
+        run: |
+          dotnet publish src/AICopilot.App/AICopilot.App.csproj `
+            -c Release -r win-x64 --self-contained false -o artifacts/app
+
+      - name: Configure native extension
+        run: cmake -S native/ArmaBridge -B native/ArmaBridge/build -A x64
+
+      - name: Build native extension
+        run: cmake --build native/ArmaBridge/build --config Release
+
+      - name: Assemble development artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/mod/@AI_Copilot/addons | Out-Null
+          Copy-Item arma3/@AI_Copilot/mod.cpp artifacts/mod/@AI_Copilot/mod.cpp
+          $dll = Get-ChildItem native/ArmaBridge/build -Recurse -Filter ai_copilot_bridge_x64.dll | Select-Object -First 1
+          Copy-Item $dll.FullName artifacts/mod/@AI_Copilot/ai_copilot_bridge_x64.dll
+          Copy-Item -Recurse arma3/addon-source artifacts/arma3-addon-source
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AI-Copilot-dev
+          path: artifacts/
