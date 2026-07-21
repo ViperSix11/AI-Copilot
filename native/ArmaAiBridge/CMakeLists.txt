@@ -6,7 +6,7 @@ if(NOT WIN32)
 endif()
 
 if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
-    message(FATAL_ERROR "Version 0.1.0 builds only the x64 Arma extension.")
+    message(FATAL_ERROR "Version 0.2.0 builds only the x64 Arma extension.")
 endif()
 
 add_library(arma_ai_bridge SHARED ArmaAiBridge.cpp)

@@ -1,47 +1,23 @@
-# Telemetry schema v1
+# Message schemas
 
-The root document is a JSON object.
+The pipe transports newline-delimited UTF-8 JSON. Every message has a `schema` discriminator.
 
-```json
-{
-  "schema": "arma-ai-bridge/arma3/telemetry-v1",
-  "timestamp": 123.45,
-  "map": {
-    "name": "Altis",
-    "sizeMeters": 30720
-  },
-  "player": {},
-  "vehicle": null,
-  "contacts": [],
-  "sensorContacts": [],
-  "environment": {}
-}
-```
+## Telemetry
 
-## Environment probes
+Schema: `arma-ai-bridge/arma3/telemetry-v1`
 
-The environment scan samples circular zones ahead of the current view vector instead of scanning the whole map.
+Sent by Arma at 4 Hz. Contains player, map, vehicle, known-contact and sensor-contact state. It intentionally contains no precomputed environment probes.
 
-```json
-{
-  "viewHeading": 42.5,
-  "probes": [
-    {
-      "distanceMeters": 150,
-      "radiusMeters": 60,
-      "center": [1234, 5678, 12],
-      "buildingCount": 2,
-      "vegetationCount": 48,
-      "forestLikely": true,
-      "buildingsInVegetation": true,
-      "nearestBuildingDistanceFromPlayer": 173.2
-    }
-  ]
-}
-```
+## Command
 
-`forestLikely` is a heuristic based on the number of nearby terrain vegetation objects. It is not a claim about map-maker forest polygons.
+Schema: `arma-ai-bridge/command-v1`
 
-## Contact privacy
+Sent by the Windows application. Version 0.2.0 supports `query_environment`. Every command has a unique `requestId`.
 
-Contact positions are derived from `targetKnowledge`. The schema contains the estimated position and error margin known to the player; it does not add the object's actual hidden position.
+## Query result
+
+Schema: `arma-ai-bridge/arma3/query-result-v1`
+
+Sent by Arma after executing a command. The matching `requestId` correlates the result with the original command. `ok=false` carries an `error`; `ok=true` carries `result`.
+
+Canonical examples and JSON Schemas are stored under `samples/` and `schemas/`.

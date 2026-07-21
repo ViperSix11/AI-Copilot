@@ -1,84 +1,45 @@
-# Staged test plan
+# Test plan
 
-Do not enable cloud AI until all local bridge stages pass.
+## Stage 1 — inbound telemetry without Arma
 
-## Stage 1 — GUI and local pipe
-
-1. Build and start `ArmA AI Bridge.exe`.
-2. Confirm the status changes to `Listening`.
+1. Start `ArmA AI Bridge.exe`.
+2. Verify status `Listening`.
 3. Run `scripts/send-test-telemetry.ps1`.
-4. Confirm:
-   - status changes to `Arma connected`
-   - map is `VR`
-   - position is displayed
-   - three front probes are displayed
-   - the raw JSON is formatted
-   - a log file appears under `%LOCALAPPDATA%\ArmA AI Bridge\logs`
+4. Verify map, position, heading, contacts, raw JSON and log output.
 
-Pass condition: ten repeated test sends cause no crash and reconnect cleanly.
+## Stage 2 — package and load the Arma addon
 
-## Stage 2 — Native extension load
+1. Run `scripts/build.ps1` or `scripts/package-mod.ps1`.
+2. Confirm `arma_ai_bridge_client.pbo` exists under `artifacts/mod/@Arma_AI_Bridge/addons`.
+3. Copy `@Arma_AI_Bridge` into the Arma 3 installation directory.
+4. Enable the mod in the launcher.
+5. Start the Windows application, then an Editor mission.
+6. Verify `Arma connected` and live telemetry.
 
-1. Build `arma_ai_bridge_x64.dll`.
-2. Install the development mod.
-3. Start ArmA AI Bridge before Arma.
-4. Launch a local Editor mission with the mod enabled.
-5. Inspect the Arma RPT for:
+## Stage 3 — duplex query smoke test
 
-```text
-CallExtension loaded: arma_ai_bridge
-[ArmA AI Bridge] Client telemetry starting. Bridge response: pong
-```
+1. Open the `Map query` tab.
+2. Send a 300 m circle query for buildings.
+3. Verify a matching `requestId` appears in the result and log.
+4. Send an 800 m, 40 degree view cone for buildings and vegetation.
+5. Rotate the player and repeat; bearings and results must change.
+6. Select roads, walls and rocks individually and verify valid result envelopes.
+7. Enter invalid ranges and limits; the GUI must reject them.
 
-Pass condition: GUI reports `Arma connected` and receives snapshots for five minutes.
+## Stage 4 — resilience
 
-## Stage 3 — Player telemetry
+- Close and reopen the Windows application while a mission is running.
+- Restart the mission and respawn the player.
+- Send repeated queries and confirm no stale `requestId` is reused.
+- Confirm telemetry remains responsive during a query.
+- Inspect the Arma RPT and application log for errors.
 
-Validate on foot and in a vehicle:
+## Acceptance gate for AI integration
 
-- position changes smoothly
-- view heading follows freelook rather than only body direction
-- weapon, muzzle, magazine and loaded rounds are plausible
-- vehicle class, fuel, damage and role appear only when in a vehicle
+Proceed to OpenAI only after:
 
-Pass condition: no SQF errors in RPT and no malformed JSON warnings in the GUI log.
-
-## Stage 4 — Environment probes
-
-Use Altis or Stratis rather than Virtual Reality because VR has no terrain objects.
-
-Test these scenes:
-
-1. open field facing open terrain
-2. dense forest without buildings
-3. forest with a nearby house or ruin
-4. town edge
-5. rotate view 180 degrees without moving
-
-Pass condition: probe counts change with view direction; `buildingsInVegetation` becomes true only where both conditions are present.
-
-The `forestLikely` threshold is intentionally heuristic and will be calibrated from observed logs.
-
-## Stage 5 — Perception contacts
-
-1. Place an enemy behind terrain and ensure it has not been detected.
-2. Confirm it does not appear in `contacts`.
-3. Allow the player or group AI to detect it.
-4. Confirm it appears with estimated position and error margin.
-5. Break contact and confirm the age values increase.
-
-Pass condition: the exported contact does not contain a separate exact hidden position.
-
-## Stage 6 — Stability gate
-
-Run a local multiplayer scenario for at least 30 minutes.
-
-Monitor:
-
-- Arma FPS before and after enabling the mod
-- RPT errors
-- bridge queue `dropped` status
-- GUI memory usage
-- reconnect after closing and reopening ArmA AI Bridge
-
-Only after this gate passes should version 0.2 connect OpenAI and ElevenLabs.
+- telemetry runs for 30 minutes without disconnect loops
+- at least 50 dynamic queries complete successfully
+- C# and native CI builds are green
+- no fixed environment probe data appears in telemetry
+- query limits prevent unbounded scans

@@ -1,12 +1,6 @@
 private _unit = player;
 private _now = diag_tickTime;
 
-if ((_now - (missionNamespace getVariable ["AAB_environmentCacheAt", -100])) >= 2) then
-{
-    missionNamespace setVariable ["AAB_environmentCache", call AAB_fnc_collectEnvironment];
-    missionNamespace setVariable ["AAB_environmentCacheAt", _now];
-};
-
 if ((_now - (missionNamespace getVariable ["AAB_contactCacheAt", -100])) >= 1) then
 {
     missionNamespace setVariable ["AAB_contactCache", call AAB_fnc_collectContacts];
@@ -82,7 +76,7 @@ private _mapData = createHashMapFromArray
     ["daytime", daytime]
 ];
 
-private _payload = createHashMapFromArray
+createHashMapFromArray
 [
     ["schema", "arma-ai-bridge/arma3/telemetry-v1"],
     ["timestamp", time],
@@ -91,8 +85,5 @@ private _payload = createHashMapFromArray
     ["player", _playerData],
     ["vehicle", _vehicleData],
     ["contacts", missionNamespace getVariable ["AAB_contactCache", []]],
-    ["sensorContacts", missionNamespace getVariable ["AAB_sensorContactCache", []]],
-    ["environment", missionNamespace getVariable ["AAB_environmentCache", createHashMap]]
-];
-
-_payload
+    ["sensorContacts", missionNamespace getVariable ["AAB_sensorContactCache", []]]
+]
