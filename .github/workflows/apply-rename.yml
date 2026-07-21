@@ -2,7 +2,7 @@ name: apply-rename
 
 on:
   push:
-    branches: [agent/rename-arma-ai-bridge]
+    branches: [main]
     paths:
       - .changes/READY
 
