@@ -2,7 +2,7 @@
 
 ## Design principle
 
-AI Copilot is deliberately perspective-bound. It receives what the local player, the player's group, and the current vehicle sensors know. It does not consume server ground truth.
+ArmA AI Bridge is deliberately perspective-bound. It receives what the local player, the player's group, and the current vehicle sensors know. It does not consume server ground truth.
 
 ## Components
 
@@ -21,7 +21,7 @@ The addon collects:
 
 ### Native extension
 
-`ai_copilot_bridge_x64.dll` implements the official x64 Arma extension exports:
+`arma_ai_bridge_x64.dll` implements the official x64 Arma extension exports:
 
 - `RVExtensionVersion`
 - `RVExtension`
@@ -43,7 +43,7 @@ The WPF application is the Named Pipe server. It:
 Pipe name:
 
 ```text
-AICopilot.Arma3.Telemetry
+ArmaAiBridge.Arma3.Telemetry
 ```
 
 Transport:

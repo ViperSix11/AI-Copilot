@@ -6,17 +6,17 @@ obj/
 .vs/
 
 # Native builds
-native/ArmaBridge/build/
+native/ArmaAiBridge/build/
 *.dll
 *.pdb
 *.lib
 *.exp
 
 # Arma build output
-arma3/@AI_Copilot/addons/*.pbo
-arma3/@AI_Copilot/addons/*.bisign
-arma3/@AI_Copilot/*.dll
-arma3/@AI_Copilot/*.pdb
+arma3/@Arma_AI_Bridge/addons/*.pbo
+arma3/@Arma_AI_Bridge/addons/*.bisign
+arma3/@Arma_AI_Bridge/*.dll
+arma3/@Arma_AI_Bridge/*.pdb
 
 # Packages / artifacts
 artifacts/

@@ -1,6 +1,6 @@
 using System.Windows;
 
-namespace AICopilot.App;
+namespace ArmaAiBridge.App;
 
 public partial class App : Application
 {

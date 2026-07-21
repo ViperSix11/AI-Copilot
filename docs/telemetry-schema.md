@@ -4,7 +4,7 @@ The root document is a JSON object.
 
 ```json
 {
-  "schema": "ai-copilot/arma3/telemetry-v1",
+  "schema": "arma-ai-bridge/arma3/telemetry-v1",
   "timestamp": 123.45,
   "map": {
     "name": "Altis",

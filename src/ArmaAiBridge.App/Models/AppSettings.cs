@@ -1,4 +1,4 @@
-namespace AICopilot.App.Models;
+namespace ArmaAiBridge.App.Models;
 
 public sealed class AppSettings
 {

@@ -14,7 +14,7 @@
 
 namespace
 {
-    constexpr wchar_t PipeName[] = LR"(\\.\pipe\AICopilot.Arma3.Telemetry)";
+    constexpr wchar_t PipeName[] = LR"(\\.\pipe\ArmaAiBridge.Arma3.Telemetry)";
     constexpr std::size_t MaximumQueueSize = 256;
     constexpr char Version[] = "0.1.0";
 

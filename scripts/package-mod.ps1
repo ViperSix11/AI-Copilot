@@ -6,10 +6,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-$source = Join-Path $root "arma3\addon-source\ai_copilot_client"
+$source = Join-Path $root "arma3\addon-source\arma_ai_bridge_client"
 
 if (-not $DestinationModPath) {
-    $DestinationModPath = Join-Path $root "artifacts\mod\@AI_Copilot"
+    $DestinationModPath = Join-Path $root "artifacts\mod\@Arma_AI_Bridge"
 }
 
 $addons = Join-Path $DestinationModPath "addons"

@@ -5,11 +5,18 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   windows-build:
     runs-on: windows-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify repository consistency
+        run: python scripts/verify_repository.py
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -18,25 +25,28 @@ jobs:
       - name: Build application
         shell: pwsh
         run: |
-          dotnet publish src/AICopilot.App/AICopilot.App.csproj `
-            -c Release -r win-x64 --self-contained false -o artifacts/app
+          dotnet publish src/ArmaAiBridge.App/ArmaAiBridge.App.csproj `
+            -c Release -r win-x64 --self-contained false `
+            -p:ContinuousIntegrationBuild=true -o artifacts/app
 
       - name: Configure native extension
-        run: cmake -S native/ArmaBridge -B native/ArmaBridge/build -A x64
+        run: cmake -S native/ArmaAiBridge -B native/ArmaAiBridge/build -A x64
 
       - name: Build native extension
-        run: cmake --build native/ArmaBridge/build --config Release
+        run: cmake --build native/ArmaAiBridge/build --config Release
 
       - name: Assemble development artifact
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force artifacts/mod/@AI_Copilot/addons | Out-Null
-          Copy-Item arma3/@AI_Copilot/mod.cpp artifacts/mod/@AI_Copilot/mod.cpp
-          $dll = Get-ChildItem native/ArmaBridge/build -Recurse -Filter ai_copilot_bridge_x64.dll | Select-Object -First 1
-          Copy-Item $dll.FullName artifacts/mod/@AI_Copilot/ai_copilot_bridge_x64.dll
+          New-Item -ItemType Directory -Force artifacts/mod/@Arma_AI_Bridge/addons | Out-Null
+          Copy-Item arma3/@Arma_AI_Bridge/mod.cpp artifacts/mod/@Arma_AI_Bridge/mod.cpp
+          $dll = Get-ChildItem native/ArmaAiBridge/build -Recurse -Filter arma_ai_bridge_x64.dll | Select-Object -First 1
+          if (-not $dll) { throw "Native extension output was not found." }
+          Copy-Item $dll.FullName artifacts/mod/@Arma_AI_Bridge/arma_ai_bridge_x64.dll
           Copy-Item -Recurse arma3/addon-source artifacts/arma3-addon-source
 
       - uses: actions/upload-artifact@v4
         with:
-          name: AI-Copilot-dev
+          name: ArmA-AI-Bridge-dev
           path: artifacts/
+          retention-days: 7

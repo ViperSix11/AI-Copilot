@@ -1,12 +1,12 @@
-# AI Copilot
+# ArmA AI Bridge
 
-AI Copilot is a Windows-side tactical assistant foundation for **Arma 3**. Version `0.1.0` intentionally focuses on the local data path before any cloud AI is connected:
+ArmA AI Bridge is a Windows-side tactical assistant foundation for **Arma 3**. Version `0.1.0` intentionally focuses on the local data path before any cloud AI is connected:
 
 ```text
 Arma 3 client SQF addon
-        -> ai_copilot_bridge_x64.dll
+        -> arma_ai_bridge_x64.dll
         -> Windows Named Pipe
-        -> AI Copilot WPF application
+        -> ArmA AI Bridge WPF application
 ```
 
 The client addon exports only information available from the local player perspective: player state, vehicle state, group/player-known contacts, vehicle sensor contacts, current map metadata and sampled terrain objects in the direction of view.
@@ -54,8 +54,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 This builds:
 
-- `artifacts/app/AI Copilot.exe`
-- `artifacts/mod/@AI_Copilot/ai_copilot_bridge_x64.dll`
+- `artifacts/app/ArmA AI Bridge.exe`
+- `artifacts/mod/@Arma_AI_Bridge/arma_ai_bridge_x64.dll`
 
 If Arma 3 Tools is installed in the default Steam location, the build script also tries to pack the addon PBO. Otherwise run:
 
@@ -65,7 +65,7 @@ If Arma 3 Tools is installed in the default Steam location, the build script als
 
 ## Run a bridge test without Arma
 
-1. Start `AI Copilot.exe`.
+1. Start `ArmA AI Bridge.exe`.
 2. Ensure the bridge listener says `Listening`.
 3. Run:
 
@@ -77,13 +77,13 @@ The dashboard should display the test map, position and environment data.
 
 ## Install the Arma 3 development mod
 
-Copy the generated `@AI_Copilot` folder into the Arma 3 installation directory and enable it in the launcher. The expected layout is:
+Copy the generated `@Arma_AI_Bridge` folder into the Arma 3 installation directory and enable it in the launcher. The expected layout is:
 
 ```text
-@AI_Copilot/
+@Arma_AI_Bridge/
 ├── addons/
-│   └── ai_copilot_client.pbo
-├── ai_copilot_bridge_x64.dll
+│   └── arma_ai_bridge_client.pbo
+├── arma_ai_bridge_x64.dll
 └── mod.cpp
 ```
 
@@ -102,9 +102,9 @@ This keeps map queries useful without scanning the entire world or performing he
 Settings and logs are stored under:
 
 ```text
-%LOCALAPPDATA%\AI Copilot\
+%LOCALAPPDATA%\ArmA AI Bridge\
 ├── settings.json
-└── logs\ai-copilot-YYYYMMDD.log
+└── logs\arma-ai-bridge-YYYYMMDD.log
 ```
 
 API keys are DPAPI-encrypted for the current Windows user. Plain API keys are never written to logs.

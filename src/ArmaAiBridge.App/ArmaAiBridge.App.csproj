@@ -6,8 +6,8 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyName>AI Copilot</AssemblyName>
-    <RootNamespace>AICopilot.App</RootNamespace>
+    <AssemblyName>ArmA AI Bridge</AssemblyName>
+    <RootNamespace>ArmaAiBridge.App</RootNamespace>
     <Version>0.1.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>

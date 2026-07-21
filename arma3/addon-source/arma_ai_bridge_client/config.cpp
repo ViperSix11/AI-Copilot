@@ -1,8 +1,8 @@
 class CfgPatches
 {
-    class AIC_ai_copilot_client
+    class AAB_arma_ai_bridge_client
     {
-        name = "AI Copilot Client";
+        name = "ArmA AI Bridge Client";
         author = "ViperSix11";
         requiredVersion = 2.18;
         requiredAddons[] = {"A3_Functions_F"};
@@ -13,11 +13,11 @@ class CfgPatches
 
 class CfgFunctions
 {
-    class AIC
+    class AAB
     {
         class Client
         {
-            file = "\ai_copilot_client\functions";
+            file = "\arma_ai_bridge_client\functions";
             class postInit { postInit = 1; };
             class collectTelemetry {};
             class collectEnvironment {};

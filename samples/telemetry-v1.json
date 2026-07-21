@@ -1,5 +1,5 @@
 {
-  "schema": "ai-copilot/arma3/telemetry-v1",
+  "schema": "arma-ai-bridge/arma3/telemetry-v1",
   "timestamp": 123.45,
   "frame": 9001,
   "map": {

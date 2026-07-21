@@ -17,11 +17,11 @@ try {
     if (-not (Test-Path ".git")) {
         git init -b main
         git add .
-        git commit -m "Initial AI Copilot foundation"
+        git commit -m "Initial ArmA AI Bridge foundation"
     }
 
     $visibilityFlag = "--$Visibility"
-    gh repo create "ViperSix11/AI-Copilot" $visibilityFlag --source . --remote origin --push
+    gh repo create "ViperSix11/ArmA-AI-Bridge" $visibilityFlag --source . --remote origin --push
 }
 finally {
     Pop-Location

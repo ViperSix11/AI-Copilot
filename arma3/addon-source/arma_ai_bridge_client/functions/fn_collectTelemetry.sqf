@@ -1,17 +1,17 @@
 private _unit = player;
 private _now = diag_tickTime;
 
-if ((_now - (missionNamespace getVariable ["AIC_environmentCacheAt", -100])) >= 2) then
+if ((_now - (missionNamespace getVariable ["AAB_environmentCacheAt", -100])) >= 2) then
 {
-    missionNamespace setVariable ["AIC_environmentCache", call AIC_fnc_collectEnvironment];
-    missionNamespace setVariable ["AIC_environmentCacheAt", _now];
+    missionNamespace setVariable ["AAB_environmentCache", call AAB_fnc_collectEnvironment];
+    missionNamespace setVariable ["AAB_environmentCacheAt", _now];
 };
 
-if ((_now - (missionNamespace getVariable ["AIC_contactCacheAt", -100])) >= 1) then
+if ((_now - (missionNamespace getVariable ["AAB_contactCacheAt", -100])) >= 1) then
 {
-    missionNamespace setVariable ["AIC_contactCache", call AIC_fnc_collectContacts];
-    missionNamespace setVariable ["AIC_sensorContactCache", call AIC_fnc_collectSensorContacts];
-    missionNamespace setVariable ["AIC_contactCacheAt", _now];
+    missionNamespace setVariable ["AAB_contactCache", call AAB_fnc_collectContacts];
+    missionNamespace setVariable ["AAB_sensorContactCache", call AAB_fnc_collectSensorContacts];
+    missionNamespace setVariable ["AAB_contactCacheAt", _now];
 };
 
 private _view = eyeDirection _unit;
@@ -84,15 +84,15 @@ private _mapData = createHashMapFromArray
 
 private _payload = createHashMapFromArray
 [
-    ["schema", "ai-copilot/arma3/telemetry-v1"],
+    ["schema", "arma-ai-bridge/arma3/telemetry-v1"],
     ["timestamp", time],
     ["frame", diag_frameNo],
     ["map", _mapData],
     ["player", _playerData],
     ["vehicle", _vehicleData],
-    ["contacts", missionNamespace getVariable ["AIC_contactCache", []]],
-    ["sensorContacts", missionNamespace getVariable ["AIC_sensorContactCache", []]],
-    ["environment", missionNamespace getVariable ["AIC_environmentCache", createHashMap]]
+    ["contacts", missionNamespace getVariable ["AAB_contactCache", []]],
+    ["sensorContacts", missionNamespace getVariable ["AAB_sensorContactCache", []]],
+    ["environment", missionNamespace getVariable ["AAB_environmentCache", createHashMap]]
 ];
 
 _payload

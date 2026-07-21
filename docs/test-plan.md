@@ -4,7 +4,7 @@ Do not enable cloud AI until all local bridge stages pass.
 
 ## Stage 1 — GUI and local pipe
 
-1. Build and start `AI Copilot.exe`.
+1. Build and start `ArmA AI Bridge.exe`.
 2. Confirm the status changes to `Listening`.
 3. Run `scripts/send-test-telemetry.ps1`.
 4. Confirm:
@@ -13,21 +13,21 @@ Do not enable cloud AI until all local bridge stages pass.
    - position is displayed
    - three front probes are displayed
    - the raw JSON is formatted
-   - a log file appears under `%LOCALAPPDATA%\AI Copilot\logs`
+   - a log file appears under `%LOCALAPPDATA%\ArmA AI Bridge\logs`
 
 Pass condition: ten repeated test sends cause no crash and reconnect cleanly.
 
 ## Stage 2 — Native extension load
 
-1. Build `ai_copilot_bridge_x64.dll`.
+1. Build `arma_ai_bridge_x64.dll`.
 2. Install the development mod.
-3. Start AI Copilot before Arma.
+3. Start ArmA AI Bridge before Arma.
 4. Launch a local Editor mission with the mod enabled.
 5. Inspect the Arma RPT for:
 
 ```text
-CallExtension loaded: ai_copilot_bridge
-[AI Copilot] Client telemetry starting. Bridge response: pong
+CallExtension loaded: arma_ai_bridge
+[ArmA AI Bridge] Client telemetry starting. Bridge response: pong
 ```
 
 Pass condition: GUI reports `Arma connected` and receives snapshots for five minutes.
@@ -79,6 +79,6 @@ Monitor:
 - RPT errors
 - bridge queue `dropped` status
 - GUI memory usage
-- reconnect after closing and reopening AI Copilot
+- reconnect after closing and reopening ArmA AI Bridge
 
 Only after this gate passes should version 0.2 connect OpenAI and ElevenLabs.

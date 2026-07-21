@@ -4,7 +4,7 @@ $payload = Get-Content (Join-Path $root "samples\telemetry-v1.json") -Raw
 
 $pipe = [System.IO.Pipes.NamedPipeClientStream]::new(
     ".",
-    "AICopilot.Arma3.Telemetry",
+    "ArmaAiBridge.Arma3.Telemetry",
     [System.IO.Pipes.PipeDirection]::Out)
 
 $writer = $null
