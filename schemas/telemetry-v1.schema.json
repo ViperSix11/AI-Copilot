@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ViperSix11/AI-Copilot/schemas/telemetry-v1.schema.json",
+  "title": "AI Copilot Arma 3 telemetry v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "timestamp",
+    "map",
+    "player",
+    "contacts",
+    "sensorContacts",
+    "environment"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ai-copilot/arma3/telemetry-v1"
+    },
+    "timestamp": {
+      "type": "number"
+    },
+    "frame": {
+      "type": "number"
+    },
+    "map": {
+      "type": "object",
+      "required": [
+        "name",
+        "sizeMeters"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "sizeMeters": {
+          "type": "number"
+        },
+        "grid": {
+          "type": "string"
+        },
+        "daytime": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": true
+    },
+    "player": {
+      "type": "object",
+      "required": [
+        "positionATL",
+        "viewHeading"
+      ],
+      "properties": {
+        "positionATL": {
+          "$ref": "#/$defs/vector3"
+        },
+        "positionASL": {
+          "$ref": "#/$defs/vector3"
+        },
+        "viewHeading": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": true
+    },
+    "vehicle": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "contacts": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "sensorContacts": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "environment": {
+      "type": "object",
+      "required": [
+        "probes"
+      ],
+      "properties": {
+        "viewHeading": {
+          "type": "number"
+        },
+        "sampledAt": {
+          "type": "number"
+        },
+        "probes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "distanceMeters",
+              "radiusMeters",
+              "buildingCount",
+              "vegetationCount",
+              "forestLikely",
+              "buildingsInVegetation"
+            ],
+            "properties": {
+              "distanceMeters": {
+                "type": "number"
+              },
+              "radiusMeters": {
+                "type": "number"
+              },
+              "center": {
+                "$ref": "#/$defs/vector3"
+              },
+              "buildingCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "vegetationCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "forestLikely": {
+                "type": "boolean"
+              },
+              "buildingsInVegetation": {
+                "type": "boolean"
+              },
+              "nearestBuildingDistanceFromPlayer": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "vector3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "number"
+      }
+    }
+  },
+  "additionalProperties": true
+}

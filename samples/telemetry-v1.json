@@ -1,0 +1,86 @@
+{
+  "schema": "ai-copilot/arma3/telemetry-v1",
+  "timestamp": 123.45,
+  "frame": 9001,
+  "map": {
+    "name": "VR",
+    "sizeMeters": 8192,
+    "grid": "034056",
+    "daytime": 14.5
+  },
+  "player": {
+    "name": "Bridge Test",
+    "side": "WEST",
+    "positionATL": [
+      3400.1,
+      5600.2,
+      12.3
+    ],
+    "viewHeading": 42.5
+  },
+  "vehicle": null,
+  "contacts": [
+    {
+      "id": "test-contact",
+      "class": "O_Soldier_F",
+      "knownByPlayer": true,
+      "knownByGroup": true,
+      "lastSeenAgeSeconds": 4.2,
+      "positionErrorMeters": 18,
+      "estimatedPosition": [
+        3600,
+        5800,
+        0
+      ]
+    }
+  ],
+  "sensorContacts": [],
+  "environment": {
+    "viewHeading": 42.5,
+    "sampledAt": 123.0,
+    "probes": [
+      {
+        "distanceMeters": 150,
+        "radiusMeters": 60,
+        "center": [
+          3500,
+          5700,
+          12.3
+        ],
+        "buildingCount": 0,
+        "vegetationCount": 31,
+        "forestLikely": true,
+        "buildingsInVegetation": false,
+        "nearestBuildingDistanceFromPlayer": -1
+      },
+      {
+        "distanceMeters": 350,
+        "radiusMeters": 100,
+        "center": [
+          3650,
+          5850,
+          12.3
+        ],
+        "buildingCount": 3,
+        "vegetationCount": 57,
+        "forestLikely": true,
+        "buildingsInVegetation": true,
+        "nearestBuildingDistanceFromPlayer": 330.4
+      },
+      {
+        "distanceMeters": 650,
+        "radiusMeters": 160,
+        "center": [
+          3850,
+          6050,
+          12.3
+        ],
+        "buildingCount": 1,
+        "vegetationCount": 12,
+        "forestLikely": false,
+        "buildingsInVegetation": false,
+        "nearestBuildingDistanceFromPlayer": 621.8
+      }
+    ]
+  }
+}
