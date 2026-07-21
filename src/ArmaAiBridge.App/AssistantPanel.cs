@@ -12,6 +12,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private readonly SettingsService _settings;
     private readonly LogService _log;
     private readonly ArmaQueryCoordinator _queries;
+    private readonly WorldSnapshotBuilder _snapshots;
     private readonly OpenAiAssistantService _assistant = new();
     private readonly TextBox _conversation = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly TextBox _question = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 76 };
@@ -22,10 +23,15 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private CancellationTokenSource? _activeRequest;
     private bool _disposed;
 
-    public AssistantPanel(TelemetryPipeServer pipe, SettingsService settings, LogService log)
+    public AssistantPanel(
+        TelemetryPipeServer pipe,
+        SettingsService settings,
+        LogService log,
+        WorldSnapshotBuilder snapshots)
     {
         _settings = settings;
         _log = log;
+        _snapshots = snapshots;
         _queries = new ArmaQueryCoordinator(pipe);
         Content = BuildUi();
         _ask.Click += Ask_Click;
@@ -77,7 +83,11 @@ public sealed class AssistantPanel : UserControl, IDisposable
         if (_activeRequest is not null) return;
         string question = _question.Text.Trim();
         if (question.Length == 0) { _status.Text = "Enter a question first."; return; }
-        if (!_queries.TryGetLatestTelemetry(out string telemetry)) { _status.Text = "No live Arma telemetry is available yet."; return; }
+        if (!_snapshots.TryBuildCurrentSituation(out string worldSnapshot))
+        {
+            _status.Text = "No local Arma world state is available yet.";
+            return;
+        }
 
         try
         {
@@ -86,7 +96,8 @@ public sealed class AssistantPanel : UserControl, IDisposable
             _activeRequest = new CancellationTokenSource();
             SetBusy(true); Append("You", question); _question.Clear();
             AssistantResponse response = await _assistant.AskAsync(
-                apiKey, _model.Text.Trim(), question, telemetry, _queries.QueryEnvironmentAsync, _activeRequest.Token);
+                apiKey, _model.Text.Trim(), question, worldSnapshot,
+                _queries.QueryEnvironmentAsync, _activeRequest.Token);
             Append("Bridge", response.Text);
             _status.Text = $"{response.Model} · {response.ToolCalls} tool call(s) · {response.InputTokens} input / {response.OutputTokens} output tokens";
             _log.Info($"OpenAI assistant completed: model={response.Model}, tools={response.ToolCalls}, inputTokens={response.InputTokens}, outputTokens={response.OutputTokens}.");

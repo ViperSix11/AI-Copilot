@@ -5,7 +5,6 @@ namespace ArmaAiBridge.App.Services;
 
 public sealed class ArmaQueryCoordinator : IDisposable
 {
-    private const string TelemetrySchema = "arma-ai-bridge/arma3/telemetry-v1";
     private const string ResultSchema = "arma-ai-bridge/arma3/query-result-v1";
     private const string CommandSchema = "arma-ai-bridge/command-v1";
     private static readonly HashSet<string> AllowedCategories = new(StringComparer.Ordinal)
@@ -13,23 +12,12 @@ public sealed class ArmaQueryCoordinator : IDisposable
 
     private readonly TelemetryPipeServer _pipe;
     private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pending = new();
-    private readonly object _telemetryGate = new();
-    private string? _latestTelemetry;
     private bool _disposed;
 
     public ArmaQueryCoordinator(TelemetryPipeServer pipe)
     {
         _pipe = pipe;
         _pipe.MessageReceived += OnMessage;
-    }
-
-    public bool TryGetLatestTelemetry(out string json)
-    {
-        lock (_telemetryGate)
-        {
-            json = _latestTelemetry ?? string.Empty;
-            return json.Length > 0;
-        }
     }
 
     public async Task<string> QueryEnvironmentAsync(JsonElement arguments, CancellationToken cancellationToken)
@@ -92,11 +80,6 @@ public sealed class ArmaQueryCoordinator : IDisposable
             using JsonDocument document = JsonDocument.Parse(json);
             JsonElement root = document.RootElement;
             string schema = ReadString(root, "schema");
-            if (schema == TelemetrySchema)
-            {
-                lock (_telemetryGate) _latestTelemetry = json;
-                return;
-            }
             if (schema != ResultSchema) return;
             string requestId = ReadString(root, "requestId");
             if (_pending.TryGetValue(requestId, out TaskCompletionSource<string>? completion))

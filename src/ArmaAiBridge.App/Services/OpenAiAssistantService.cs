@@ -13,7 +13,7 @@ public sealed class OpenAiAssistantService : IDisposable
     private const string Instructions = """
 You are ArmA AI Bridge, a concise tactical assistant for the local player in Arma 3.
 Answer in the user's language, use metric units, and distinguish measured facts from tactical interpretation.
-Treat the supplied telemetry as the only current game state. Never invent map objects, contacts, positions, visibility, routes, or threats.
+Treat the supplied provenance-aware world-state snapshot as the only current game state. Respect freshness, confidence, and position uncertainty. Never invent map objects, contacts, positions, visibility, routes, or threats.
 Use query_environment whenever a question depends on actual terrain objects. Use a circle for the general vicinity and a cone for ahead/in-view questions.
 Choose context-aware ranges: about 300 m on foot, 800 m in a ground vehicle, up to 1500 m in aircraft; respect explicit distances within tool limits.
 Only discuss contacts present in player/group knowledge or current vehicle sensors. Never infer hidden enemies from terrain data.
@@ -76,7 +76,7 @@ Keep ordinary answers to a few sentences unless more detail is requested.
     }
 
     public async Task<AssistantResponse> AskAsync(
-        string apiKey, string model, string question, string telemetryJson,
+        string apiKey, string model, string question, string worldSnapshotJson,
         Func<JsonElement, CancellationToken, Task<string>> queryEnvironment,
         CancellationToken cancellationToken)
     {
@@ -85,17 +85,17 @@ Keep ordinary answers to a few sentences unless more detail is requested.
         await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            string minimizedTelemetry = MinimizeTelemetry(telemetryJson);
+            string worldSnapshot = ValidateWorldSnapshot(worldSnapshotJson);
             List<object> input = _history.Select(x => (object)Message(x.Role, x.Text)).ToList();
-            input.Add(Message("user", $"CURRENT PRIVACY-MINIMIZED ARMA TELEMETRY:\n{minimizedTelemetry}\n\nQUESTION:\n{question.Trim()}"));
+            input.Add(Message("user", $"CURRENT PRIVACY-MINIMIZED ARMA WORLD STATE:\n{worldSnapshot}\n\nQUESTION:\n{question.Trim()}"));
             HashSet<string> sensitiveValues = new(StringComparer.Ordinal)
             {
                 apiKey.Trim(),
                 question.Trim(),
-                minimizedTelemetry
+                worldSnapshot
             };
             foreach ((string _, string text) in _history) AddSensitiveValue(sensitiveValues, text);
-            AddSensitiveJsonStrings(sensitiveValues, minimizedTelemetry);
+            AddSensitiveJsonStrings(sensitiveValues, worldSnapshot);
             int toolCalls = 0, inputTokens = 0, outputTokens = 0;
             string effectiveModel = string.IsNullOrWhiteSpace(model) ? "gpt-5-mini" : model.Trim();
 
@@ -232,33 +232,23 @@ Keep ordinary answers to a few sentences unless more detail is requested.
         }
     }
 
-    private static string MinimizeTelemetry(string json)
+    private static string ValidateWorldSnapshot(string json)
     {
-        using JsonDocument doc = JsonDocument.Parse(json);
-        JsonElement root = doc.RootElement;
-        Dictionary<string, object?> data = new()
+        try
         {
-            ["map"] = PickObject(root, "map", "name", "sizeMeters", "grid", "daytime"),
-            ["player"] = PickObject(root, "player", "side", "positionATL", "bodyHeading", "viewHeading", "speedKph", "damage", "lifeState", "stance", "weapon", "loadedRounds"),
-            ["vehicle"] = PickNullable(root, "vehicle", "class", "displayName", "heading", "speedKph", "fuel", "damage", "role"),
-            ["contacts"] = PickArray(root, "contacts", "class", "displayName", "knownByPlayer", "knownByGroup", "lastSeenAgeSeconds", "perceivedSide", "positionErrorMeters", "estimatedPosition"),
-            ["sensorContacts"] = PickArray(root, "sensorContacts", "class", "targetType", "relationship", "sensors")
-        };
-        return JsonSerializer.Serialize(data);
-    }
-
-    private static Dictionary<string, object?> PickObject(JsonElement parent, string name, params string[] fields)
-        => parent.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.Object ? Pick(value, fields) : new();
-    private static object? PickNullable(JsonElement parent, string name, params string[] fields)
-        => parent.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.Object ? Pick(value, fields) : null;
-    private static List<Dictionary<string, object?>> PickArray(JsonElement parent, string name, params string[] fields)
-        => parent.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.Array
-            ? value.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.Object).Take(32).Select(x => Pick(x, fields)).ToList() : new();
-    private static Dictionary<string, object?> Pick(JsonElement value, IEnumerable<string> fields)
-    {
-        Dictionary<string, object?> result = new();
-        foreach (string field in fields) if (value.TryGetProperty(field, out JsonElement item)) result[field] = item.Clone();
-        return result;
+            using JsonDocument document = JsonDocument.Parse(json);
+            JsonElement root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object ||
+                ReadString(root, "schema") != WorldSnapshotBuilder.SnapshotSchema)
+            {
+                throw new InvalidOperationException("The local world-state snapshot is invalid.");
+            }
+            return root.GetRawText();
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidOperationException("The local world-state snapshot is invalid.", exception);
+        }
     }
 
     private void AddHistory(string question, string answer)
