@@ -18,6 +18,9 @@ public partial class MainWindow : Window
     private readonly LogService _log = new();
     private readonly SettingsService _settingsService = new();
     private readonly TelemetryPipeServer _pipeServer;
+    private readonly WorldStateStore _worldStateStore;
+    private readonly WorldSnapshotBuilder _worldSnapshotBuilder;
+    private readonly TelemetryIngestService _telemetryIngestService;
     private long _snapshotCount;
     private string? _pendingRequestId;
 
@@ -25,6 +28,10 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         _pipeServer = new TelemetryPipeServer(_log);
+        _worldStateStore = new WorldStateStore();
+        _worldSnapshotBuilder = new WorldSnapshotBuilder(_worldStateStore);
+        _telemetryIngestService = new TelemetryIngestService(
+            _pipeServer, _worldStateStore, _log);
         _log.EntryWritten += OnLogEntryWritten;
         _pipeServer.ClientConnectionChanged += OnClientConnectionChanged;
         _pipeServer.MessageReceived += OnBridgeMessageReceived;
@@ -48,7 +55,12 @@ public partial class MainWindow : Window
     }
 
     private async void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
-        => await _pipeServer.DisposeAsync();
+    {
+        _assistantPanel?.Dispose();
+        _worldStateDiagnosticsPanel?.Dispose();
+        _telemetryIngestService.Dispose();
+        await _pipeServer.DisposeAsync();
+    }
 
     private async Task LoadSettingsAsync()
     {

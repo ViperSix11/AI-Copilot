@@ -17,7 +17,10 @@ Question -> OpenAI Responses API -> optional query_environment tool
 - Up to three local tool rounds per question
 - Short in-memory follow-up history
 - `store: false` on Responses requests
-- Privacy-minimized telemetry: player name, UID, group ID and object IDs are excluded
+- Privacy-minimized world snapshots: player name, UID, group label and raw object IDs are excluded
+- Local provenance-aware world state with session-scoped entity aliases,
+  freshness, confidence and mission/map reset handling
+- Read-only **World State** diagnostics and purpose-specific OpenAI snapshots
 - Questions and answers are not written to the application log
 - Existing v0.2 PBO and DLL remain protocol-compatible; only the Windows application changes
 
@@ -46,7 +49,12 @@ Terrain scans remain request-driven. There are no fixed distance probes.
 
 ## Privacy
 
-Only a reduced telemetry copy is sent to OpenAI. It contains relevant map, player-state, vehicle, known-contact and sensor fields, but no player name, player UID, group ID, contact ID or sensor ID. API requests use `store: false`; this is not the same as Zero Data Retention for normal abuse-monitoring data.
+Raw telemetry is ingested into a local world model and is not forwarded directly
+to OpenAI. OpenAI receives a purpose-specific snapshot containing relevant map,
+player-state, vehicle and known-contact facts with provenance, freshness and
+uncertainty, but no player name, player UID, raw group label or raw object ID.
+API requests use `store: false`; this is not the same as Zero Data Retention for
+normal abuse-monitoring data.
 
 ## Build
 
@@ -55,4 +63,4 @@ Set-ExecutionPolicy -Scope Process Bypass
 ./scripts/build.ps1
 ```
 
-The Arma addon does not need to be repacked for v0.3.0. Version `0.4.0` will add push-to-talk, speech recognition and ElevenLabs output after the text path is stable.
+The Arma addon and native DLL do not need to be rebuilt for the local world-model milestone.

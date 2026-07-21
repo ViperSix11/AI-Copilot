@@ -32,6 +32,7 @@ The target system combines:
 10. `privacy-and-fair-play.md` — multiplayer, data and safety boundaries.
 11. `implementation-roadmap.md` — ordered milestones and exit criteria.
 12. `codex-milestone-1.md` — first bounded Codex task.
+13. `codex-milestone-2.md` — local provenance-aware world-model foundation.
 
 ## Binding architectural decisions
 

@@ -12,8 +12,8 @@ public sealed class OpenAiAssistantServiceTests
     private const string ValidToolArguments = """
         {"shape":"circle","direction":"view","rangeMeters":300,"angleDegrees":90,"categories":["building"],"maxResultsPerCategory":10}
         """;
-    private const string Telemetry = """
-        {"map":{"name":"Altis","sizeMeters":30720},"player":{"side":"WEST","viewHeading":42}}
+    private const string WorldSnapshot = """
+        {"schema":"arma-ai-bridge/world-snapshot-v1","purpose":"current-situation","map":{"name":"Altis","sizeMeters":30720},"player":{"entityId":"player:self","side":"WEST","viewHeading":42}}
         """;
 
     [Fact]
@@ -34,6 +34,45 @@ public sealed class OpenAiAssistantServiceTests
         Assert.Equal("Altis, heading zero-four-two.", response.Text);
         Assert.Equal(0, response.ToolCalls);
         Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task Request_UsesProvidedWorldSnapshotWithoutRawTelemetryForwarding()
+    {
+        ScriptedHandler handler = new((_, request) =>
+        {
+            string content = request.GetProperty("input")[0].GetProperty("content").GetString() ?? string.Empty;
+            Assert.Contains("CURRENT PRIVACY-MINIMIZED ARMA WORLD STATE", content, StringComparison.Ordinal);
+            Assert.Contains(WorldSnapshot, content, StringComparison.Ordinal);
+            Assert.DoesNotContain("ARMA TELEMETRY", content, StringComparison.Ordinal);
+            return FinalResponse("Snapshot received.");
+        });
+        using HttpClient httpClient = Client(handler);
+        using OpenAiAssistantService service = new(httpClient);
+
+        await AskAsync(service, (_, _) => Task.FromResult("unused"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task RawTelemetryEnvelope_IsRejectedBeforeHttpRequest()
+    {
+        ScriptedHandler handler = new((_, _) =>
+            throw new Xunit.Sdk.XunitException("Invalid input must not reach the Responses API."));
+        using HttpClient httpClient = Client(handler);
+        using OpenAiAssistantService service = new(httpClient);
+
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.AskAsync(
+            "test-key",
+            "gpt-5-mini",
+            "What is nearby?",
+            "{\"schema\":\"arma-ai-bridge/arma3/telemetry-v1\"}",
+            (_, _) => Task.FromResult("unused"),
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains("world-state snapshot", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, handler.RequestCount);
     }
 
     [Fact]
@@ -237,14 +276,14 @@ public sealed class OpenAiAssistantServiceTests
     }
 
     [Fact]
-    public async Task DiagnosticLog_RedactsApiKeyConversationTelemetryAndToolResults()
+    public async Task DiagnosticLog_RedactsApiKeyConversationSnapshotAndToolResults()
     {
         const string apiKey = "sk-super-secret-key";
         const string question = "SECRET QUESTION";
         const string secretMap = "SECRET MAP";
         const string toolResult = "SECRET TOOL RESULT";
-        const string telemetry = """
-            {"map":{"name":"SECRET MAP"},"player":{"side":"WEST"}}
+        const string worldSnapshot = """
+            {"schema":"arma-ai-bridge/world-snapshot-v1","purpose":"current-situation","map":{"name":"SECRET MAP"},"player":{"side":"WEST"}}
             """;
         ScriptedHandler handler = new((requestNumber, _) => requestNumber == 1
             ? ToolResponse("rs_secret", "call_secret", ValidToolArguments)
@@ -264,7 +303,7 @@ public sealed class OpenAiAssistantServiceTests
             apiKey,
             "gpt-5-mini",
             question,
-            telemetry,
+            worldSnapshot,
             (_, _) => Task.FromResult($"{{\"ok\":true,\"detail\":\"{toolResult}\"}}"),
             CancellationToken.None));
         string log = OpenAiAssistantService.FormatFailureForLog(exception);
@@ -285,7 +324,7 @@ public sealed class OpenAiAssistantServiceTests
         OpenAiAssistantService service,
         Func<JsonElement, CancellationToken, Task<string>> query,
         CancellationToken cancellationToken)
-        => service.AskAsync("test-key", "gpt-5-mini", "What is nearby?", Telemetry, query, cancellationToken);
+        => service.AskAsync("test-key", "gpt-5-mini", "What is nearby?", WorldSnapshot, query, cancellationToken);
 
     private static HttpClient Client(HttpMessageHandler handler) => new(handler)
     {

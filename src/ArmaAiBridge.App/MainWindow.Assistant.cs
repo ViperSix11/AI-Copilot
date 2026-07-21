@@ -7,15 +7,19 @@ namespace ArmaAiBridge.App;
 public partial class MainWindow
 {
     private AssistantPanel? _assistantPanel;
+    private WorldStateDiagnosticsPanel? _worldStateDiagnosticsPanel;
 
     internal void AttachAssistantTab()
     {
         if (_assistantPanel is not null) return;
         TabControl? tabs = FindVisualChild<TabControl>(this);
         if (tabs is null) return;
-        _assistantPanel = new AssistantPanel(_pipeServer, _settingsService, _log);
+        _assistantPanel = new AssistantPanel(
+            _pipeServer, _settingsService, _log, _worldSnapshotBuilder);
+        _worldStateDiagnosticsPanel = new WorldStateDiagnosticsPanel(
+            _worldStateStore, _worldSnapshotBuilder);
         tabs.Items.Insert(1, new TabItem { Header = "Assistant", Content = _assistantPanel });
-        Closing += (_, _) => _assistantPanel?.Dispose();
+        tabs.Items.Insert(2, new TabItem { Header = "World State", Content = _worldStateDiagnosticsPanel });
     }
 
     private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
