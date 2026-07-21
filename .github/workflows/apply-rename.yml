@@ -1,0 +1,33 @@
+name: apply-rename
+
+on:
+  push:
+    branches: [agent/rename-arma-ai-bridge]
+    paths:
+      - .changes/rename.patch.gz.b64
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply reviewed rename patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 --decode .changes/rename.patch.gz.b64 | gzip --decompress > /tmp/rename.patch
+          git apply --check /tmp/rename.patch
+          git apply /tmp/rename.patch
+          rm -f .changes/rename.patch.gz.b64 .github/workflows/apply-rename.yml
+          rmdir .changes 2>/dev/null || true
+          git add --all
+          git config user.name "ViperSix11"
+          git config user.email "115109578+ViperSix11@users.noreply.github.com"
+          git commit -m "Rename project to ArmA AI Bridge and harden foundation"
+          git push origin HEAD
