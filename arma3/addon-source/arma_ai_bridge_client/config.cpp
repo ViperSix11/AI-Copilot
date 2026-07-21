@@ -20,10 +20,13 @@ class CfgFunctions
             file = "\arma_ai_bridge_client\functions";
             class postInit { postInit = 1; };
             class collectTelemetry {};
-            class collectEnvironment {};
             class collectContacts {};
             class collectSensorContacts {};
             class sendTelemetry {};
+            class pollCommands {};
+            class executeQuery {};
+            class queryEnvironment {};
+            class sendQueryResult {};
         };
     };
 };

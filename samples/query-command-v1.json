@@ -1,0 +1,14 @@
+{
+  "schema": "arma-ai-bridge/command-v1",
+  "requestId": "example-query-001",
+  "command": "query_environment",
+  "parameters": {
+    "origin": "player",
+    "shape": "cone",
+    "direction": "view",
+    "rangeMeters": 800,
+    "angleDegrees": 40,
+    "categories": ["building", "vegetation"],
+    "maxResultsPerCategory": 25
+  }
+}

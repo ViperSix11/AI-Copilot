@@ -1,0 +1,40 @@
+{
+  "schema": "arma-ai-bridge/arma3/query-result-v1",
+  "requestId": "example-query-001",
+  "command": "query_environment",
+  "timestamp": 124.1,
+  "ok": true,
+  "map": { "name": "Altis", "sizeMeters": 30720 },
+  "result": {
+    "query": {
+      "origin": "player",
+      "originPositionATL": [3400.1, 5600.2, 12.3],
+      "shape": "cone",
+      "direction": "view",
+      "headingDegrees": 42.5,
+      "rangeMeters": 800,
+      "angleDegrees": 40,
+      "maxResultsPerCategory": 25,
+      "areaSquareMeters": 223402.1
+    },
+    "categories": {
+      "building": {
+        "totalCount": 3,
+        "returnedCount": 3,
+        "nearestDistanceMeters": 330.4,
+        "objects": []
+      },
+      "vegetation": {
+        "totalCount": 57,
+        "returnedCount": 25,
+        "nearestDistanceMeters": 91.2,
+        "objects": []
+      }
+    },
+    "analysis": {
+      "vegetationObjectsPerHectare": 2.55,
+      "forestLikely": false,
+      "buildingsNearDenseVegetation": 2
+    }
+  }
+}

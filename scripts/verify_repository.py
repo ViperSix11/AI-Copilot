@@ -23,12 +23,24 @@ EXPECTED_PATHS = (
     ".github/workflows/build.yml",
     "arma3/@Arma_AI_Bridge/mod.cpp",
     "arma3/addon-source/arma_ai_bridge_client/config.cpp",
+    "arma3/addon-source/arma_ai_bridge_client/functions/fn_pollCommands.sqf",
+    "arma3/addon-source/arma_ai_bridge_client/functions/fn_executeQuery.sqf",
+    "arma3/addon-source/arma_ai_bridge_client/functions/fn_queryEnvironment.sqf",
+    "arma3/addon-source/arma_ai_bridge_client/functions/fn_sendQueryResult.sqf",
     "native/ArmaAiBridge/ArmaAiBridge.cpp",
     "native/ArmaAiBridge/CMakeLists.txt",
     "schemas/telemetry-v1.schema.json",
+    "schemas/command-v1.schema.json",
+    "schemas/query-result-v1.schema.json",
     "samples/telemetry-v1.json",
+    "samples/query-command-v1.json",
+    "samples/query-result-v1.json",
     "src/ArmaAiBridge.App/ArmaAiBridge.App.csproj",
     "src/ArmaAiBridge.App/GlobalUsings.cs",
+)
+
+OBSOLETE_PATHS = (
+    "arma3/addon-source/arma_ai_bridge_client/functions/fn_collectEnvironment.sqf",
 )
 
 
@@ -63,6 +75,10 @@ def main() -> int:
         if not (ROOT / relative).is_file():
             errors.append(f"Missing expected path: {relative}")
 
+    for relative in OBSOLETE_PATHS:
+        if (ROOT / relative).exists():
+            errors.append(f"Obsolete path still exists: {relative}")
+
     texts: dict[Path, str] = {}
     for path in files:
         try:
@@ -86,18 +102,45 @@ def main() -> int:
             errors.append(f"Invalid {suffix or 'structured'} file {path.relative_to(ROOT)}: {exc}")
 
     try:
-        sample = json.loads(texts[ROOT / "samples/telemetry-v1.json"])
-        schema = json.loads(texts[ROOT / "schemas/telemetry-v1.schema.json"])
-        schema_id = schema["properties"]["schema"]["const"]
-        if sample.get("schema") != schema_id:
+        telemetry_sample = json.loads(texts[ROOT / "samples/telemetry-v1.json"])
+        telemetry_schema = json.loads(texts[ROOT / "schemas/telemetry-v1.schema.json"])
+        if telemetry_sample.get("schema") != telemetry_schema["properties"]["schema"]["const"]:
             errors.append("Sample telemetry schema identifier does not match the JSON schema")
+        if "environment" in telemetry_sample:
+            errors.append("Continuous telemetry sample still contains fixed environment data")
+        if "environment" in telemetry_schema.get("required", []):
+            errors.append("Continuous telemetry schema still requires fixed environment data")
+
+        command_sample = json.loads(texts[ROOT / "samples/query-command-v1.json"])
+        command_schema = json.loads(texts[ROOT / "schemas/command-v1.schema.json"])
+        if command_sample.get("schema") != command_schema["properties"]["schema"]["const"]:
+            errors.append("Sample command schema identifier does not match the JSON schema")
+
+        result_sample = json.loads(texts[ROOT / "samples/query-result-v1.json"])
+        result_schema = json.loads(texts[ROOT / "schemas/query-result-v1.schema.json"])
+        if result_sample.get("schema") != result_schema["properties"]["schema"]["const"]:
+            errors.append("Sample query result schema identifier does not match the JSON schema")
+        if command_sample.get("requestId") != result_sample.get("requestId"):
+            errors.append("Sample command and result requestId values do not correlate")
     except (KeyError, TypeError) as exc:
-        errors.append(f"Telemetry schema structure is incomplete: {exc}")
+        errors.append(f"Message schema structure is incomplete: {exc}")
 
     try:
-        cs_pipe = extract(r'public const string PipeName\s*=\s*"([^"]+)"', texts[ROOT / "src/ArmaAiBridge.App/Services/TelemetryPipeServer.cs"], "C# pipe name")
-        cpp_pipe = extract(r'PipeName\[\]\s*=\s*LR"\(\\\\\.\\pipe\\([^\)]+)\)"', texts[ROOT / "native/ArmaAiBridge/ArmaAiBridge.cpp"], "C++ pipe name")
-        test_pipe = extract(r'NamedPipeClientStream\]::new\(\s*"\."\s*,\s*"([^"]+)"', texts[ROOT / "scripts/send-test-telemetry.ps1"], "PowerShell test pipe name")
+        cs_pipe = extract(
+            r'public const string PipeName\s*=\s*"([^"]+)"',
+            texts[ROOT / "src/ArmaAiBridge.App/Services/TelemetryPipeServer.cs"],
+            "C# pipe name",
+        )
+        cpp_pipe = extract(
+            r'PipeName\[\]\s*=\s*LR"\(\\\\\.\\pipe\\([^\)]+)\)"',
+            texts[ROOT / "native/ArmaAiBridge/ArmaAiBridge.cpp"],
+            "C++ pipe name",
+        )
+        test_pipe = extract(
+            r'NamedPipeClientStream\]::new\(\s*"\."\s*,\s*"([^"]+)"',
+            texts[ROOT / "scripts/send-test-telemetry.ps1"],
+            "PowerShell test pipe name",
+        )
         if len({cs_pipe, cpp_pipe, test_pipe}) != 1:
             errors.append(f"Pipe names differ: C#={cs_pipe}, C++={cpp_pipe}, test={test_pipe}")
     except AssertionError as exc:
@@ -109,19 +152,46 @@ def main() -> int:
     if 'OUTPUT_NAME "arma_ai_bridge_x64"' not in cmake:
         errors.append("CMake output name does not match the SQF extension name")
 
+    cpp = texts.get(ROOT / "native/ArmaAiBridge/ArmaAiBridge.cpp", "")
+    for required in ("GENERIC_READ | GENERIC_WRITE", 'command == "poll"', 'command.rfind("query-result|"'):
+        if required not in cpp:
+            errors.append(f"Native duplex bridge is missing: {required}")
+
+    pipe_server = texts.get(ROOT / "src/ArmaAiBridge.App/Services/TelemetryPipeServer.cs", "")
+    for required in ("PipeDirection.InOut", "SendCommandAsync", "MessageReceived"):
+        if required not in pipe_server:
+            errors.append(f"C# duplex pipe server is missing: {required}")
+
     workflow = texts.get(ROOT / ".github/workflows/build.yml", "")
-    for required in ("src/ArmaAiBridge.App/ArmaAiBridge.App.csproj", "native/ArmaAiBridge", "@Arma_AI_Bridge", "arma_ai_bridge_x64.dll"):
+    for required in (
+        "src/ArmaAiBridge.App/ArmaAiBridge.App.csproj",
+        "native/ArmaAiBridge",
+        "@Arma_AI_Bridge",
+        "arma_ai_bridge_x64.dll",
+    ):
         if required not in workflow:
             errors.append(f"Workflow is missing current path/name: {required}")
 
     config = texts.get(ROOT / "arma3/addon-source/arma_ai_bridge_client/config.cpp", "")
-    if "class AAB" not in config or "\\arma_ai_bridge_client\\functions" not in config:
-        errors.append("Arma CfgFunctions namespace or PBO path is inconsistent")
+    for required in ("class AAB", "\\arma_ai_bridge_client\\functions", "class pollCommands", "class queryEnvironment"):
+        if required not in config:
+            errors.append(f"Arma CfgFunctions is missing: {required}")
 
-    for sqf_name in ("fn_postInit.sqf", "fn_sendTelemetry.sqf"):
-        sqf = texts.get(ROOT / f"arma3/addon-source/arma_ai_bridge_client/functions/{sqf_name}", "")
-        if '"arma_ai_bridge" callExtension' not in sqf:
-            errors.append(f"{sqf_name} does not call the expected extension")
+    collect_telemetry = texts.get(
+        ROOT / "arma3/addon-source/arma_ai_bridge_client/functions/fn_collectTelemetry.sqf", ""
+    )
+    for obsolete in ("AAB_environmentCache", '"environment"'):
+        if obsolete in collect_telemetry:
+            errors.append(f"Continuous telemetry still references fixed environment data: {obsolete}")
+
+    query_sqf = texts.get(
+        ROOT / "arma3/addon-source/arma_ai_bridge_client/functions/fn_queryEnvironment.sqf", ""
+    )
+    for required in ("nearestTerrainObjects", '"circle"', '"cone"', "1500", "maxResultsPerCategory"):
+        if required not in query_sqf:
+            errors.append(f"Dynamic query implementation is missing: {required}")
+    if "_probeDefinitions" in query_sqf or "[[150, 60], [350, 100], [650, 160]]" in query_sqf:
+        errors.append("Fixed probe implementation is still present")
 
     if errors:
         print("Repository verification failed:")

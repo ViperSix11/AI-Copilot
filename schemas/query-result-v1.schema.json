@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ViperSix11/ArmA-AI-Bridge/schemas/query-result-v1.schema.json",
+  "title": "ArmA AI Bridge Arma 3 query result v1",
+  "type": "object",
+  "required": ["schema", "requestId", "command", "timestamp", "ok"],
+  "properties": {
+    "schema": { "const": "arma-ai-bridge/arma3/query-result-v1" },
+    "requestId": { "type": "string" },
+    "command": { "type": "string" },
+    "timestamp": { "type": "number" },
+    "ok": { "type": "boolean" },
+    "error": { "type": "string" },
+    "result": {
+      "type": "object",
+      "properties": {
+        "query": { "type": "object" },
+        "categories": { "type": "object" },
+        "analysis": { "type": "object" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

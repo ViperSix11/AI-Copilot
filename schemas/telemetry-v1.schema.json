@@ -3,15 +3,7 @@
   "$id": "https://github.com/ViperSix11/ArmA-AI-Bridge/schemas/telemetry-v1.schema.json",
   "title": "ArmA AI Bridge Arma 3 telemetry v1",
   "type": "object",
-  "required": [
-    "schema",
-    "timestamp",
-    "map",
-    "player",
-    "contacts",
-    "sensorContacts",
-    "environment"
-  ],
+  "required": ["schema", "timestamp", "map", "player", "contacts", "sensorContacts"],
   "properties": {
     "schema": { "const": "arma-ai-bridge/arma3/telemetry-v1" },
     "timestamp": { "type": "number" },
@@ -39,34 +31,7 @@
     },
     "vehicle": { "type": ["object", "null"] },
     "contacts": { "type": "array", "items": { "type": "object" } },
-    "sensorContacts": { "type": "array", "items": { "type": "object" } },
-    "environment": {
-      "type": "object",
-      "required": ["probes"],
-      "properties": {
-        "viewHeading": { "type": "number" },
-        "sampledAt": { "type": "number" },
-        "probes": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["distanceMeters", "radiusMeters", "buildingCount", "vegetationCount", "forestLikely", "buildingsInVegetation"],
-            "properties": {
-              "distanceMeters": { "type": "number" },
-              "radiusMeters": { "type": "number" },
-              "center": { "$ref": "#/$defs/vector3" },
-              "buildingCount": { "type": "integer", "minimum": 0 },
-              "vegetationCount": { "type": "integer", "minimum": 0 },
-              "forestLikely": { "type": "boolean" },
-              "buildingsInVegetation": { "type": "boolean" },
-              "nearestBuildingDistanceFromPlayer": { "type": "number" }
-            },
-            "additionalProperties": true
-          }
-        }
-      },
-      "additionalProperties": true
-    }
+    "sensorContacts": { "type": "array", "items": { "type": "object" } }
   },
   "$defs": {
     "vector3": {

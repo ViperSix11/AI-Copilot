@@ -2,7 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
-#include <condition_variable>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <deque>
@@ -15,15 +15,27 @@
 namespace
 {
     constexpr wchar_t PipeName[] = LR"(\\.\pipe\ArmaAiBridge.Arma3.Telemetry)";
-    constexpr std::size_t MaximumQueueSize = 256;
-    constexpr char Version[] = "0.1.0";
+    constexpr std::size_t MaximumOutboundQueueSize = 256;
+    constexpr std::size_t MaximumInboundQueueSize = 64;
+    constexpr std::size_t MaximumInboundBufferSize = 1024 * 1024;
+    constexpr char Version[] = "0.2.0";
+
+    struct OutboundMessage
+    {
+        std::string value;
+        bool telemetrySnapshot;
+    };
 
     std::once_flag startFlag;
     std::atomic_bool connected{false};
-    std::atomic_uint64_t droppedMessages{0};
-    std::mutex queueMutex;
-    std::condition_variable queueChanged;
-    std::deque<std::string> messageQueue;
+    std::atomic_uint64_t droppedOutboundMessages{0};
+    std::atomic_uint64_t droppedInboundCommands{0};
+
+    std::mutex outboundMutex;
+    std::deque<OutboundMessage> outboundQueue;
+
+    std::mutex inboundMutex;
+    std::deque<std::string> inboundQueue;
 
     void CopyOutput(char* output, unsigned int outputSize, const std::string& value)
     {
@@ -47,7 +59,7 @@ namespace
 
         HANDLE pipe = CreateFileW(
             PipeName,
-            GENERIC_WRITE,
+            GENERIC_READ | GENERIC_WRITE,
             0,
             nullptr,
             OPEN_EXISTING,
@@ -79,66 +91,135 @@ namespace
             remaining -= written;
         }
 
-        return remaining == 0;
+        return true;
+    }
+
+    void QueueInboundCommand(std::string command)
+    {
+        if (command.empty())
+        {
+            return;
+        }
+
+        std::lock_guard lock(inboundMutex);
+        if (inboundQueue.size() >= MaximumInboundQueueSize)
+        {
+            inboundQueue.pop_front();
+            droppedInboundCommands.fetch_add(1);
+        }
+        inboundQueue.push_back(std::move(command));
+    }
+
+    bool ReadAvailableCommands(HANDLE pipe, std::string& buffer)
+    {
+        DWORD available = 0;
+        if (!PeekNamedPipe(pipe, nullptr, 0, nullptr, &available, nullptr))
+        {
+            return false;
+        }
+
+        while (available > 0)
+        {
+            char chunk[4096];
+            DWORD read = 0;
+            const DWORD requested = std::min<DWORD>(available, static_cast<DWORD>(sizeof(chunk)));
+            if (!ReadFile(pipe, chunk, requested, &read, nullptr) || read == 0)
+            {
+                return false;
+            }
+
+            buffer.append(chunk, read);
+            if (buffer.size() > MaximumInboundBufferSize)
+            {
+                buffer.clear();
+                droppedInboundCommands.fetch_add(1);
+            }
+
+            std::size_t newline = std::string::npos;
+            while ((newline = buffer.find('\n')) != std::string::npos)
+            {
+                std::string line = buffer.substr(0, newline);
+                if (!line.empty() && line.back() == '\r')
+                {
+                    line.pop_back();
+                }
+                buffer.erase(0, newline + 1);
+                QueueInboundCommand(std::move(line));
+            }
+
+            if (!PeekNamedPipe(pipe, nullptr, 0, nullptr, &available, nullptr))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    void RequeueFront(OutboundMessage message)
+    {
+        std::lock_guard lock(outboundMutex);
+        if (outboundQueue.size() >= MaximumOutboundQueueSize)
+        {
+            outboundQueue.pop_back();
+            droppedOutboundMessages.fetch_add(1);
+        }
+        outboundQueue.push_front(std::move(message));
+    }
+
+    bool TryPopOutbound(OutboundMessage& message)
+    {
+        std::lock_guard lock(outboundMutex);
+        if (outboundQueue.empty())
+        {
+            return false;
+        }
+        message = std::move(outboundQueue.front());
+        outboundQueue.pop_front();
+        return true;
     }
 
     void WorkerLoop()
     {
         HANDLE pipe = INVALID_HANDLE_VALUE;
+        std::string inboundBuffer;
 
         while (true)
         {
-            std::string message;
-            {
-                std::unique_lock lock(queueMutex);
-                queueChanged.wait(lock, [] { return !messageQueue.empty(); });
-
-                message = std::move(messageQueue.front());
-                messageQueue.pop_front();
-            }
-
-            while (pipe == INVALID_HANDLE_VALUE)
+            if (pipe == INVALID_HANDLE_VALUE)
             {
                 pipe = TryConnectToPipe();
-                if (pipe != INVALID_HANDLE_VALUE)
+                if (pipe == INVALID_HANDLE_VALUE)
                 {
-                    break;
+                    Sleep(150);
+                    continue;
                 }
-
-                // Telemetry is state, not a durable event stream. While disconnected,
-                // keep the most recent snapshot and discard older queued snapshots.
-                {
-                    std::lock_guard lock(queueMutex);
-                    if (!messageQueue.empty())
-                    {
-                        message = std::move(messageQueue.back());
-                        messageQueue.clear();
-                    }
-                }
-                Sleep(150);
+                inboundBuffer.clear();
             }
 
-            if (!WriteMessage(pipe, message))
+            OutboundMessage outbound;
+            if (TryPopOutbound(outbound))
+            {
+                if (!WriteMessage(pipe, outbound.value))
+                {
+                    RequeueFront(std::move(outbound));
+                    CloseHandle(pipe);
+                    pipe = INVALID_HANDLE_VALUE;
+                    connected.store(false);
+                    continue;
+                }
+            }
+
+            if (!ReadAvailableCommands(pipe, inboundBuffer))
             {
                 CloseHandle(pipe);
                 pipe = INVALID_HANDLE_VALUE;
                 connected.store(false);
-
-                std::lock_guard lock(queueMutex);
-                if (messageQueue.size() >= MaximumQueueSize)
-                {
-                    messageQueue.pop_front();
-                    droppedMessages.fetch_add(1);
-                }
-                messageQueue.push_front(std::move(message));
+                continue;
             }
-        }
 
-        if (pipe != INVALID_HANDLE_VALUE)
-        {
-            CloseHandle(pipe);
+            Sleep(5);
         }
-        connected.store(false);
     }
 
     void EnsureStarted()
@@ -149,28 +230,66 @@ namespace
         });
     }
 
-    void Enqueue(std::string message)
+    void Enqueue(std::string message, bool telemetrySnapshot)
     {
         EnsureStarted();
+        std::lock_guard lock(outboundMutex);
+
+        if (telemetrySnapshot)
         {
-            std::lock_guard lock(queueMutex);
-            if (messageQueue.size() >= MaximumQueueSize)
+            auto existing = std::find_if(outboundQueue.rbegin(), outboundQueue.rend(), [](const OutboundMessage& queued)
             {
-                messageQueue.pop_front();
-                droppedMessages.fetch_add(1);
+                return queued.telemetrySnapshot;
+            });
+            if (existing != outboundQueue.rend())
+            {
+                existing->value = std::move(message);
+                return;
             }
-            messageQueue.push_back(std::move(message));
         }
-        queueChanged.notify_one();
+
+        if (outboundQueue.size() >= MaximumOutboundQueueSize)
+        {
+            auto telemetry = std::find_if(outboundQueue.begin(), outboundQueue.end(), [](const OutboundMessage& queued)
+            {
+                return queued.telemetrySnapshot;
+            });
+            if (telemetry != outboundQueue.end())
+            {
+                outboundQueue.erase(telemetry);
+            }
+            else
+            {
+                outboundQueue.pop_front();
+            }
+            droppedOutboundMessages.fetch_add(1);
+        }
+
+        outboundQueue.push_back({std::move(message), telemetrySnapshot});
+    }
+
+    std::string PollCommand()
+    {
+        std::lock_guard lock(inboundMutex);
+        if (inboundQueue.empty())
+        {
+            return "";
+        }
+
+        std::string command = std::move(inboundQueue.front());
+        inboundQueue.pop_front();
+        return command;
     }
 
     std::string StatusJson()
     {
-        std::lock_guard lock(queueMutex);
+        std::scoped_lock lock(outboundMutex, inboundMutex);
         std::ostringstream stream;
         stream << "{\"connected\":" << (connected.load() ? "true" : "false")
-               << ",\"queued\":" << messageQueue.size()
-               << ",\"dropped\":" << droppedMessages.load() << "}";
+               << ",\"outboundQueued\":" << outboundQueue.size()
+               << ",\"inboundQueued\":" << inboundQueue.size()
+               << ",\"droppedOutbound\":" << droppedOutboundMessages.load()
+               << ",\"droppedInbound\":" << droppedInboundCommands.load() << "}";
         return stream.str();
     }
 }
@@ -196,9 +315,18 @@ extern "C"
         {
             CopyOutput(output, outputSize, StatusJson());
         }
+        else if (command == "poll")
+        {
+            CopyOutput(output, outputSize, PollCommand());
+        }
         else if (command.rfind("telemetry|", 0) == 0)
         {
-            Enqueue(command.substr(10));
+            Enqueue(command.substr(10), true);
+            CopyOutput(output, outputSize, "queued");
+        }
+        else if (command.rfind("query-result|", 0) == 0)
+        {
+            Enqueue(command.substr(13), false);
             CopyOutput(output, outputSize, "queued");
         }
         else
@@ -223,8 +351,13 @@ extern "C"
             return 0;
         }
 
+        if (command == "poll")
+        {
+            CopyOutput(output, outputSize, PollCommand());
+            return 0;
+        }
+
         CopyOutput(output, outputSize, "unknown-command");
         return -1;
     }
 }
-

@@ -1,31 +1,54 @@
 # ArmA AI Bridge
 
-ArmA AI Bridge is a Windows-side tactical assistant foundation for **Arma 3**. Version `0.1.0` intentionally focuses on the local data path before any cloud AI is connected:
+ArmA AI Bridge is a Windows-side tactical assistant foundation for **Arma 3**. Version `0.2.0` separates lightweight live telemetry from explicit, request-driven map analysis:
 
 ```text
 Arma 3 client SQF addon
-        -> arma_ai_bridge_x64.dll
-        -> Windows Named Pipe
-        -> ArmA AI Bridge WPF application
+        <-> arma_ai_bridge_x64.dll
+        <-> bidirectional Windows Named Pipe
+        <-> ArmA AI Bridge WPF application
 ```
 
-The client addon exports only information available from the local player perspective: player state, vehicle state, group/player-known contacts, vehicle sensor contacts, current map metadata and sampled terrain objects in the direction of view.
+The client addon exports only information available from the local player perspective: player state, vehicle state, group/player-known contacts, vehicle sensor contacts and current map metadata. Expensive terrain and map-object analysis is no longer performed continuously. Instead, the Windows application sends a one-off `query_environment` command when a user or later the AI asks a spatial question.
 
-## Version 0.1.0 scope
+## Version 0.2.0 scope
 
 - Native Windows GUI in C# / WPF
-- Live connection status and raw telemetry monitor
 - Persistent application and file logging
 - OpenAI, ElevenLabs and AssemblyAI key fields
 - API keys encrypted locally with Windows DPAPI
 - Client-side Arma 3 addon without CBA dependency
 - Native x64 Arma extension using the official `callExtension` interface
-- Directional map/environment scan for questions such as:
-  - Are there buildings in the forest ahead?
-  - Is the terrain ahead densely wooded?
-  - How far away is the nearest detected building in my viewing direction?
+- Bidirectional Named Pipe communication
+- Lightweight 4 Hz telemetry without fixed environment probes
+- Dynamic circle and cone searches around the player
+- Query categories: buildings, vegetation, roads, walls and rocks
+- Query result correlation through a unique `requestId`
 - Known-contact export based on Arma's own target knowledge
-- No AI requests, speech recognition or speech output yet
+- No cloud AI requests, speech recognition or speech output yet
+
+## Query model
+
+Example request:
+
+```json
+{
+  "schema": "arma-ai-bridge/command-v1",
+  "requestId": "example-query-001",
+  "command": "query_environment",
+  "parameters": {
+    "origin": "player",
+    "shape": "cone",
+    "direction": "view",
+    "rangeMeters": 800,
+    "angleDegrees": 40,
+    "categories": ["building", "vegetation"],
+    "maxResultsPerCategory": 25
+  }
+}
+```
+
+The Arma client executes the query against the currently loaded map and returns actual terrain-object positions, distances, bearings and aggregate analysis. The range is chosen per question; there are no fixed 150/350/650 metre snapshots.
 
 ## Safety and multiplayer scope
 
@@ -36,9 +59,7 @@ For initial development, test in the Editor, single-player, or a local multiplay
 ## Prerequisites
 
 - Windows 10 or 11 x64
-- Visual Studio 2022 with:
-  - `.NET desktop development`
-  - `Desktop development with C++`
+- Visual Studio 2022 with `.NET desktop development` and `Desktop development with C++`
 - .NET 8 SDK
 - CMake 3.24+
 - Arma 3 Tools for packing the PBO
@@ -56,28 +77,27 @@ This builds:
 
 - `artifacts/app/ArmA AI Bridge.exe`
 - `artifacts/mod/@Arma_AI_Bridge/arma_ai_bridge_x64.dll`
+- `artifacts/mod/@Arma_AI_Bridge/addons/arma_ai_bridge_client.pbo` when Addon Builder is available
 
-If Arma 3 Tools is installed in the default Steam location, the build script also tries to pack the addon PBO. Otherwise run:
+To pack only the PBO:
 
 ```powershell
-./scripts/package-mod.ps1 -AddonBuilderPath "C:\Path\To\AddonBuilder.exe"
+./scripts/package-mod.ps1
 ```
 
-## Run a bridge test without Arma
+## Test without Arma
 
-1. Start `ArmA AI Bridge.exe`.
-2. Ensure the bridge listener says `Listening`.
-3. Run:
+Start `ArmA AI Bridge.exe`, wait for `Listening`, and run:
 
 ```powershell
 ./scripts/send-test-telemetry.ps1
 ```
 
-The dashboard should display the test map, position and environment data.
+This validates the inbound pipe and telemetry parser. Dynamic map queries require the native DLL and SQF addon running inside Arma 3.
 
-## Install the Arma 3 development mod
+## Install the development mod
 
-Copy the generated `@Arma_AI_Bridge` folder into the Arma 3 installation directory and enable it in the launcher. The expected layout is:
+Copy the generated `@Arma_AI_Bridge` folder into the Arma 3 installation directory and enable it in the launcher:
 
 ```text
 @Arma_AI_Bridge/
@@ -87,15 +107,18 @@ Copy the generated `@Arma_AI_Bridge` folder into the Arma 3 installation directo
 └── mod.cpp
 ```
 
-Start the Windows application before entering a mission. The Arma addon reconnects automatically when the pipe becomes available.
+Start the Windows application before entering a mission. The addon reconnects automatically.
 
-## Telemetry cadence
+## Telemetry and query cadence
 
 - Core player snapshot: 4 Hz
 - Known contacts and sensor contacts: 1 Hz, cached between snapshots
-- Directional terrain probes: every 2 seconds, cached between snapshots
+- Command polling: 10 Hz
+- Terrain analysis: only on an explicit query
+- Query range safety limit: 1,500 metres per request
+- Maximum returned objects: 50 per category
 
-This keeps map queries useful without scanning the entire world or performing heavy terrain searches every frame.
+Larger future searches will be tiled and cached rather than executed as one unbounded scan.
 
 ## Data storage
 
@@ -111,9 +134,9 @@ API keys are DPAPI-encrypted for the current Windows user. Plain API keys are ne
 
 ## Next milestone
 
-After the local bridge has been tested in Arma 3, version `0.2.0` will add:
+After the live Arma query path is verified, version `0.3.0` will add:
 
 1. OpenAI Realtime input and reasoning
-2. Tool calls against the latest telemetry snapshot
-3. ElevenLabs streaming speech output
-4. Push-to-talk and interruption handling
+2. `query_environment` as an OpenAI tool
+3. Push-to-talk and interruption handling
+4. ElevenLabs streaming speech output

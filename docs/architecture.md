@@ -1,67 +1,45 @@
 # Architecture
 
-## Design principle
-
-ArmA AI Bridge is deliberately perspective-bound. It receives what the local player, the player's group, and the current vehicle sensors know. It does not consume server ground truth.
-
-## Components
-
-### Arma client addon
-
-The SQF addon starts after the local player exists. It builds serializable HashMaps and uses Arma 3's `toJSON` command. It never sends Arma objects directly to JSON.
-
-The addon collects:
-
-- player and vehicle state
-- view vector and heading
-- known targets from the player and group target sets
-- `targetKnowledge` estimates rather than exact hidden positions
-- `getSensorTargets` for the current vehicle
-- terrain probes centered ahead of the player's view
-
-### Native extension
-
-`arma_ai_bridge_x64.dll` implements the official x64 Arma extension exports:
-
-- `RVExtensionVersion`
-- `RVExtension`
-- `RVExtensionArgs`
-
-`callExtension` must return quickly. Incoming telemetry is therefore copied into a bounded in-memory queue. A background worker owns the Named Pipe connection and forwards newline-delimited JSON.
-
-### Windows application
-
-The WPF application is the Named Pipe server. It:
-
-- accepts one Arma bridge connection at a time
-- parses and displays the latest JSON snapshot
-- writes diagnostic logs
-- stores encrypted API credentials
-
-## Pipe protocol
-
-Pipe name:
+## Data paths
 
 ```text
-ArmaAiBridge.Arma3.Telemetry
+Telemetry (continuous)
+Arma SQF -> callExtension telemetry|JSON -> native queue -> duplex Named Pipe -> WPF
+
+Map query (on demand)
+WPF -> command JSON -> duplex Named Pipe -> native inbound queue
+    -> SQF poll -> query_environment -> callExtension query-result|JSON
+    -> native outbound queue -> WPF
 ```
 
-Transport:
+The native extension never calls cloud APIs and never blocks `callExtension` on network work. It only enqueues outgoing data, buffers incoming commands and returns immediately.
 
-- UTF-8
-- one JSON document per line
-- maximum accepted line length: 1 MiB
-- extension queue capacity: 256 messages
-- oldest message is discarded when the queue is full
+## Continuous telemetry
 
-## Future request path
+Continuous telemetry contains only inexpensive, perspective-scoped state:
 
-Version 0.1 is telemetry-only. A second command pipe will later support explicit AI tool requests such as:
+- map name, size, grid and time
+- player position, view direction, stance, damage and weapon state
+- current vehicle state
+- contacts known by the player or group
+- current vehicle sensor contacts
 
-```text
-query_environment(direction, distance, width)
-query_known_contacts(max_age, max_distance)
-query_group_status()
-```
+No terrain scan is part of the periodic snapshot.
 
-Periodic snapshots are retained as a fallback for immediate answers and connection diagnostics.
+## Dynamic environment queries
+
+`query_environment` currently accepts:
+
+- origin: `player`
+- shape: `circle` or `cone`
+- direction: `view` or `body`
+- radius/range: 25 to 1,500 metres
+- cone angle: 5 to 180 degrees
+- categories: `building`, `vegetation`, `road`, `wall`, `rock`
+- maximum results per category: 1 to 50
+
+The result includes total matches, nearest distance and a bounded object list with position, bearing and relative bearing. Aggregate analysis includes vegetation density and buildings near dense vegetation.
+
+## Performance boundaries
+
+The Windows application validates user input. SQF validates and clamps the same values again, so malformed or future AI-generated tool calls cannot trigger an unbounded full-map scan. Larger queries will later use tiled caching.
