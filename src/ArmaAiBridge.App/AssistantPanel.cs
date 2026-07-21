@@ -95,7 +95,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
         catch (Exception ex)
         {
             _status.Text = ex.Message;
-            _log.Warn($"OpenAI assistant failed: {ex.GetType().Name}.");
+            _log.Warn(OpenAiAssistantService.FormatFailureForLog(ex));
         }
         finally
         {
