@@ -1,45 +1,14 @@
 # Architecture
 
-## Data paths
+ArmA AI Bridge remains perspective-bound. The v0.2 Arma addon and native DLL continue to provide lightweight telemetry and explicit `query_environment` commands over the duplex Named Pipe `ArmaAiBridge.Arma3.Telemetry`.
 
-```text
-Telemetry (continuous)
-Arma SQF -> callExtension telemetry|JSON -> native queue -> duplex Named Pipe -> WPF
+Version 0.3 adds four Windows-side components:
 
-Map query (on demand)
-WPF -> command JSON -> duplex Named Pipe -> native inbound queue
-    -> SQF poll -> query_environment -> callExtension query-result|JSON
-    -> native outbound queue -> WPF
-```
+- `AssistantPanel`: text conversation UI, model field, cancellation and status
+- `MainWindow.Assistant`: injects the Assistant tab while leaving the proven v0.2 window code unchanged
+- `ArmaQueryCoordinator`: caches the latest telemetry, validates tool arguments, sends commands and correlates results by `requestId`
+- `OpenAiAssistantService`: calls `POST /v1/responses`, executes strict function calls locally and returns `function_call_output`
 
-The native extension never calls cloud APIs and never blocks `callExtension` on network work. It only enqueues outgoing data, buffers incoming commands and returns immediately.
+Every OpenAI tool argument is validated again locally. Range is limited to 25–1,500 metres, result count to 1–50 per category, and categories to building, vegetation, road, wall and rock. Queries time out after 12 seconds.
 
-## Continuous telemetry
-
-Continuous telemetry contains only inexpensive, perspective-scoped state:
-
-- map name, size, grid and time
-- player position, view direction, stance, damage and weapon state
-- current vehicle state
-- contacts known by the player or group
-- current vehicle sensor contacts
-
-No terrain scan is part of the periodic snapshot.
-
-## Dynamic environment queries
-
-`query_environment` currently accepts:
-
-- origin: `player`
-- shape: `circle` or `cone`
-- direction: `view` or `body`
-- radius/range: 25 to 1,500 metres
-- cone angle: 5 to 180 degrees
-- categories: `building`, `vegetation`, `road`, `wall`, `rock`
-- maximum results per category: 1 to 50
-
-The result includes total matches, nearest distance and a bounded object list with position, bearing and relative bearing. Aggregate analysis includes vegetation density and buildings near dense vegetation.
-
-## Performance boundaries
-
-The Windows application validates user input. SQF validates and clamps the same values again, so malformed or future AI-generated tool calls cannot trigger an unbounded full-map scan. Larger queries will later use tiled caching.
+Before an API request, telemetry is rebuilt from an allowlist. Player name, UID, group ID and Arma object/network IDs are omitted. Conversation history exists only in memory. Questions and answers are not logged. Requests set `store: false`.
