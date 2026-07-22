@@ -29,9 +29,9 @@ Open-ended multilingual conversation with short in-memory continuity. Tool use i
 
 A local world model represents the player, friendly forces, known enemy contacts, assets, mission objectives, requests and environmental state. Every fact has provenance and freshness.
 
-### Static knowledge
+### Map and operational knowledge
 
-A persistent spatial database indexes the loaded map and relevant mod configuration. It supports named locations, roads, structures, terrain, vegetation, water, infrastructure, landing-zone candidates and equipment/ballistics metadata.
+A small persistent gazetteer stores world/grid metadata and official named locations. A mission-scoped operational-memory database learns vehicles, contacts and tactical objects only from own-side perception or authorized reports. Complete static terrain/object knowledge is not assumed.
 
 ### Deterministic services
 
@@ -57,7 +57,7 @@ Push-to-talk radio interaction uses AssemblyAI for streaming speech recognition 
 ## Success criteria for v1
 
 - Reliable normal conversation and current-state questions.
-- Complete cached static map index with named-location and terrain retrieval.
+- Cached official named-location retrieval plus provenance-aware operational memory.
 - Friendly-force and known-contact world model with confidence/freshness.
 - ACE capability detection and stable data adapter.
 - Firing solutions matching the active ACE weapon/ammunition/weather configuration within agreed tolerances.

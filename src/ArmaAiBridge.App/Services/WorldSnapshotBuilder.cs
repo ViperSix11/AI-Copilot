@@ -9,11 +9,16 @@ public sealed class WorldSnapshotBuilder
     public const string SnapshotSchema = "arma-ai-bridge/world-snapshot-v1";
     private readonly WorldStateStore _store;
     private readonly TimeProvider _timeProvider;
+    private readonly OperationalMemoryStore? _operationalMemory;
 
-    public WorldSnapshotBuilder(WorldStateStore store, TimeProvider? timeProvider = null)
+    public WorldSnapshotBuilder(
+        WorldStateStore store,
+        TimeProvider? timeProvider = null,
+        OperationalMemoryStore? operationalMemory = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _operationalMemory = operationalMemory;
     }
 
     public bool TryBuildCurrentSituation(out string json)
@@ -147,6 +152,18 @@ public sealed class WorldSnapshotBuilder
         });
     }
 
+    public string FindNamedLocations(JsonElement arguments)
+        => RequireOperationalMemory().FindNamedLocations(arguments);
+
+    public string QueryOperationalMemory(JsonElement arguments)
+        => RequireOperationalMemory().QueryOperationalMemory(arguments);
+
+    public string RecordPlayerObservation(JsonElement arguments, string currentUserTurn)
+        => RequireOperationalMemory().RecordPlayerObservation(arguments, currentUserTurn);
+
+    public string CorrectPlayerObservation(JsonElement arguments, string currentUserTurn)
+        => RequireOperationalMemory().CorrectPlayerObservation(arguments, currentUserTurn);
+
     private Dictionary<string, object?> BuildCurrentSituation(WorldStateView view)
         => new()
         {
@@ -161,8 +178,30 @@ public sealed class WorldSnapshotBuilder
             ["knownContacts"] = Contacts(view.KnownContacts),
             ["friendlyForceSummary"] = FriendlyForceSummary(view),
             ["missionCapabilitySummary"] = MissionCapabilitySummary(view),
+            ["operationalMemorySummary"] = OperationalMemorySummary(),
             ["reconciliation"] = Reconciliation(view.Reconciliation)
         };
+
+    private Dictionary<string, object?> OperationalMemorySummary()
+    {
+        if (_operationalMemory is null)
+            return new Dictionary<string, object?> { ["readiness"] = "unavailable" };
+        OperationalMemoryView view = _operationalMemory.GetCurrentView();
+        bool ready = view.Readiness == OperationalMemoryReadiness.Ready;
+        return new Dictionary<string, object?>
+        {
+            ["readiness"] = EnumText(view.Readiness),
+            ["gazetteerReadiness"] = EnumText(view.GazetteerReadiness),
+            ["namedLocationCount"] = view.GazetteerLocationCount,
+            ["knownEntityCount"] = ready
+                ? view.Entities.Count(item => !item.IsRetracted && item.Freshness != WorldFreshness.Historical) : 0,
+            ["conflictedEntityCount"] = ready
+                ? view.Entities.Count(item => item.ConflictCount > 0 && !item.IsRetracted) : 0
+        };
+    }
+
+    private OperationalMemoryStore RequireOperationalMemory()
+        => _operationalMemory ?? throw new InvalidOperationException("Operational memory is unavailable.");
 
     private static Dictionary<string, object?> Session(WorldStateView view)
         => new()

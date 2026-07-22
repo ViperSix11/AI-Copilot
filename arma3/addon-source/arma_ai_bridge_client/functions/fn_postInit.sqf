@@ -49,6 +49,9 @@ if (!hasInterface) exitWith {};
     {
         call AAB_fnc_updateFriendlyForcePicture;
         call AAB_fnc_publishMissionCapabilities;
+        call AAB_fnc_publishMapGazetteer;
+        private _gazetteerRetried = false;
+        private _lastObservationCollection = -100;
 
         while { true } do
         {
@@ -65,6 +68,16 @@ if (!hasInterface) exitWith {};
                 call AAB_fnc_publishSessionHandshake;
             };
             call AAB_fnc_publishMissionCapabilities;
+            if (!_gazetteerRetried && { (_now - (missionNamespace getVariable ["AAB_lastGazetteerAt", -100])) >= 30 }) then
+            {
+                call AAB_fnc_publishMapGazetteer;
+                _gazetteerRetried = true;
+            };
+            if ((_now - _lastObservationCollection) >= 0.5) then
+            {
+                call AAB_fnc_publishOperationalObservations;
+                _lastObservationCollection = _now;
+            };
             uiSleep 0.10;
         };
     };

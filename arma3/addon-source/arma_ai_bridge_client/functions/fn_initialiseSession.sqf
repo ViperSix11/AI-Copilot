@@ -27,5 +27,12 @@ missionNamespace setVariable ["AAB_lastHandshakeAt", -100];
 missionNamespace setVariable ["AAB_lastCapabilitiesAt", -100];
 missionNamespace setVariable ["AAB_lastCapabilitySignature", ""];
 missionNamespace setVariable ["AAB_lastReconciliationId", ""];
+missionNamespace setVariable ["AAB_gazetteerSequence", 0];
+missionNamespace setVariable ["AAB_observationBatchSequence", 0];
+missionNamespace setVariable ["AAB_sourceObservationSequence", 0];
+missionNamespace setVariable ["AAB_observerRoundRobinIndex", 0];
+missionNamespace setVariable ["AAB_lastGazetteerAt", -100];
+missionNamespace setVariable ["AAB_observationPublishCache", createHashMap];
+missionNamespace setVariable ["AAB_knownPhysicalObjects", []];
 
 call AAB_fnc_publishSessionHandshake

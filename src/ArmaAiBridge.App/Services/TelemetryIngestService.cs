@@ -11,6 +11,8 @@ public sealed class TelemetryIngestService : IDisposable
     public const string FriendlyForceSnapshotSchema = "arma-ai-bridge/arma3/friendly-force-snapshot-v1";
     public const string FriendlyForceDeltaSchema = "arma-ai-bridge/arma3/friendly-force-delta-v1";
     public const string MissionCapabilitiesSchema = "arma-ai-bridge/arma3/mission-capabilities-v1";
+    public const string MapGazetteerSchema = "arma-ai-bridge/arma3/map-gazetteer-v1";
+    public const string OperationalObservationBatchSchema = "arma-ai-bridge/arma3/operational-observation-batch-v1";
     private const int MaximumContactsPerMessage = 128;
     private const int MaximumProtocolEntitiesPerMessage = 512;
     private static readonly TimeSpan SnapshotAssemblyTimeout = TimeSpan.FromSeconds(5);
@@ -28,21 +30,28 @@ public sealed class TelemetryIngestService : IDisposable
     private readonly TimeProvider _timeProvider;
     private readonly TelemetryPipeServer? _pipe;
     private readonly LogService? _log;
+    private readonly OperationalMemoryStore? _operationalMemory;
     private readonly Dictionary<string, PendingReconciliation> _pendingReconciliations = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PendingGazetteer> _pendingGazetteers = new(StringComparer.Ordinal);
     private bool _disposed;
 
-    public TelemetryIngestService(WorldStateStore store, TimeProvider? timeProvider = null)
+    public TelemetryIngestService(
+        WorldStateStore store,
+        TimeProvider? timeProvider = null,
+        OperationalMemoryStore? operationalMemory = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _operationalMemory = operationalMemory;
     }
 
     public TelemetryIngestService(
         TelemetryPipeServer pipe,
         WorldStateStore store,
         LogService log,
-        TimeProvider? timeProvider = null)
-        : this(store, timeProvider)
+        TimeProvider? timeProvider = null,
+        OperationalMemoryStore? operationalMemory = null)
+        : this(store, timeProvider, operationalMemory)
     {
         _pipe = pipe ?? throw new ArgumentNullException(nameof(pipe));
         _log = log ?? throw new ArgumentNullException(nameof(log));
@@ -73,6 +82,8 @@ public sealed class TelemetryIngestService : IDisposable
                 FriendlyForceSnapshotSchema => IngestSnapshotPage(ParseSnapshotPage(root, receivedAtUtc)),
                 FriendlyForceDeltaSchema => IngestDelta(ParseDelta(root, receivedAtUtc)),
                 MissionCapabilitiesSchema => IngestCapabilities(ParseCapabilities(root, receivedAtUtc)),
+                MapGazetteerSchema => IngestGazetteerPage(ParseGazetteerPage(root, receivedAtUtc)),
+                OperationalObservationBatchSchema => IngestOperationalObservations(ParseOperationalObservations(root, receivedAtUtc)),
                 _ => new TelemetryIngestResult(TelemetryIngestStatus.Ignored, DiagnosticCode: "unrelated_schema")
             };
         }
@@ -96,12 +107,19 @@ public sealed class TelemetryIngestService : IDisposable
 
     public static bool IsWorldStateSchema(string schema)
         => schema is TelemetrySchema or SessionHandshakeSchema or FriendlyForceSnapshotSchema or
-            FriendlyForceDeltaSchema or MissionCapabilitiesSchema;
+            FriendlyForceDeltaSchema or MissionCapabilitiesSchema or MapGazetteerSchema or
+            OperationalObservationBatchSchema;
 
     private TelemetryIngestResult IngestHandshake(SessionHandshakeObservation handshake)
     {
         TelemetryIngestResult result = _store.ApplyHandshake(handshake);
-        if (result.SessionReset) _pendingReconciliations.Clear();
+        if (result.Status == TelemetryIngestStatus.Applied)
+            _operationalMemory?.ActivateSession(handshake);
+        if (result.SessionReset)
+        {
+            _pendingReconciliations.Clear();
+            _pendingGazetteers.Clear();
+        }
         return result;
     }
 
@@ -330,6 +348,122 @@ public sealed class TelemetryIngestService : IDisposable
         return new MissionCapabilitiesObservation(envelope, registryVersion, capabilities);
     }
 
+    private static MapGazetteerPageObservation ParseGazetteerPage(JsonElement root, DateTimeOffset receivedAtUtc)
+    {
+        EnsureClosedObject(root, "gazetteer_unexpected_property", "schema", "messageId", "missionId", "sessionId",
+            "timestamp", "sequence", "gazetteerId", "pageIndex", "pageCount", "world", "locations");
+        ProtocolEnvelope envelope = ParseProtocolEnvelope(root, receivedAtUtc);
+        string gazetteerId = ReadRequiredProtocolString(root, "gazetteerId");
+        int pageIndex = ReadRequiredInt(root, "pageIndex", 0, 63);
+        int pageCount = ReadRequiredInt(root, "pageCount", 1, 64);
+        if (pageIndex >= pageCount) throw Invalid("gazetteer_page_index_out_of_range");
+        JsonElement world = ReadRequiredObject(root, "world");
+        EnsureClosedObject(world, "gazetteer_world_unexpected_property", "name", "sizeMeters", "grid");
+        string worldName = ReadRequiredProtocolString(world, "name");
+        double worldSize = ReadRequiredBoundedNumber(world, "sizeMeters", 1, 100000);
+        JsonElement grid = ReadRequiredObject(world, "grid");
+        EnsureClosedObject(grid, "gazetteer_grid_unexpected_property", "format", "samples");
+        if (ReadRequiredProtocolString(grid, "format", 64) != "arma-map-grid")
+            throw Invalid("grid_format_invalid");
+        JsonElement samples = ReadRequiredArray(grid, "samples");
+        if (samples.GetArrayLength() is < 1 or > 9) throw Invalid("grid_samples_count_invalid");
+        List<MapGridSample> gridSamples = new();
+        foreach (JsonElement sample in samples.EnumerateArray())
+        {
+            if (sample.ValueKind != JsonValueKind.Object) throw Invalid("grid_sample_not_object");
+            EnsureClosedObject(sample, "grid_sample_unexpected_property", "position", "grid");
+            WorldPosition position = ReadRequiredVector2(sample, "position");
+            if (position.X < -100 || position.Y < -100 || position.X > worldSize + 100 || position.Y > worldSize + 100)
+                throw Invalid("grid_sample_position_out_of_range");
+            gridSamples.Add(new MapGridSample(position, ReadRequiredProtocolString(sample, "grid", 32)));
+        }
+
+        JsonElement locations = ReadRequiredArray(root, "locations");
+        if (locations.GetArrayLength() > 64) throw Invalid("gazetteer_page_locations_count_invalid");
+        List<GazetteerLocationObservation> parsedLocations = new();
+        foreach (JsonElement location in locations.EnumerateArray())
+        {
+            if (location.ValueKind != JsonValueKind.Object) throw Invalid("gazetteer_location_not_object");
+            EnsureClosedObject(location, "gazetteer_location_unexpected_property", "configKey", "officialName",
+                "locationType", "position", "size");
+            WorldPosition position = ReadRequiredVector2(location, "position");
+            if (position.X < -100 || position.Y < -100 || position.X > worldSize + 100 || position.Y > worldSize + 100)
+                throw Invalid("gazetteer_location_position_out_of_range");
+            (double? sizeX, double? sizeY) = ReadOptionalVector2(location, "size", 0, worldSize);
+            parsedLocations.Add(new GazetteerLocationObservation(
+                ReadRequiredProtocolString(location, "configKey"),
+                ReadRequiredProtocolString(location, "officialName", 160),
+                ReadRequiredProtocolString(location, "locationType", 64),
+                position, sizeX, sizeY));
+        }
+        EnsureUnique(parsedLocations.Select(item => item.ConfigKey), "duplicate_gazetteer_config_key");
+        EnsureUnique(parsedLocations.Select(GazetteerRecordKey), "duplicate_gazetteer_record");
+        return new MapGazetteerPageObservation(envelope, gazetteerId, pageIndex, pageCount,
+            worldName, worldSize, gridSamples, parsedLocations);
+    }
+
+    private static OperationalObservationBatch ParseOperationalObservations(JsonElement root, DateTimeOffset receivedAtUtc)
+    {
+        EnsureClosedObject(root, "operational_batch_unexpected_property", "schema", "messageId", "missionId",
+            "sessionId", "timestamp", "sequence", "batchId", "observations");
+        ProtocolEnvelope envelope = ParseProtocolEnvelope(root, receivedAtUtc);
+        string batchId = ReadRequiredProtocolString(root, "batchId");
+        JsonElement array = ReadRequiredArray(root, "observations");
+        if (array.GetArrayLength() is < 1 or > 24) throw Invalid("operational_observations_count_invalid");
+        List<OperationalObservation> observations = new();
+        foreach (JsonElement item in array.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object) throw Invalid("operational_observation_not_object");
+            EnsureClosedObject(item, "operational_observation_unexpected_property", "observationId", "sourceEntityId",
+                "targetEntityId", "provenance", "entityKind", "classification", "displayName", "perceivedSide",
+                "observedAt", "position", "positionErrorMeters", "state", "alive", "confidenceBasis",
+                "correlationHint", "retractsObservationId");
+            OperationalProvenance provenance = ReadRequiredProtocolString(item, "provenance", 32) switch
+            {
+                "visual" => OperationalProvenance.Visual,
+                "sensor" => OperationalProvenance.Sensor,
+                "side-knowledge" => OperationalProvenance.SideKnowledge,
+                "mission-report" => OperationalProvenance.MissionReport,
+                _ => throw Invalid("operational_provenance_invalid")
+            };
+            OperationalEntityKind kind = ReadRequiredProtocolString(item, "entityKind", 32) switch
+            {
+                "contact" => OperationalEntityKind.Contact,
+                "vehicle" => OperationalEntityKind.Vehicle,
+                "supply" => OperationalEntityKind.Supply,
+                "weapon" => OperationalEntityKind.Weapon,
+                "fortification" => OperationalEntityKind.Fortification,
+                "static" => OperationalEntityKind.Static,
+                "other" => OperationalEntityKind.Other,
+                _ => throw Invalid("operational_entity_kind_invalid")
+            };
+            string side = ReadRequiredProtocolString(item, "perceivedSide", 16).ToUpperInvariant();
+            if (side != "UNKNOWN" && !AllowedSides.Contains(side)) throw Invalid("operational_side_invalid");
+            string state = ReadRequiredProtocolString(item, "state", 32).ToLowerInvariant();
+            if (state is not ("intact" or "damaged" or "destroyed" or "changed" or "unknown"))
+                throw Invalid("operational_state_invalid");
+            double observedAt = ReadRequiredBoundedNumber(item, "observedAt", 0, envelope.GameTime + 1);
+            WorldPosition? position = ReadOptionalVector(item, "position");
+            double? uncertainty = ReadOptionalNonNegativeNumber(item, "positionErrorMeters");
+            if (uncertainty > 5000) throw Invalid("operational_uncertainty_out_of_range");
+            observations.Add(new OperationalObservation(
+                ReadRequiredProtocolString(item, "observationId"),
+                ReadRequiredProtocolString(item, "sourceEntityId"),
+                ReadRequiredProtocolString(item, "targetEntityId"),
+                provenance, kind,
+                ReadOptionalProtocolString(item, "classification", 96),
+                ReadOptionalProtocolString(item, "displayName", 96), side, observedAt, position, uncertainty,
+                state,
+                item.TryGetProperty("alive", out JsonElement alive) && alive.ValueKind != JsonValueKind.Null
+                    ? ReadRequiredBoolean(item, "alive") : null,
+                ReadRequiredProtocolString(item, "confidenceBasis", 64),
+                ReadOptionalProtocolString(item, "correlationHint", 128),
+                ReadOptionalProtocolString(item, "retractsObservationId", 128)));
+        }
+        EnsureUnique(observations.Select(item => item.SourceObservationId), "duplicate_operational_observation_id");
+        return new OperationalObservationBatch(envelope, batchId, observations);
+    }
+
     private static ProtocolEnvelope ParseProtocolEnvelope(JsonElement root, DateTimeOffset receivedAtUtc)
     {
         string messageId = ReadRequiredProtocolString(root, "messageId");
@@ -518,16 +652,83 @@ public sealed class TelemetryIngestService : IDisposable
             : sequenceResult;
     }
 
+    private TelemetryIngestResult IngestGazetteerPage(MapGazetteerPageObservation page)
+    {
+        if (_operationalMemory is null)
+            return new TelemetryIngestResult(TelemetryIngestStatus.Ignored, DiagnosticCode: "operational_memory_unavailable");
+        TelemetryIngestResult sequenceResult = _store.AcceptProtocolEvent(page.Envelope);
+        if (sequenceResult.Status != TelemetryIngestStatus.Applied) return sequenceResult;
+        string key = page.Envelope.SessionId + "\0" + page.GazetteerId;
+        if (!_pendingGazetteers.TryGetValue(key, out PendingGazetteer? pending))
+        {
+            pending = new PendingGazetteer(page, page.Envelope.ReceivedAtUtc);
+            _pendingGazetteers.Add(key, pending);
+            _operationalMemory.BeginGazetteerReceive();
+        }
+        else if (pending.PageCount != page.PageCount || pending.GameTime != page.Envelope.GameTime ||
+                 !string.Equals(pending.WorldName, page.WorldName, StringComparison.OrdinalIgnoreCase) ||
+                 Math.Abs(pending.WorldSizeMeters - page.WorldSizeMeters) > 0.5 ||
+                 pending.GridSignature != JsonSerializer.Serialize(page.GridSamples))
+        {
+            _pendingGazetteers.Remove(key);
+            _operationalMemory.MarkGazetteerFailed("inconsistent_gazetteer_pages");
+            return Rejected("inconsistent_gazetteer_pages");
+        }
+        if (!pending.Pages.TryAdd(page.PageIndex, page))
+            return new TelemetryIngestResult(TelemetryIngestStatus.OutOfOrder, DiagnosticCode: "duplicate_gazetteer_page");
+        if (pending.Pages.Count != pending.PageCount)
+            return new TelemetryIngestResult(TelemetryIngestStatus.Applied, DiagnosticCode: "gazetteer_page_buffered");
+
+        MapGazetteerPageObservation[] ordered = pending.Pages.Values.OrderBy(item => item.PageIndex).ToArray();
+        IReadOnlyList<GazetteerLocationObservation> locations = ordered.SelectMany(item => item.Locations).ToArray();
+        try
+        {
+            if (locations.Count > 4096) throw Invalid("gazetteer_locations_count_invalid");
+            EnsureUnique(locations.Select(item => item.ConfigKey), "duplicate_gazetteer_config_key_across_pages");
+            EnsureUnique(locations.Select(GazetteerRecordKey), "duplicate_gazetteer_record_across_pages");
+        }
+        catch (TelemetryFormatException exception)
+        {
+            _pendingGazetteers.Remove(key);
+            return Rejected(exception.Code);
+        }
+        _pendingGazetteers.Remove(key);
+        ProtocolEnvelope envelope = ordered[^1].Envelope with { GameTime = pending.GameTime };
+        return _operationalMemory.ApplyGazetteer(new MapGazetteerObservation(
+            envelope, page.GazetteerId, page.WorldName, page.WorldSizeMeters,
+            ordered[0].GridSamples, locations));
+    }
+
+    private TelemetryIngestResult IngestOperationalObservations(OperationalObservationBatch batch)
+    {
+        if (_operationalMemory is null)
+            return new TelemetryIngestResult(TelemetryIngestStatus.Ignored, DiagnosticCode: "operational_memory_unavailable");
+        TelemetryIngestResult sequenceResult = _store.AcceptProtocolEvent(batch.Envelope);
+        return sequenceResult.Status == TelemetryIngestStatus.Applied
+            ? _operationalMemory.ApplyObservationBatch(batch)
+            : sequenceResult;
+    }
+
     private void ExpirePendingReconciliations(DateTimeOffset now)
     {
         string[] expired = _pendingReconciliations
             .Where(pair => now - pair.Value.FirstReceivedAtUtc > SnapshotAssemblyTimeout)
             .Select(pair => pair.Key)
             .ToArray();
-        if (expired.Length == 0) return;
-        foreach (string key in expired) _pendingReconciliations.Remove(key);
-        _store.MarkReconciliationDegraded("incomplete_snapshot_expired",
-            _pendingReconciliations.Values.Sum(item => item.PageCount - item.Pages.Count));
+        if (expired.Length > 0)
+        {
+            foreach (string key in expired) _pendingReconciliations.Remove(key);
+            _store.MarkReconciliationDegraded("incomplete_snapshot_expired",
+                _pendingReconciliations.Values.Sum(item => item.PageCount - item.Pages.Count));
+        }
+
+        string[] expiredGazetteers = _pendingGazetteers
+            .Where(pair => now - pair.Value.FirstReceivedAtUtc > SnapshotAssemblyTimeout)
+            .Select(pair => pair.Key)
+            .ToArray();
+        foreach (string key in expiredGazetteers) _pendingGazetteers.Remove(key);
+        if (expiredGazetteers.Length > 0)
+            _operationalMemory?.MarkGazetteerFailed("incomplete_gazetteer_expired");
     }
 
     private static string BuildContactSignature(ContactObservation value)
@@ -548,6 +749,19 @@ public sealed class TelemetryIngestService : IDisposable
 
     private static string Format(double? value)
         => value?.ToString("R", CultureInfo.InvariantCulture) ?? "null";
+
+    private static string GazetteerRecordKey(GazetteerLocationObservation location)
+        => string.Join('|',
+            location.OfficialName.Trim().ToUpperInvariant(),
+            location.LocationType.Trim().ToUpperInvariant(),
+            Format(location.Position.X),
+            Format(location.Position.Y));
+
+    private static void EnsureClosedObject(JsonElement value, string code, params string[] allowedProperties)
+    {
+        HashSet<string> allowed = new(allowedProperties, StringComparer.Ordinal);
+        if (value.EnumerateObject().Any(property => !allowed.Contains(property.Name))) throw Invalid(code);
+    }
 
     private static JsonElement ReadRequiredObject(JsonElement parent, string name)
         => parent.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.Object
@@ -746,6 +960,26 @@ public sealed class TelemetryIngestService : IDisposable
     private static WorldPosition ReadRequiredVector(JsonElement parent, string name)
         => ReadOptionalVector(parent, name) ?? throw Invalid($"{name}_missing");
 
+    private static WorldPosition ReadRequiredVector2(JsonElement parent, string name)
+    {
+        if (!parent.TryGetProperty(name, out JsonElement value) || value.ValueKind != JsonValueKind.Array || value.GetArrayLength() != 2)
+            throw Invalid($"{name}_not_vector2");
+        double[] values = value.EnumerateArray().Select(ReadFiniteVectorItem).ToArray();
+        return new WorldPosition(values[0], values[1], 0);
+    }
+
+    private static (double? X, double? Y) ReadOptionalVector2(
+        JsonElement parent, string name, double minimum, double maximum)
+    {
+        if (!parent.TryGetProperty(name, out JsonElement value) || value.ValueKind == JsonValueKind.Null)
+            return (null, null);
+        if (value.ValueKind != JsonValueKind.Array || value.GetArrayLength() != 2)
+            throw Invalid($"{name}_not_vector2");
+        double[] values = value.EnumerateArray().Select(ReadFiniteVectorItem).ToArray();
+        if (values.Any(item => item < minimum || item > maximum)) throw Invalid($"{name}_out_of_range");
+        return (values[0], values[1]);
+    }
+
     private static WorldPosition? ReadOptionalVector(JsonElement parent, string name)
     {
         if (!parent.TryGetProperty(name, out JsonElement value) || value.ValueKind == JsonValueKind.Null)
@@ -850,5 +1084,25 @@ public sealed class TelemetryIngestService : IDisposable
         public string MissionId { get; }
         public DateTimeOffset FirstReceivedAtUtc { get; }
         public Dictionary<int, FriendlyForceSnapshotPageObservation> Pages { get; } = new();
+    }
+
+    private sealed class PendingGazetteer
+    {
+        public PendingGazetteer(MapGazetteerPageObservation firstPage, DateTimeOffset firstReceivedAtUtc)
+        {
+            PageCount = firstPage.PageCount;
+            GameTime = firstPage.Envelope.GameTime;
+            WorldName = firstPage.WorldName;
+            WorldSizeMeters = firstPage.WorldSizeMeters;
+            GridSignature = JsonSerializer.Serialize(firstPage.GridSamples);
+            FirstReceivedAtUtc = firstReceivedAtUtc;
+        }
+        public int PageCount { get; }
+        public double GameTime { get; }
+        public string WorldName { get; }
+        public double WorldSizeMeters { get; }
+        public string GridSignature { get; }
+        public DateTimeOffset FirstReceivedAtUtc { get; }
+        public Dictionary<int, MapGazetteerPageObservation> Pages { get; } = new();
     }
 }

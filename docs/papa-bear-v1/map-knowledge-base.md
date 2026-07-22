@@ -1,5 +1,11 @@
 # Static map knowledge base
 
+> **Superseded for Papa Bear v1.** This full static-index proposal is retained
+> as architecture history but is not an implementation contract. Replacement
+> Milestone 4 is defined by `codex-milestone-4-observational-memory.md`: only
+> world/grid metadata and official named locations are preloaded; operational
+> objects are learned from authorized observations and reports.
+
 ## Objective
 
 Papa Bear must have complete, locally queryable static knowledge of the loaded map. The full index is built once per map/mod fingerprint and reused in later sessions. OpenAI never receives the complete index; it receives retrieved results.

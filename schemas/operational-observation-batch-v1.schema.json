@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ViperSix11/ArmA-AI-Bridge/schemas/operational-observation-batch-v1.schema.json",
+  "title": "ArmA AI Bridge bounded operational observation batch v1",
+  "type": "object",
+  "required": ["schema", "messageId", "missionId", "sessionId", "timestamp", "sequence", "batchId", "observations"],
+  "properties": {
+    "schema": { "const": "arma-ai-bridge/arma3/operational-observation-batch-v1" },
+    "messageId": { "$ref": "#/$defs/id" },
+    "missionId": { "$ref": "#/$defs/id" },
+    "sessionId": { "$ref": "#/$defs/id" },
+    "timestamp": { "type": "number", "minimum": 0 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "batchId": { "$ref": "#/$defs/id" },
+    "observations": {
+      "type": "array", "minItems": 1, "maxItems": 24,
+      "items": {
+        "type": "object",
+        "required": ["observationId", "sourceEntityId", "targetEntityId", "provenance", "entityKind", "classification", "displayName", "perceivedSide", "observedAt", "position", "positionErrorMeters", "state", "alive", "confidenceBasis", "correlationHint", "retractsObservationId"],
+        "properties": {
+          "observationId": { "$ref": "#/$defs/id" },
+          "sourceEntityId": { "$ref": "#/$defs/id" },
+          "targetEntityId": { "$ref": "#/$defs/id" },
+          "provenance": { "enum": ["visual", "sensor", "side-knowledge", "mission-report"] },
+          "entityKind": { "enum": ["contact", "vehicle", "supply", "weapon", "fortification", "static", "other"] },
+          "classification": { "type": "string", "maxLength": 96 },
+          "displayName": { "type": "string", "maxLength": 96 },
+          "perceivedSide": { "enum": ["WEST", "EAST", "GUER", "CIV", "UNKNOWN"] },
+          "observedAt": { "type": "number", "minimum": 0 },
+          "position": { "oneOf": [{ "$ref": "#/$defs/vector3" }, { "type": "null" }] },
+          "positionErrorMeters": { "type": ["number", "null"], "minimum": 0, "maximum": 5000 },
+          "state": { "enum": ["intact", "damaged", "destroyed", "changed", "unknown"] },
+          "alive": { "type": ["boolean", "null"] },
+          "confidenceBasis": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "correlationHint": { "type": "string", "maxLength": 128 },
+          "retractsObservationId": { "type": "string", "maxLength": 128 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "vector3": { "type": "array", "prefixItems": [{ "type": "number" }, { "type": "number" }, { "type": "number" }], "items": false, "minItems": 3, "maxItems": 3 }
+  },
+  "additionalProperties": false
+}

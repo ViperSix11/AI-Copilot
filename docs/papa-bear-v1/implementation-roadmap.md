@@ -29,14 +29,14 @@ Exit: current player/group/known-contact state can be queried locally without Op
 
 Exit: Papa Bear can accurately report friendly positions/status and available read-only assets.
 
-## M4 — Static map knowledge base
+## M4 — Observation-driven operational memory
 
-- fingerprinted SQLite store;
-- full tiled index for named locations, terrain, structures, roads and vegetation;
-- nearest-location and area retrieval;
-- indexing status and cache invalidation.
+- small persistent official named-location gazetteer;
+- bounded own-side perception and authorized report ingestion;
+- mission-scoped SQLite entities, immutable observations, provenance, uncertainty, freshness, confidence and conflicts;
+- named-location, operational-memory and controlled player-report tools.
 
-Exit: “Is there a settlement nearby?” is answered from named location data, including distance and bearing.
+Exit: official named-location questions are answered without full map knowledge, unseen tactical objects remain unknown, and observed/reported objects retain provenance and last-known uncertainty.
 
 ## M5 — Papa Bear orchestrator and persona
 

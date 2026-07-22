@@ -45,7 +45,7 @@ public sealed class Milestone3ProtocolTests
 
             WorldStateView initial = store.GetCurrentView();
             Assert.Equal("own-side", initial.Protocol?.Visibility);
-            Assert.Equal(4, initial.Protocol?.Features.Count);
+            Assert.Equal(6, initial.Protocol?.Features.Count);
             Assert.True(initial.Reconciliation.HasCompleteReconciliation);
             Assert.False(initial.Reconciliation.IsDegraded);
             Assert.Equal("group-001", Assert.Single(initial.FriendlyGroups).Alias);

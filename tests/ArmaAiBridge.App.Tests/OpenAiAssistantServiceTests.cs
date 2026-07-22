@@ -117,7 +117,12 @@ public sealed class OpenAiAssistantServiceTests
             {
                 JsonElement[] tools = request.GetProperty("tools").EnumerateArray().ToArray();
                 Assert.Equal(
-                    new[] { "query_assets", "query_environment", "query_friendly_forces", "query_mission_capabilities" },
+                    new[]
+                    {
+                        "correct_player_observation", "find_named_locations", "query_assets", "query_environment",
+                        "query_friendly_forces", "query_mission_capabilities", "query_operational_memory",
+                        "record_player_observation"
+                    },
                     tools.Select(item => item.GetProperty("name").GetString()).OrderBy(name => name).ToArray());
                 foreach (JsonElement tool in tools)
                 {
@@ -157,6 +162,41 @@ public sealed class OpenAiAssistantServiceTests
         Assert.Contains("\"purpose\":\"assets\"", toolOutput, StringComparison.Ordinal);
         Assert.Equal("Asset picture received.", response.Text);
         Assert.Equal(1, response.ToolCalls);
+    }
+
+    [Fact]
+    public async Task Milestone4ControlledWrite_RoutesExactCurrentReportWithoutArmaExecution()
+    {
+        const string arguments = """
+            {"sourceQuote":"I saw an offroad 200 metres ahead.","timeReference":"present","entityKind":"vehicle","classification":"offroad","state":"unknown","rangeMeters":200,"bearingDegrees":0,"bearingReference":"view","rangePrecisionMeters":50,"bearingPrecisionDegrees":15,"ageSeconds":null,"namedLocation":null}
+            """;
+        string? output = null;
+        ScriptedHandler handler = new((requestNumber, request) =>
+        {
+            if (requestNumber == 1)
+                return ToolResponse("rs_report", "call_report", arguments, "record_player_observation");
+            output = FindFunctionOutput(request, "call_report");
+            return FinalResponse("Report stored locally.");
+        });
+        using HttpClient httpClient = Client(handler);
+        using OpenAiAssistantService service = new(httpClient);
+        string? routedName = null;
+
+        AssistantResponse response = await service.AskAsync(
+            "test-key", "gpt-5-mini", "I saw an offroad 200 metres ahead.", WorldSnapshot,
+            (name, args, cancellationToken) =>
+            {
+                routedName = name;
+                Assert.Equal("I saw an offroad 200 metres ahead.", args.GetProperty("sourceQuote").GetString());
+                Assert.False(args.TryGetProperty("sqf", out JsonElement _));
+                Assert.False(cancellationToken.IsCancellationRequested);
+                return Task.FromResult("{\"status\":\"recorded\",\"observationAlias\":\"observation-000001\"}");
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("record_player_observation", routedName);
+        Assert.Contains("observation-000001", output, StringComparison.Ordinal);
+        Assert.Equal("Report stored locally.", response.Text);
     }
 
     [Fact]

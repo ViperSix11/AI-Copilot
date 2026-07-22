@@ -20,6 +20,7 @@ public partial class MainWindow : Window
     private readonly SettingsService _settingsService = new();
     private readonly TelemetryPipeServer _pipeServer;
     private readonly WorldStateStore _worldStateStore;
+    private readonly OperationalMemoryStore _operationalMemoryStore;
     private readonly WorldSnapshotBuilder _worldSnapshotBuilder;
     private readonly TelemetryIngestService _telemetryIngestService;
     private long _snapshotCount;
@@ -30,9 +31,10 @@ public partial class MainWindow : Window
         InitializeComponent();
         _pipeServer = new TelemetryPipeServer(_log);
         _worldStateStore = new WorldStateStore();
-        _worldSnapshotBuilder = new WorldSnapshotBuilder(_worldStateStore);
+        _operationalMemoryStore = new OperationalMemoryStore(_worldStateStore);
+        _worldSnapshotBuilder = new WorldSnapshotBuilder(_worldStateStore, operationalMemory: _operationalMemoryStore);
         _telemetryIngestService = new TelemetryIngestService(
-            _pipeServer, _worldStateStore, _log);
+            _pipeServer, _worldStateStore, _log, operationalMemory: _operationalMemoryStore);
         _log.EntryWritten += OnLogEntryWritten;
         _pipeServer.ClientConnectionChanged += OnClientConnectionChanged;
         _pipeServer.MessageReceived += OnBridgeMessageReceived;
@@ -59,7 +61,9 @@ public partial class MainWindow : Window
     {
         _assistantPanel?.Dispose();
         _worldStateDiagnosticsPanel?.Dispose();
+        _operationalMemoryDiagnosticsPanel?.Dispose();
         _telemetryIngestService.Dispose();
+        _operationalMemoryStore.Dispose();
         await _pipeServer.DisposeAsync();
     }
 

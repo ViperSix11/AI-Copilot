@@ -1,0 +1,39 @@
+{
+  "schema": "arma-ai-bridge/arma3/map-gazetteer-v1",
+  "messageId": "message-gazetteer-1",
+  "missionId": "m4-test-mission",
+  "sessionId": "m4-source-session-a",
+  "timestamp": 2.0,
+  "sequence": 2,
+  "gazetteerId": "gazetteer-000001",
+  "pageIndex": 0,
+  "pageCount": 1,
+  "world": {
+    "name": "Stratis",
+    "sizeMeters": 8192,
+    "grid": {
+      "format": "arma-map-grid",
+      "samples": [
+        { "position": [0, 0], "grid": "000000" },
+        { "position": [4096, 4096], "grid": "040040" },
+        { "position": [8191, 8191], "grid": "081081" }
+      ]
+    }
+  },
+  "locations": [
+    {
+      "configKey": "StratisAirBase",
+      "officialName": "Stratis Air Base",
+      "locationType": "NameLocal",
+      "position": [1910, 5685],
+      "size": [500, 300]
+    },
+    {
+      "configKey": "AgiaMarina",
+      "officialName": "Agia Marina",
+      "locationType": "NameCity",
+      "position": [2915, 6165],
+      "size": [220, 180]
+    }
+  ]
+}

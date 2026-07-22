@@ -186,3 +186,52 @@ internal sealed record MissionCapabilitiesObservation(
     ProtocolEnvelope Envelope,
     int RegistryVersion,
     IReadOnlyList<CapabilityObservation> Capabilities);
+
+internal sealed record GazetteerLocationObservation(
+    string ConfigKey,
+    string OfficialName,
+    string LocationType,
+    WorldPosition Position,
+    double? SizeX,
+    double? SizeY);
+
+internal sealed record MapGazetteerPageObservation(
+    ProtocolEnvelope Envelope,
+    string GazetteerId,
+    int PageIndex,
+    int PageCount,
+    string WorldName,
+    double WorldSizeMeters,
+    IReadOnlyList<MapGridSample> GridSamples,
+    IReadOnlyList<GazetteerLocationObservation> Locations);
+
+internal sealed record MapGazetteerObservation(
+    ProtocolEnvelope Envelope,
+    string GazetteerId,
+    string WorldName,
+    double WorldSizeMeters,
+    IReadOnlyList<MapGridSample> GridSamples,
+    IReadOnlyList<GazetteerLocationObservation> Locations);
+
+internal sealed record OperationalObservation(
+    string SourceObservationId,
+    string SourceEntityId,
+    string TargetEntityId,
+    OperationalProvenance Provenance,
+    OperationalEntityKind EntityKind,
+    string Classification,
+    string DisplayName,
+    string PerceivedSide,
+    double ObservedAtGameTime,
+    WorldPosition? Position,
+    double? PositionErrorMeters,
+    string State,
+    bool? Alive,
+    string ConfidenceBasis,
+    string CorrelationHint,
+    string RetractsObservationId);
+
+internal sealed record OperationalObservationBatch(
+    ProtocolEnvelope Envelope,
+    string BatchId,
+    IReadOnlyList<OperationalObservation> Observations);

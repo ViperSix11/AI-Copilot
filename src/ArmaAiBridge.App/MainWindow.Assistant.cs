@@ -8,6 +8,7 @@ public partial class MainWindow
 {
     private AssistantPanel? _assistantPanel;
     private WorldStateDiagnosticsPanel? _worldStateDiagnosticsPanel;
+    private OperationalMemoryDiagnosticsPanel? _operationalMemoryDiagnosticsPanel;
 
     internal void AttachAssistantTab()
     {
@@ -18,8 +19,10 @@ public partial class MainWindow
             _pipeServer, _settingsService, _log, _worldSnapshotBuilder);
         _worldStateDiagnosticsPanel = new WorldStateDiagnosticsPanel(
             _worldStateStore, _worldSnapshotBuilder);
+        _operationalMemoryDiagnosticsPanel = new OperationalMemoryDiagnosticsPanel(_operationalMemoryStore);
         tabs.Items.Insert(1, new TabItem { Header = "Assistant", Content = _assistantPanel });
         tabs.Items.Insert(2, new TabItem { Header = "World State", Content = _worldStateDiagnosticsPanel });
+        tabs.Items.Insert(3, new TabItem { Header = "Operational Memory", Content = _operationalMemoryDiagnosticsPanel });
     }
 
     private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject

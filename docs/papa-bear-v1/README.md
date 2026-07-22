@@ -6,13 +6,13 @@ This directory is the source of truth for the planned Papa Bear system. Existing
 
 ## Product definition
 
-Papa Bear is a persistent AI-operated HQ, operations and logistics officer connected to the player by radio. He supports ordinary conversation, answers questions from current Arma/ACE state, consults a complete local map knowledge base, computes deterministic firing solutions and can later plan and execute validated support requests.
+Papa Bear is a persistent AI-operated HQ, operations and logistics officer connected to the player by radio. He supports ordinary conversation, answers questions from current Arma/ACE state, consults a small official named-location gazetteer plus observation-driven operational memory, computes deterministic firing solutions and can later plan and execute validated support requests.
 
 The target system combines:
 
 - general OpenAI reasoning and conversation;
 - a local, provenance-aware Arma world model;
-- a cached static map and equipment knowledge base;
+- a cached official map gazetteer and observation-driven operational memory;
 - an ACE3/CBA integration adapter;
 - deterministic services for ballistics, routes, landing zones and status aggregation;
 - a typed action gateway for transport, evacuation, resupply and other mission capabilities;
@@ -24,7 +24,7 @@ The target system combines:
 2. `persona-and-dialog.md` — Papa Bear role and radio behavior.
 3. `world-model.md` — dynamic state, provenance, freshness and confidence.
 4. `arma-data-contract.md` — telemetry and query contract.
-5. `map-knowledge-base.md` — full static map indexing and retrieval.
+5. `map-knowledge-base.md` — superseded static-index proposal retained for architecture history.
 6. `ace3-integration.md` — ACE capability detection and versioned adapter.
 7. `ballistics-service.md` — deterministic firing-solution requirements.
 8. `action-gateway.md` — support requests, validation and operation state machines.
@@ -33,11 +33,13 @@ The target system combines:
 11. `implementation-roadmap.md` — ordered milestones and exit criteria.
 12. `codex-milestone-1.md` — first bounded Codex task.
 13. `codex-milestone-2.md` — local provenance-aware world-model foundation.
+14. `codex-milestone-3.md` — friendly force picture and mission capabilities.
+15. `codex-milestone-4-observational-memory.md` — replacement observation-driven Milestone 4.
 
 ## Binding architectural decisions
 
 - The local application owns the world model and persistent knowledge base. OpenAI receives only relevant retrieved context.
-- Static map data is fully indexed and cached per map/mod fingerprint before Papa Bear reports full map readiness.
+- Initial map knowledge is limited to world/grid metadata and official named locations. Tactical objects are learned only from authorized observations and reports.
 - Dynamic telemetry is normalized into entities and deltas; raw 4 Hz JSON is not forwarded wholesale to OpenAI.
 - Enemy information is limited to knowledge available to the player's side.
 - Model output is advisory until a typed local tool validates and executes it.

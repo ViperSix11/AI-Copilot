@@ -1,0 +1,29 @@
+{
+  "schema": "arma-ai-bridge/arma3/operational-observation-batch-v1",
+  "messageId": "message-observation-1",
+  "missionId": "m4-test-mission",
+  "sessionId": "m4-source-session-a",
+  "timestamp": 12.5,
+  "sequence": 3,
+  "batchId": "observation-batch-000001",
+  "observations": [
+    {
+      "observationId": "source-observation-000001",
+      "sourceEntityId": "net:2:14",
+      "targetEntityId": "net:2:87",
+      "provenance": "visual",
+      "entityKind": "vehicle",
+      "classification": "C_Offroad_01_F",
+      "displayName": "Offroad",
+      "perceivedSide": "UNKNOWN",
+      "observedAt": 12.5,
+      "position": [3230, 4810, 0],
+      "positionErrorMeters": 3,
+      "state": "intact",
+      "alive": true,
+      "confidenceBasis": "los-confirmed",
+      "correlationHint": "",
+      "retractsObservationId": ""
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "files": [
+    {
+      "path": "arma3/addon-source/arma_ai_bridge_client/functions/fn_collectMapGazetteer.sqf",
+      "requiredTokens": [
+        "configFile >> \"CfgWorlds\" >> worldName",
+        ">> \"Names\"",
+        "configName _entry",
+        "mapGridPosition",
+        "\"officialName\"",
+        "\"locationType\"",
+        "_locations resize 4096"
+      ],
+      "forbiddenTokens": [
+        "allMissionObjects",
+        "nearestTerrainObjects",
+        "nearestObjects",
+        "nearRoads"
+      ]
+    },
+    {
+      "path": "arma3/addon-source/arma_ai_bridge_client/functions/fn_collectOperationalObservations.sqf",
+      "requiredTokens": [
+        "AAB_friendlyForceVisibility",
+        "targets [true, 2000, [], 120]",
+        "targetKnowledge",
+        "nearestObjects",
+        "\"LandVehicle\"",
+        "\"ReammoBox_F\"",
+        "\"WeaponHolderSimulated\"",
+        "\"Fortification\"",
+        "(count (crew _candidate)) isEqualTo 0",
+        "_dot >= 0.5",
+        "checkVisibility",
+        "_visibilityScore >= 0.55",
+        "if ((count _candidates) > 48)",
+        "if ((count _observations) >= 24)",
+        "AAB_operationalReports",
+        "(count _allowedSides) > 0",
+        "arma-ai-bridge/mission-report-v1",
+        "_seenMissionReportIds",
+        "(count _knownPhysical) > 512",
+        "(count _publishCache) > 2048"
+      ],
+      "forbiddenTokens": [
+        "allMissionObjects",
+        "allPlayers",
+        "getPlayerUID",
+        "profileName",
+        "remoteExec",
+        "compile",
+        "setWaypoint",
+        "doMove",
+        "commandMove"
+      ]
+    },
+    {
+      "path": "arma3/addon-source/arma_ai_bridge_client/functions/fn_publishOperationalObservations.sqf",
+      "requiredTokens": [
+        "arma-ai-bridge/arma3/operational-observation-batch-v1",
+        "AAB_fnc_publishWorldEvent"
+      ],
+      "forbiddenTokens": [
+        "callExtension",
+        "remoteExec",
+        "compile"
+      ]
+    }
+  ]
+}

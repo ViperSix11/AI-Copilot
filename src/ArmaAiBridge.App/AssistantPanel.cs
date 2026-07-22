@@ -21,6 +21,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private readonly Button _ask = new() { Content = "Ask", MinWidth = 100 };
     private readonly Button _cancel = new() { Content = "Cancel", MinWidth = 100, IsEnabled = false };
     private CancellationTokenSource? _activeRequest;
+    private string _activeUserTurn = string.Empty;
     private bool _disposed;
 
     public AssistantPanel(
@@ -94,6 +95,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
             AppSettings settings = await _settings.LoadAsync();
             string apiKey = DpapiService.Unprotect(settings.OpenAiApiKeyProtected);
             _activeRequest = new CancellationTokenSource();
+            _activeUserTurn = question;
             SetBusy(true); Append("You", question); _question.Clear();
             AssistantResponse response = await _assistant.AskAsync(
                 apiKey, _model.Text.Trim(), question, worldSnapshot,
@@ -110,7 +112,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
         }
         finally
         {
-            _activeRequest?.Dispose(); _activeRequest = null; SetBusy(false);
+            _activeRequest?.Dispose(); _activeRequest = null; _activeUserTurn = string.Empty; SetBusy(false);
         }
     }
 
@@ -128,6 +130,10 @@ public sealed class AssistantPanel : UserControl, IDisposable
             "query_friendly_forces" => Task.FromResult(_snapshots.BuildFriendlyForces(arguments)),
             "query_assets" => Task.FromResult(_snapshots.BuildAssets(arguments)),
             "query_mission_capabilities" => Task.FromResult(_snapshots.BuildMissionCapabilities(arguments)),
+            "find_named_locations" => Task.FromResult(_snapshots.FindNamedLocations(arguments)),
+            "query_operational_memory" => Task.FromResult(_snapshots.QueryOperationalMemory(arguments)),
+            "record_player_observation" => Task.FromResult(_snapshots.RecordPlayerObservation(arguments, _activeUserTurn)),
+            "correct_player_observation" => Task.FromResult(_snapshots.CorrectPlayerObservation(arguments, _activeUserTurn)),
             _ => Task.FromException<string>(new InvalidOperationException("Unsupported local tool."))
         };
 
