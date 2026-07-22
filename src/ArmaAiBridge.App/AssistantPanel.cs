@@ -19,6 +19,8 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private readonly PushToTalkCaptureCoordinator _capture;
     private readonly AssistantTurnService _turns;
     private readonly VoiceInteractionService _voice;
+    private readonly IGlobalPushToTalkInputService _globalPttInput;
+    private readonly BallisticProfileManager _ballisticProfiles;
     private readonly TextBox _conversation = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly TextBox _question = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 76 };
     private readonly TextBox _model = new() { Text = "gpt-5-mini", Width = 220 };
@@ -31,9 +33,13 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private readonly Button _holdToTalk = new() { Content = "Hold to Talk", MinWidth = 130, ToolTip = "Press and hold while speaking; release to submit." };
     private readonly Button _replay = new() { Content = "Replay Last Answer", MinWidth = 145, IsEnabled = false };
     private readonly Button _cancel = new() { Content = "Cancel", MinWidth = 100, IsEnabled = false };
+    private readonly Button _manageBallisticProfiles = new() { Content = "Manage Ballistic Profiles", MinWidth = 190 };
     private readonly CheckBox _globalPttEnabled = new() { Content = "Enable global push-to-talk" };
     private readonly TextBlock _globalPttHotkey = new() { Text = "Hotkey: Shift + Space" };
     private readonly TextBlock _globalPttStatus = new() { Text = "Status: Initializing", TextWrapping = TextWrapping.Wrap };
+    private readonly TextBlock _globalPttDetections = new() { Text = "Detected presses: 0" };
+    private readonly TextBlock _globalPttSource = new() { Text = "Last activation source: none" };
+    private readonly CheckBox _globalPttTestOnly = new() { Content = "Test chord only (no recording)" };
     private readonly Button _changeGlobalPtt = new() { Content = "Change hotkey", MinWidth = 120 };
     private readonly Button _resetGlobalPtt = new() { Content = "Reset to default", MinWidth = 120 };
     private CancellationTokenSource? _activeRequest;
@@ -46,17 +52,22 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private bool _capturingGlobalHotkey;
     private bool _globalPttLoaded;
     private bool _updatingGlobalPttUi;
+    private int _globalPttDetectionCount;
     private bool _disposed;
 
     public AssistantPanel(
         TelemetryPipeServer pipe,
         SettingsService settings,
         LogService log,
-        WorldSnapshotBuilder snapshots)
+        WorldSnapshotBuilder snapshots,
+        IGlobalPushToTalkInputService globalPttInput)
     {
         _settings = settings;
         _log = log;
         _snapshots = snapshots;
+        _globalPttInput = globalPttInput;
+        _ballisticProfiles = new BallisticProfileManager();
+        _snapshots.SetBallisticCapabilityFactory(_ballisticProfiles.CompactCapability);
         _queries = new ArmaQueryCoordinator(pipe);
         _capture = new PushToTalkCaptureCoordinator(new WindowsMicrophoneCaptureService());
 
@@ -90,6 +101,14 @@ public sealed class AssistantPanel : UserControl, IDisposable
         _globalPttEnabled.Unchecked += GlobalPttEnabled_Changed;
         _changeGlobalPtt.Click += ChangeGlobalPtt_Click;
         _resetGlobalPtt.Click += ResetGlobalPtt_Click;
+        _manageBallisticProfiles.Click += (_, _) =>
+        {
+            BallisticProfilesWindow editor = new(_ballisticProfiles, _snapshots.GetCurrentBallisticProfile, _snapshots.GetCurrentEnvironment)
+            { Owner = Window.GetWindow(this) };
+            editor.ShowDialog();
+        };
+        _globalPttTestOnly.Checked += (_, _) => { if (_globalPtt is not null) _globalPtt.DetectionOnly = true; };
+        _globalPttTestOnly.Unchecked += (_, _) => { if (_globalPtt is not null) _globalPtt.DetectionOnly = false; };
     }
 
     private UIElement BuildUi()
@@ -145,6 +164,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
         assistantActions.Children.Add(clear);
         assistantActions.Children.Add(new TextBlock { Text = "Model", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(18, 0, 8, 0) });
         assistantActions.Children.Add(_model);
+        assistantActions.Children.Add(_manageBallisticProfiles);
         bottom.Children.Add(assistantActions);
 
         WrapPanel voiceActions = new() { Margin = new Thickness(0, 8, 0, 0) };
@@ -169,9 +189,13 @@ public sealed class AssistantPanel : UserControl, IDisposable
         globalActions.Children.Add(_resetGlobalPtt);
         globalPtt.Children.Add(globalActions);
         globalPtt.Children.Add(_globalPttStatus);
+        globalPtt.Children.Add(new TextBlock { Text = "Input mode: Background Raw Input", FontWeight = FontWeights.SemiBold });
+        globalPtt.Children.Add(_globalPttTestOnly);
+        globalPtt.Children.Add(_globalPttDetections);
+        globalPtt.Children.Add(_globalPttSource);
         globalPtt.Children.Add(new TextBlock
         {
-            Text = "The registered combination is reserved globally while the Bridge is running.",
+            Text = "Background Raw Input remains available while Arma has focus. It does not reserve or suppress the combination.",
             Foreground = Resource<Brush>("MutedTextBrush"),
             TextWrapping = TextWrapping.Wrap
         });
@@ -472,10 +496,23 @@ public sealed class AssistantPanel : UserControl, IDisposable
         CancellationToken cancellationToken)
         => name switch
         {
-            "calculate_firing_solution" => new BallisticToolService(_queries.QueryTerrainHeightAslAsync)
+            "calculate_firing_solution" => new BallisticToolService(
+                    _queries.QueryTerrainHeightAslAsync,
+                    aceAdapter: new ArmaAceBallisticAdapter(_queries),
+                    profiles: _ballisticProfiles,
+                    environment: FreezeBallisticEnvironment)
                 .CalculateAsync(arguments, context.BallisticProfile, cancellationToken),
             _ => ExecuteToolAsync(name, arguments, cancellationToken)
         };
+
+    private FrozenBallisticEnvironment? FreezeBallisticEnvironment()
+    {
+        StateEnvironment? environment = _snapshots.GetCurrentEnvironment();
+        StateBallisticProfile? profile = _snapshots.GetCurrentBallisticProfile();
+        if (environment is null || profile is null) return null;
+        return new(environment.WindX, environment.WindY, environment.TemperatureCelsius ?? 15,
+            environment.Humidity, profile.ShooterPositionAsl.Z);
+    }
 
     private void Append(string speaker, string text)
     {
@@ -561,16 +598,15 @@ public sealed class AssistantPanel : UserControl, IDisposable
             _globalPttBinding = settings.GlobalPushToTalkHotkey ?? GlobalPushToTalkHotkey.Default;
             try { _globalPttBinding.Validate(); }
             catch { _globalPttBinding = GlobalPushToTalkHotkey.Default; }
-            Window window = Window.GetWindow(this) ?? throw new InvalidOperationException("The application window is unavailable.");
             _globalPtt = new GlobalPushToTalkController(
-                new WindowsGlobalHotkeyService(window),
-                new WindowsKeyStateService(),
+                _globalPttInput,
                 BeginGlobalPushToTalkAsync,
                 _ => _capture.ReleaseAsync());
             _globalPtt.StatusChanged += GlobalPtt_StatusChanged;
+            _globalPtt.HotkeyDetected += GlobalPtt_HotkeyDetected;
             SetGlobalPttChecked(_globalPttBinding.Enabled);
             UpdateGlobalPttBindingText();
-            GlobalHotkeyRegistrationResult result = _globalPtt.Configure(_globalPttBinding);
+            GlobalInputRegistrationResult result = _globalPtt.Configure(_globalPttBinding);
             UpdateGlobalPttStatus(result);
         }
         catch (Exception exception)
@@ -592,24 +628,32 @@ public sealed class AssistantPanel : UserControl, IDisposable
                 _status.Text = "Voice operation already active.";
                 return false;
             }
-            _log.Info("Global PTT activated: hotkeyActivationSource=registered-hotkey.");
+            _log.Info("Global PTT activated: hotkeyActivationSource=background-raw-input.");
             return await BeginCaptureAsync(null, CapturePurpose.AssistantTurn);
         }
     }
 
-    private void GlobalPtt_StatusChanged(object? sender, GlobalHotkeyRegistrationResult result)
+    private void GlobalPtt_StatusChanged(object? sender, GlobalInputRegistrationResult result)
     {
         if (!Dispatcher.CheckAccess()) { _ = Dispatcher.BeginInvoke(() => UpdateGlobalPttStatus(result)); return; }
         UpdateGlobalPttStatus(result);
     }
 
-    private void UpdateGlobalPttStatus(GlobalHotkeyRegistrationResult result)
+    private void UpdateGlobalPttStatus(GlobalInputRegistrationResult result)
     {
         _globalPttStatus.Text = $"Status: {result.Message}";
         _log.Info($"Global PTT status: enabled={_globalPttBinding.Enabled}, registered={result.Registered}, result={result.Code}.");
     }
 
     private void UpdateGlobalPttBindingText() => _globalPttHotkey.Text = $"Hotkey: {_globalPttBinding.DisplayName}";
+
+    private void GlobalPtt_HotkeyDetected(object? sender, EventArgs e)
+    {
+        if (!Dispatcher.CheckAccess()) { _ = Dispatcher.BeginInvoke(() => GlobalPtt_HotkeyDetected(sender, e)); return; }
+        _globalPttDetectionCount++;
+        _globalPttDetections.Text = $"Detected presses: {_globalPttDetectionCount}";
+        _globalPttSource.Text = "Last activation source: background raw input";
+    }
 
     private async void GlobalPttEnabled_Changed(object sender, RoutedEventArgs e)
     {

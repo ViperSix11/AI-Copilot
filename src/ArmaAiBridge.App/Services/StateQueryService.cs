@@ -47,8 +47,25 @@ public sealed class StateQueryService
     }
     private object Contacts(int limit, bool includeStale)
     {
-        IReadOnlyList<StateKnownContact> contacts = _repository.GetKnownContacts(limit, includeStale);
-        return new { summary = _contacts.Summarize(contacts), contacts };
+        StateKnownContact[] contacts = _repository.GetKnownContacts(limit, includeStale)
+            .Where(ContactEligibilityPolicy.IsEligible).ToArray();
+        return new
+        {
+            summary = _contacts.Summarize(contacts),
+            contacts = contacts.Select(item => new
+            {
+                description = ContactEligibilityPolicy.Description(item),
+                item.ContactType,
+                item.PerceivedSide,
+                item.Relationship,
+                item.EstimatedPosition,
+                item.PositionErrorMeters,
+                item.LastSeenAgeSeconds,
+                item.LastThreatAgeSeconds,
+                item.Metadata.AgeSeconds,
+                item.Metadata.IsStale
+            })
+        };
     }
     private static string ReadString(JsonElement root, string name)
         => root.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : throw new InvalidOperationException($"{name} is required.");

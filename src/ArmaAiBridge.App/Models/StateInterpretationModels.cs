@@ -36,8 +36,8 @@ public sealed record ForceSummary(
 
 public sealed record ContactSummary(
     int KnownContactCount,
-    IReadOnlyDictionary<string, int> ByPerceivedSide,
-    IReadOnlyDictionary<string, int> ByBroadType,
+    IReadOnlyDictionary<string, int> ByRelationship,
+    IReadOnlyDictionary<string, int> ByContactType,
     double? NewestContactAgeSeconds,
     double? MaximumPositionUncertaintyMeters,
     int StaleContactCount,

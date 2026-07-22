@@ -193,7 +193,37 @@ public sealed class Milestone5UnifiedStateMirrorTests
 
         using SqliteStateRepository repository = new(database.Path, new ManualTimeProvider(Start));
         Assert.Equal(StateRepositoryReadiness.Ready, repository.GetDiagnostics().Readiness);
-        Assert.Equal(2, repository.GetDiagnostics().SchemaVersion);
+        Assert.Equal(3, repository.GetDiagnostics().SchemaVersion);
+    }
+
+    [Fact]
+    public void SchemaVersionTwo_PurgesLegacyContactsBeforeTheyCanBeRead()
+    {
+        using TempDatabase database = new();
+        using (SqliteConnection connection = new($"Data Source={database.Path};Pooling=False"))
+        {
+            connection.Open();
+            using SqliteCommand command = connection.CreateCommand();
+            command.CommandText = """
+                CREATE TABLE known_contacts(session_hash TEXT NOT NULL, alias TEXT PRIMARY KEY,
+                    source_hash TEXT NOT NULL, payload_json TEXT NOT NULL);
+                CREATE TABLE known_contact_sources(contact_alias TEXT NOT NULL, group_alias TEXT NOT NULL,
+                    PRIMARY KEY(contact_alias,group_alias));
+                INSERT INTO known_contacts VALUES('old','contact-deadbeef','hash','{"contactType":"other","class":"Land_LampHalogen_F"}');
+                INSERT INTO known_contact_sources VALUES('contact-deadbeef','group-deadbeef');
+                PRAGMA user_version=2;
+                """;
+            command.ExecuteNonQuery();
+        }
+
+        using (SqliteStateRepository repository = new(database.Path, new ManualTimeProvider(Start)))
+            Assert.Equal(3, repository.GetDiagnostics().SchemaVersion);
+
+        using SqliteConnection verify = new($"Data Source={database.Path};Pooling=False");
+        verify.Open();
+        using SqliteCommand count = verify.CreateCommand();
+        count.CommandText = "SELECT (SELECT COUNT(*) FROM known_contacts) + (SELECT COUNT(*) FROM known_contact_sources);";
+        Assert.Equal(0L, (long)count.ExecuteScalar()!);
     }
 
     [Fact]
@@ -218,7 +248,7 @@ public sealed class Milestone5UnifiedStateMirrorTests
         ForceSummary force = new ForceSummaryService().Summarize(repository.GetFriendlyGroups(), repository.GetFriendlyUnits());
         Assert.Equal(1, force.GroupCount); Assert.Equal(1, force.UnitCount); Assert.Equal(0, force.DeadCount);
         ContactSummary contacts = new ContactSummaryService().Summarize(repository.GetKnownContacts());
-        Assert.Equal(1, contacts.KnownContactCount); Assert.Equal(1, contacts.ByPerceivedSide["EAST"]);
+        Assert.Equal(1, contacts.KnownContactCount); Assert.Equal(1, contacts.ByRelationship["hostile"]);
         Assert.Equal(25, contacts.MaximumPositionUncertaintyMeters);
     }
 
@@ -229,7 +259,7 @@ public sealed class Milestone5UnifiedStateMirrorTests
         using SqliteStateRepository repository = ReadyRepository(database.Path, new ManualTimeProvider(Start));
         StateQueryService service = new(repository);
         string contacts = service.Query(Arguments("""{"section":"contacts","includeStale":false,"limit":1}"""));
-        Assert.Contains("contact-", contacts, StringComparison.Ordinal);
+        Assert.Contains("hostile infantry", contacts, StringComparison.Ordinal);
         Assert.DoesNotContain("net:9:1", contacts, StringComparison.Ordinal);
         Assert.Throws<InvalidOperationException>(() => service.Query(Arguments("""{"section":"sql","includeStale":false,"limit":1}""")));
         Assert.Throws<InvalidOperationException>(() => service.Query(Arguments("""{"section":"contacts","includeStale":false,"limit":1,"sql":"SELECT *"}""")));

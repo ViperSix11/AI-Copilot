@@ -62,6 +62,56 @@ public sealed class ArmaQueryCoordinator : IDisposable
         return value;
     }
 
+    public async Task<string> CalculateAceFiringSolutionAsync(
+        JsonElement arguments,
+        Models.StateBallisticProfile profile,
+        CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (!profile.AceAdvancedBallisticsEnabled || !profile.AceAdapterAvailable ||
+            !profile.AceProfileSupported || string.IsNullOrWhiteSpace(profile.ProfileFingerprint))
+            throw new InvalidOperationException("ace_advanced_ballistics_interface_unsupported");
+
+        BallisticSolutionRequest request = VanillaBallisticSolver.ParseRequest(arguments);
+        Dictionary<string, object?> parameters = new(StringComparer.Ordinal)
+        {
+            ["rangeMeters"] = request.RangeMeters,
+            ["bearingDegrees"] = request.BearingDegrees,
+            ["profileFingerprint"] = profile.ProfileFingerprint
+        };
+        if (request.TargetElevationAslMeters.HasValue)
+            parameters["targetElevationAslMeters"] = request.TargetElevationAslMeters.Value;
+        else
+            parameters["targetHeightAboveTerrainMeters"] = request.TargetHeightAboveTerrainMeters ?? 0;
+
+        string json = await SendQueryAsync("calculate_ace_firing_solution", parameters, cancellationToken)
+            .ConfigureAwait(false);
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement root = document.RootElement;
+        if (!root.TryGetProperty("ok", out JsonElement ok) || ok.ValueKind != JsonValueKind.True ||
+            !root.TryGetProperty("result", out JsonElement result) || result.ValueKind != JsonValueKind.Object)
+        {
+            string reason = root.TryGetProperty("error", out JsonElement error) && error.ValueKind == JsonValueKind.String
+                ? error.GetString() ?? "ace_ballistic_extension_failed"
+                : "ace_ballistic_extension_failed";
+            return JsonSerializer.Serialize(new { firingSolution = new { available = false, reason } });
+        }
+
+        string compact = result.GetRawText();
+        if (compact.Length > 4096) throw new InvalidDataException("ACE ballistic result exceeded the bounded result size.");
+        return JsonSerializer.Serialize(new
+        {
+            firingSolution = JsonSerializer.Deserialize<JsonElement>(compact),
+            projectile = new
+            {
+                weapon = profile.WeaponDisplayName,
+                magazine = profile.MagazineDisplayName,
+                ammunition = profile.AmmunitionDisplayName,
+                projectileType = profile.SupportedProjectileType
+            }
+        });
+    }
+
     private async Task<string> SendQueryAsync(string commandName, object parameters, CancellationToken cancellationToken)
     {
         string requestId = Guid.NewGuid().ToString("N");

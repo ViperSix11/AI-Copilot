@@ -89,7 +89,7 @@ public sealed class StateMirrorIngestService : IDisposable
         object[] contactProjection = contacts.TryGetProperty("contacts", out JsonElement values) && values.ValueKind == JsonValueKind.Array
             ? values.EnumerateArray().Take(128).Select(item => (object)new
             {
-                id = Text(item, "sourceId"), @class = Text(item, "class"), displayName = Text(item, "broadType"),
+                id = Text(item, "sourceId"), @class = Text(item, "class"), displayName = Text(item, "displayName"),
                 knownByPlayer = false, knownByGroup = true,
                 lastSeenAgeSeconds = Number(item, "lastSeenAgeSeconds", -1),
                 lastThreatAgeSeconds = Number(item, "lastThreatAgeSeconds", -1),

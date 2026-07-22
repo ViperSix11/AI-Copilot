@@ -206,19 +206,85 @@ private _runSection =
     private _zeroingDistance = _zeroing param [0, 0];
     private _zeroingIndex = _zeroing param [1, -1];
     private _advancedBallistics = isClass (configFile >> "CfgPatches" >> "ace_advanced_ballistics");
+    private _aceEnabled = _advancedBallistics && { missionNamespace getVariable ["ace_advanced_ballistics_enabled", false] };
+    private _aceVersion = if (_advancedBallistics) then { getText (configFile >> "CfgPatches" >> "ace_main" >> "versionStr") } else { "" };
+    private _aceSupportedBaseline = "3.21.x";
+    private _aceVersionSupported = (_aceVersion find "3.21.") isEqualTo 0;
+    private _aceFunctionsAvailable =
+        !isNil "ace_advanced_ballistics_fnc_readAmmoDataFromConfig" &&
+        { !isNil "ace_advanced_ballistics_fnc_readWeaponDataFromConfig" } &&
+        { !isNil "ace_scopes_fnc_getBoreHeight" } &&
+        { !isNil "ace_scopes_fnc_getCurrentZeroRange" } &&
+        { !isNil "ace_atragmx_fnc_calculate_solution" } &&
+        { !isNil "ace_weather_fnc_calculateTemperatureAtHeight" } &&
+        { !isNil "ace_weather_fnc_calculateBarometricPressure" };
+    private _aceAdapterAvailable = false;
+    if (_aceEnabled && { _aceVersionSupported } && { _aceFunctionsAvailable }) then
+    {
+        private _probeKey = format ["%1|%2", missionNamespace getVariable ["AAB_sessionId", ""], _aceVersion];
+        private _cachedProbe = missionNamespace getVariable ["AAB_aceBallisticProbe", []];
+        if (_cachedProbe isEqualType [] && { count _cachedProbe isEqualTo 2 } && { (_cachedProbe select 0) isEqualTo _probeKey }) then
+        {
+            _aceAdapterAvailable = _cachedProbe select 1;
+        }
+        else
+        {
+            private _probe = "ace" callExtension ["ballistics:retard", [1, 0.5, 800, 15]];
+            _probe params ["_probeData", "_probeCode"];
+            _aceAdapterAvailable = _probeCode isEqualTo 0 && { (parseNumber _probeData) > 0 };
+            missionNamespace setVariable ["AAB_aceBallisticProbe", [_probeKey, _aceAdapterAvailable]];
+        };
+    };
+    private _aceDragModel = getNumber (_ammunitionConfig >> "ACE_dragModel");
+    private _aceCoefficients = getArray (_ammunitionConfig >> "ACE_ballisticCoefficients");
+    private _aceVelocityBoundaries = getArray (_ammunitionConfig >> "ACE_velocityBoundaries");
+    private _aceAtmosphere = toUpper (getText (_ammunitionConfig >> "ACE_standardAtmosphere"));
+    private _aceMuzzleVelocities = getArray (_ammunitionConfig >> "ACE_muzzleVelocities");
+    private _aceBarrelLengths = getArray (_ammunitionConfig >> "ACE_barrelLengths");
+    private _aceTemperatureShifts = getArray (_ammunitionConfig >> "ACE_ammoTempMuzzleVelocityShifts");
+    private _aceVariationEnabled = _aceEnabled && { missionNamespace getVariable ["ace_advanced_ballistics_muzzleVelocityVariationEnabled", false] };
+    private _aceTemperatureEnabled = _aceEnabled && { missionNamespace getVariable ["ace_advanced_ballistics_ammoTemperatureEnabled", false] };
+    private _aceBarrelEnabled = _aceEnabled && { missionNamespace getVariable ["ace_advanced_ballistics_barrelLengthInfluenceEnabled", false] };
+    private _aceVariationSdPercent = if (isNumber (_ammunitionConfig >> "ACE_muzzleVelocityVariationSD")) then
+        { getNumber (_ammunitionConfig >> "ACE_muzzleVelocityVariationSD") max 0 min 10 } else { 0.3 };
+    private _validPositiveArray = { params ["_values", "_maximum"]; count _values <= _maximum && { { !(_x isEqualType 0) || { !finite _x } || { _x <= 0 } } count _values isEqualTo 0 } };
+    private _validFiniteArray = { params ["_values", "_maximum"]; count _values <= _maximum && { { !(_x isEqualType 0) || { !finite _x } } count _values isEqualTo 0 } };
+    private _aceProfileSupported =
+        (_ammunitionClass isKindOf ["BulletBase", configFile >> "CfgAmmo"]) &&
+        { _aceDragModel in [1, 2, 5, 6, 7, 8] } &&
+        { count _aceCoefficients isEqualTo 1 } &&
+        { count _aceVelocityBoundaries isEqualTo 0 } &&
+        { [_aceCoefficients, 8] call _validPositiveArray } &&
+        { [_aceVelocityBoundaries, 7] call _validPositiveArray } &&
+        { _aceAtmosphere in ["ICAO", "ASM"] } &&
+        { count _aceMuzzleVelocities isEqualTo count _aceBarrelLengths } &&
+        { [_aceMuzzleVelocities, 32] call _validPositiveArray } &&
+        { [_aceBarrelLengths, 32] call _validPositiveArray } &&
+        { !_aceTemperatureEnabled || { count _aceTemperatureShifts isEqualTo 11 && { [_aceTemperatureShifts, 11] call _validFiniteArray } } } &&
+        { !_aceBarrelEnabled || { count _aceMuzzleVelocities > 0 } };
     private _submunition = getText (_ammunitionConfig >> "submunitionAmmo");
     private _customAmmoHandlers = isClass (_ammunitionConfig >> "EventHandlers");
     private _ballisticReason = "";
     if (_selected isEqualTo "" || { _currentMagazine isEqualTo "" }) then { _ballisticReason = "no_current_weapon"; };
-    if (_ballisticReason isEqualTo "" && { _advancedBallistics }) then { _ballisticReason = "advanced_ballistics_mod_detected"; };
     if (_ballisticReason isEqualTo "" && { !(_simulation in ["shotbullet", "shotshell"]) || { !(_submunition isEqualTo "") } || { getNumber (_ammunitionConfig >> "artilleryLock") > 0 } || { _customAmmoHandlers } }) then
         { _ballisticReason = "unsupported_projectile"; };
-    if (_ballisticReason isEqualTo "" && { _effectiveInitSpeed <= 0 || { _airFriction > 0 } || { _gravityCoefficient <= 0 } || { _typicalSpeed <= 0 } }) then
+    if (_ballisticReason isEqualTo "" && { _aceEnabled } && { !_aceVersionSupported }) then { _ballisticReason = "ace_advanced_ballistics_version_unsupported"; };
+    if (_ballisticReason isEqualTo "" && { _aceEnabled } && { !_aceAdapterAvailable }) then { _ballisticReason = "ace_advanced_ballistics_interface_unsupported"; };
+    if (_ballisticReason isEqualTo "" && { _aceEnabled } && { !_aceProfileSupported }) then { _ballisticReason = "ace_ballistic_profile_incomplete"; };
+    if (_ballisticReason isEqualTo "" && { !_aceEnabled } && { _effectiveInitSpeed <= 0 || { _airFriction > 0 } || { _gravityCoefficient <= 0 } || { _typicalSpeed <= 0 } }) then
         { _ballisticReason = "missing_ballistic_config"; };
+    private _ballisticMode = if (_aceEnabled) then { if (_ballisticReason isEqualTo "") then { "ace3-advanced" } else { "unavailable" } } else { "vanilla" };
+    private _profileFingerprint = str (hashValue (toJSON
+    [
+        missionNamespace getVariable ["AAB_sessionId", ""], _selected, _muzzle, _fireMode,
+        _currentMagazine, _ammunitionClass, _zeroingDistance, _aceVersion, _aceEnabled,
+        _aceVariationEnabled, _aceTemperatureEnabled, _aceBarrelEnabled
+    ]));
     private _ballisticProfile = createHashMapFromArray
     [
         ["available", _ballisticReason isEqualTo ""], ["reason", _ballisticReason],
-        ["model", "arma-vanilla-config"],
+        ["model", if (_ballisticMode isEqualTo "ace3-advanced") then { "ace3-advanced-ballistics" } else { "arma-vanilla-config" }],
+        ["mode", _ballisticMode],
         ["supportedProjectileType", if (_simulation isEqualTo "shotbullet") then { "bullet" } else { if (_simulation isEqualTo "shotshell") then { "shell" } else { "" } }],
         ["weaponClass", _selected], ["weaponDisplayName", getText (configFile >> "CfgWeapons" >> _selected >> "displayName")],
         ["muzzleClass", _muzzle], ["fireMode", _fireMode],
@@ -228,7 +294,15 @@ private _runSection =
         ["currentZeroingMeters", _zeroingDistance], ["currentZeroingIndex", _zeroingIndex],
         ["initialSpeedMetersPerSecond", _effectiveInitSpeed], ["airFriction", _airFriction],
         ["gravityCoefficient", _gravityCoefficient], ["typicalSpeedMetersPerSecond", _typicalSpeed],
-        ["shooterPositionASL", eyePos player], ["advancedBallisticsDetected", _advancedBallistics]
+        ["shooterPositionASL", eyePos player], ["advancedBallisticsDetected", _advancedBallistics],
+        ["aceAdvancedBallisticsEnabled", _aceEnabled], ["aceAdapterAvailable", _aceAdapterAvailable],
+        ["aceVersion", _aceVersion], ["aceSupportedBaseline", _aceSupportedBaseline],
+        ["aceProfileSupported", _aceProfileSupported],
+        ["aceMuzzleVelocityVariationEnabled", _aceVariationEnabled],
+        ["aceMuzzleVelocityVariationStandardDeviationPercent", _aceVariationSdPercent],
+        ["aceTemperatureCorrectionEnabled", _aceTemperatureEnabled],
+        ["aceBarrelLengthCorrectionEnabled", _aceBarrelEnabled],
+        ["profileFingerprint", _profileFingerprint]
     ];
 
     private _containers = [];
@@ -351,6 +425,35 @@ private _runSection =
     { _groups pushBackUnique (group _x); } forEach _friendlyUnits;
     if ((count _groups) > 128) then { _groups resize 128; };
     private _contactMap = createHashMap;
+    private _mergeContact =
+    {
+        params ["_observer", "_target", "_groupSourceId", "_contactMap", "_viewerSide"];
+        private _knowledge = _observer targetKnowledge _target;
+        private _normalized = [_observer, _target, _knowledge, _viewerSide] call AAB_fnc_normalizeKnownContact;
+        if !(_normalized isEqualType createHashMap) exitWith {};
+
+        // Identity generation is deliberately after the closed eligibility
+        // policy so scenery and other excluded objects never receive IDs.
+        private _targetId = [_target, "contact"] call AAB_fnc_getStableEntityId;
+        private _existing = _contactMap getOrDefault [_targetId, createHashMap];
+        private _sources = _existing getOrDefault ["observerGroupSourceIds", []];
+        _sources pushBackUnique _groupSourceId;
+        private _replace = (count _existing) isEqualTo 0 ||
+            { (_normalized get "positionErrorMeters") < (_existing getOrDefault ["positionErrorMeters", 100000]) } ||
+            { (_normalized get "positionErrorMeters") isEqualTo (_existing getOrDefault ["positionErrorMeters", 100000]) &&
+              { (_normalized get "lastSeenAgeSeconds") < (_existing getOrDefault ["lastSeenAgeSeconds", 100000]) } };
+        if (_replace) then
+        {
+            _normalized set ["sourceId", _targetId];
+            _normalized set ["observerGroupSourceIds", _sources];
+            _existing = _normalized;
+        }
+        else
+        {
+            _existing set ["observerGroupSourceIds", _sources];
+        };
+        _contactMap set [_targetId, _existing];
+    };
     {
         private _group = _x;
         private _members = units _group;
@@ -360,34 +463,7 @@ private _runSection =
             private _observer = _members select _localIndex;
             private _groupId = [_group, "group"] call AAB_fnc_getStableEntityId;
             {
-                private _target = _x;
-                private _knowledge = _observer targetKnowledge _target;
-                _knowledge params ["_knownByGroup", "_knownByUnit", "_lastSeen", "_lastThreat", "_perceivedSide", "_error", "_estimated", ["_ignored", false]];
-                private _targetId = [_target, "contact"] call AAB_fnc_getStableEntityId;
-                private _existing = _contactMap getOrDefault [_targetId, createHashMap];
-                private _sources = _existing getOrDefault ["observerGroupSourceIds", []];
-                _sources pushBackUnique _groupId;
-                private _lastSeenAge = if (_lastSeen < 0) then { -1 } else { (time - _lastSeen) max 0 };
-                private _replace = (count _existing) isEqualTo 0 || { _error < (_existing getOrDefault ["positionErrorMeters", 100000]) } ||
-                    { _error isEqualTo (_existing getOrDefault ["positionErrorMeters", 100000]) && { _lastSeenAge < (_existing getOrDefault ["lastSeenAgeSeconds", 100000]) } };
-                if (_replace) then
-                {
-                    private _broadType = if (_target isKindOf "CAManBase") then { "person" } else
-                    { if (_target isKindOf "Air") then { "air" } else { if (_target isKindOf "LandVehicle") then { "ground-vehicle" } else { if (_target isKindOf "Ship") then { "naval" } else { "other" } } } };
-                    _existing = createHashMapFromArray
-                    [
-                        ["sourceId", _targetId], ["class", typeOf _target], ["broadType", _broadType],
-                        ["perceivedSide", str _perceivedSide], ["estimatedPosition", _estimated],
-                        ["positionErrorMeters", _error max 0], ["lastSeenAgeSeconds", _lastSeenAge],
-                        ["lastThreatAgeSeconds", if (_lastThreat < 0) then { -1 } else { (time - _lastThreat) max 0 }],
-                        ["observerGroupSourceIds", _sources]
-                    ];
-                }
-                else
-                {
-                    _existing set ["observerGroupSourceIds", _sources];
-                };
-                _contactMap set [_targetId, _existing];
+                [_observer, _x, _groupId, _contactMap, _viewerSide] call _mergeContact;
             } forEach (_observer targets [false, 0, [], 120]);
         };
     } forEach _groups;
@@ -401,33 +477,7 @@ private _runSection =
         private _groupId = [group player, "group"] call AAB_fnc_getStableEntityId;
         {
             _x params ["_target"];
-            private _knowledge = _sensorObserver targetKnowledge _target;
-            _knowledge params ["_knownByGroup", "_knownByUnit", "_lastSeen", "_lastThreat", "_perceivedSide", "_error", "_estimated", ["_ignored", false]];
-            private _targetId = [_target, "contact"] call AAB_fnc_getStableEntityId;
-            private _existing = _contactMap getOrDefault [_targetId, createHashMap];
-            private _sources = _existing getOrDefault ["observerGroupSourceIds", []];
-            _sources pushBackUnique _groupId;
-            private _lastSeenAge = if (_lastSeen < 0) then { -1 } else { (time - _lastSeen) max 0 };
-            private _replace = (count _existing) isEqualTo 0 || { _error < (_existing getOrDefault ["positionErrorMeters", 100000]) } ||
-                { _error isEqualTo (_existing getOrDefault ["positionErrorMeters", 100000]) && { _lastSeenAge < (_existing getOrDefault ["lastSeenAgeSeconds", 100000]) } };
-            if (_replace) then
-            {
-                private _broadType = if (_target isKindOf "CAManBase") then { "person" } else
-                { if (_target isKindOf "Air") then { "air" } else { if (_target isKindOf "LandVehicle") then { "ground-vehicle" } else { if (_target isKindOf "Ship") then { "naval" } else { "other" } } } };
-                _existing = createHashMapFromArray
-                [
-                    ["sourceId", _targetId], ["class", typeOf _target], ["broadType", _broadType],
-                    ["perceivedSide", str _perceivedSide], ["estimatedPosition", _estimated],
-                    ["positionErrorMeters", _error max 0], ["lastSeenAgeSeconds", _lastSeenAge],
-                    ["lastThreatAgeSeconds", if (_lastThreat < 0) then { -1 } else { (time - _lastThreat) max 0 }],
-                    ["observerGroupSourceIds", _sources]
-                ];
-            }
-            else
-            {
-                _existing set ["observerGroupSourceIds", _sources];
-            };
-            _contactMap set [_targetId, _existing];
+            [_sensorObserver, _target, _groupId, _contactMap, _viewerSide] call _mergeContact;
         } forEach (getSensorTargets _sensorObserver);
     };
     private _contacts = [];

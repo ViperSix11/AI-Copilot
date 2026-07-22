@@ -162,47 +162,41 @@ public sealed class Release08CompletionTests
     }
 
     [Fact]
-    public async Task GlobalHotkey_RegistersDefaultIgnoresRepeatAndStopsOnceOnRelease()
+    public async Task GlobalRawInput_StartsOnPressAndStopsOnceOnRelease()
     {
-        FakeGlobalHotkey hotkey = new();
-        FakeKeyState keys = new();
-        TaskCompletionSource releasePoll = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        FakeGlobalInput input = new();
         int starts = 0, stops = 0;
         using GlobalPushToTalkController controller = new(
-            hotkey,
-            keys,
+            input,
             (_, _) => { starts++; return Task.FromResult(true); },
-            _ => { stops++; return Task.CompletedTask; },
-            (_, token) => releasePoll.Task.WaitAsync(token));
+            _ => { stops++; return Task.CompletedTask; });
 
-        GlobalHotkeyRegistrationResult registration = controller.Configure(GlobalPushToTalkHotkey.Default);
+        GlobalInputRegistrationResult registration = controller.Configure(GlobalPushToTalkHotkey.Default);
         Assert.True(registration.Registered);
-        Assert.Equal(GlobalHotkeyModifiers.Shift, hotkey.LastBinding!.Modifiers);
-        Assert.Equal(0x20, hotkey.LastBinding.VirtualKey);
+        Assert.Equal(GlobalHotkeyModifiers.Shift, input.Binding.Modifiers);
+        Assert.Equal(0x20, input.Binding.VirtualKey);
 
-        hotkey.Raise();
-        hotkey.Raise();
+        input.Press();
+        input.Press();
         Assert.Equal(1, starts);
-        keys.Down = false;
-        releasePoll.SetResult();
+        input.Release();
+        input.Release();
         await WaitUntilAsync(() => stops == 1);
         Assert.Equal(1, stops);
     }
 
     [Fact]
-    public void GlobalHotkey_ReportsConflictWithoutFallbackAndDefersChangesWhileRecordingContract()
+    public void GlobalRawInput_ReportsRegistrationFailureWithoutFallback()
     {
-        FakeGlobalHotkey hotkey = new() { Registration = new(false, "conflict", "in use") };
+        FakeGlobalInput input = new() { Registration = new(false, "raw-input-registration-failed", "unavailable") };
         using GlobalPushToTalkController controller = new(
-            hotkey,
-            new FakeKeyState(),
+            input,
             (_, _) => Task.FromResult(false),
             _ => Task.CompletedTask);
 
-        GlobalHotkeyRegistrationResult result = controller.Configure(GlobalPushToTalkHotkey.Default);
+        GlobalInputRegistrationResult result = controller.Configure(GlobalPushToTalkHotkey.Default);
         Assert.False(result.Registered);
-        Assert.Equal("conflict", result.Code);
-        Assert.Equal(1, hotkey.RegisterCalls);
+        Assert.Equal("raw-input-registration-failed", result.Code);
         Assert.Equal(GlobalPushToTalkHotkey.Default, controller.Binding);
     }
 
@@ -233,53 +227,43 @@ public sealed class Release08CompletionTests
     }
 
     [Fact]
-    public async Task GlobalHotkey_ChangingDuringRecordingKeepsFrozenReleaseKeyAndRegistersAfterRelease()
+    public async Task GlobalRawInput_ChangingDuringRecordingAppliesAfterRelease()
     {
-        FakeGlobalHotkey hotkey = new();
-        FakeKeyState keys = new();
-        TaskCompletionSource releasePoll = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        FakeGlobalInput input = new();
         int stops = 0;
         using GlobalPushToTalkController controller = new(
-            hotkey,
-            keys,
+            input,
             (_, _) => Task.FromResult(true),
-            _ => { stops++; return Task.CompletedTask; },
-            (_, token) => releasePoll.Task.WaitAsync(token));
+            _ => { stops++; return Task.CompletedTask; });
         controller.Configure(GlobalPushToTalkHotkey.Default);
-        hotkey.Raise();
+        input.Press();
         GlobalPushToTalkHotkey next = new(true, GlobalHotkeyModifiers.Control | GlobalHotkeyModifiers.Shift, 0x56);
 
-        GlobalHotkeyRegistrationResult deferred = controller.Configure(next);
+        GlobalInputRegistrationResult deferred = controller.Configure(next);
 
         Assert.Equal("deferred", deferred.Code);
-        Assert.Equal(GlobalPushToTalkHotkey.Default, hotkey.LastBinding);
-        keys.Down = false;
-        releasePoll.SetResult();
-        await WaitUntilAsync(() => stops == 1 && hotkey.LastBinding == next);
-        Assert.Equal(0x20, keys.LastVirtualKey);
-        Assert.Equal(next, hotkey.LastBinding);
+        Assert.Equal(GlobalPushToTalkHotkey.Default, input.Binding);
+        input.Release();
+        await WaitUntilAsync(() => stops == 1 && input.Binding == next);
+        Assert.Equal(next, input.Binding);
     }
 
     [Fact]
-    public void GlobalHotkey_DisableAndShutdownUnregisterWithoutFallback()
+    public void GlobalRawInput_DisableKeepsProcessRegistrationAndControllerDoesNotOwnService()
     {
-        FakeGlobalHotkey hotkey = new();
+        FakeGlobalInput input = new();
         GlobalPushToTalkController controller = new(
-            hotkey,
-            new FakeKeyState(),
+            input,
             (_, _) => Task.FromResult(false),
             _ => Task.CompletedTask);
         controller.Configure(GlobalPushToTalkHotkey.Default);
-        int beforeDisable = hotkey.UnregisterCalls;
 
-        GlobalHotkeyRegistrationResult disabled = controller.Configure(
+        GlobalInputRegistrationResult disabled = controller.Configure(
             GlobalPushToTalkHotkey.Default with { Enabled = false });
 
         Assert.Equal("disabled", disabled.Code);
-        Assert.True(hotkey.UnregisterCalls > beforeDisable);
         controller.Dispose();
-        Assert.True(hotkey.Disposed);
-        Assert.True(hotkey.UnregisterCalls > beforeDisable + 1);
+        Assert.False(input.Disposed);
     }
 
     [Fact]
@@ -301,10 +285,12 @@ public sealed class Release08CompletionTests
         Assert.Contains("getTerrainHeightASL", execute, StringComparison.Ordinal);
         Assert.DoesNotContain("compile", execute, StringComparison.OrdinalIgnoreCase);
         string hotkey = File.ReadAllText(Path.Combine(root,
-            "src/ArmaAiBridge.App/Services/WindowsGlobalHotkeyService.cs"));
-        Assert.Contains("RegisterHotKey", hotkey, StringComparison.Ordinal);
-        Assert.Contains("WmHotkey = 0x0312", hotkey, StringComparison.Ordinal);
-        Assert.Contains("GetAsyncKeyState", hotkey, StringComparison.Ordinal);
+            "src/ArmaAiBridge.App/Services/WindowsRawInputHotkeyService.cs"));
+        Assert.Contains("RegisterRawInputDevices", hotkey, StringComparison.Ordinal);
+        Assert.Contains("GetRawInputData", hotkey, StringComparison.Ordinal);
+        Assert.Contains("RidevInputSink", hotkey, StringComparison.Ordinal);
+        Assert.DoesNotContain("RegisterHotKey", hotkey, StringComparison.Ordinal);
+        Assert.DoesNotContain("GetAsyncKeyState", hotkey, StringComparison.Ordinal);
         Assert.DoesNotContain("SetWindowsHookEx", hotkey, StringComparison.Ordinal);
         Assert.DoesNotContain("SendInput", hotkey, StringComparison.Ordinal);
         Assert.DoesNotContain("OpenProcess", hotkey, StringComparison.Ordinal);
@@ -316,7 +302,8 @@ public sealed class Release08CompletionTests
         "30Rnd_65x39_caseless_mag", "6.5 millimetre magazine",
         "B_65x39_Caseless", "6.5 millimetre bullet", "shotBullet",
         30, 200, 2, 800, -0.0008, 1, 800,
-        new WorldPosition(1000, 2000, 100), false);
+        new WorldPosition(1000, 2000, 100), false,
+        false, false, "", "3.21.x", false, false, 0, "vanilla-profile");
 
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
@@ -332,29 +319,24 @@ public sealed class Release08CompletionTests
         return directory?.FullName ?? throw new DirectoryNotFoundException("Repository root not found.");
     }
 
-    private sealed class FakeGlobalHotkey : IGlobalHotkeyService
+    private sealed class FakeGlobalInput : IGlobalPushToTalkInputService
     {
-        public event EventHandler? Activated;
-        public GlobalHotkeyRegistrationResult Registration { get; init; } = new(true, "registered", "Registered");
-        public GlobalPushToTalkHotkey? LastBinding { get; private set; }
-        public int RegisterCalls { get; private set; }
-        public int UnregisterCalls { get; private set; }
+        public event EventHandler? HotkeyPressed;
+        public event EventHandler? HotkeyReleased;
+        public event EventHandler<GlobalInputRegistrationResult>? RegistrationStatusChanged;
+        public GlobalInputRegistrationResult Registration { get; init; } = new(true, "raw-input-registered", "Registered");
+        public GlobalPushToTalkHotkey Binding { get; private set; } = GlobalPushToTalkHotkey.Default;
         public bool Disposed { get; private set; }
-        public GlobalHotkeyRegistrationResult Register(GlobalPushToTalkHotkey binding)
+        public GlobalInputRegistrationResult Configure(GlobalPushToTalkHotkey binding)
         {
-            RegisterCalls++;
-            LastBinding = binding;
-            return Registration;
+            Binding = binding;
+            return binding.Enabled ? Registration : GlobalInputRegistrationResult.Disabled;
         }
-        public void Raise() => Activated?.Invoke(this, EventArgs.Empty);
-        public void Unregister() => UnregisterCalls++;
+        public void Press() => HotkeyPressed?.Invoke(this, EventArgs.Empty);
+        public void Release() => HotkeyReleased?.Invoke(this, EventArgs.Empty);
+        public void SuspendRecognition() { }
+        public GlobalInputRegistrationResult ResumeRecognition() => Registration;
+        public void Status(GlobalInputRegistrationResult result) => RegistrationStatusChanged?.Invoke(this, result);
         public void Dispose() => Disposed = true;
-    }
-
-    private sealed class FakeKeyState : IKeyStateService
-    {
-        public bool Down { get; set; } = true;
-        public int LastVirtualKey { get; private set; }
-        public bool IsKeyDown(int virtualKey) { LastVirtualKey = virtualKey; return Down; }
     }
 }

@@ -4,6 +4,14 @@
 
 OpenAI may understand the request, select inputs and explain the result. It must never be the numerical ballistic solver. Every value presented as a firing solution comes from a deterministic, versioned service using the active weapon/ammunition/scope/environment profile.
 
+Release 0.8 additionally supports local user-managed profiles under the closed
+`arma-ai-bridge/ballistic-profiles-v1` schema. Exact class matches are
+case-sensitive, blank match fields are wildcards, explicit priority precedes
+specificity and equal candidates fail closed. Manual values override ballistic
+characteristics only; current weapon/ammunition identity, zero, shooter position
+and frozen weather remain authoritative live Arma state. Full coefficient and
+velocity/temperature/barrel tables never enter OpenAI context or logs.
+
 ## User interaction
 
 Minimum request:

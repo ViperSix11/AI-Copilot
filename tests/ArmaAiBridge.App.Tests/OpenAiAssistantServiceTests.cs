@@ -10,7 +10,7 @@ namespace ArmaAiBridge.App.Tests;
 public sealed class OpenAiAssistantServiceTests
 {
     private const string ValidToolArguments = """
-        {"shape":"circle","direction":"view","rangeMeters":300,"angleDegrees":90,"categories":["building"],"maxResultsPerCategory":10}
+        {"rangeMeters":300,"bearingDegrees":90,"targetElevationAslMeters":null,"targetHeightAboveTerrainMeters":null}
         """;
     private const string WorldSnapshot = """
         {"schema":"arma-ai-bridge/world-snapshot-v1","purpose":"current-situation","map":{"name":"Altis","sizeMeters":30720},"player":{"entityId":"player:self","side":"WEST","viewHeading":42}}
@@ -503,7 +503,7 @@ public sealed class OpenAiAssistantServiceTests
     }
 
     [Fact]
-    public async Task StandardTurnsHaveNoToolsAndExplicitTerrainTurnHasOnlyStrictEnvironmentTool()
+    public async Task StandardAndTerrainTurnsHaveNoArbitraryEnvironmentTool()
     {
         ScriptedHandler handler = new((requestNumber, request) =>
         {
@@ -512,16 +512,8 @@ public sealed class OpenAiAssistantServiceTests
                 Assert.False(request.TryGetProperty("tools", out _));
                 return FinalResponse("Position received.");
             }
-            JsonElement[] tools = request.GetProperty("tools").EnumerateArray().ToArray();
-            JsonElement tool = Assert.Single(tools);
-            Assert.Equal("query_environment", tool.GetProperty("name").GetString());
-            Assert.True(tool.GetProperty("strict").GetBoolean());
-            JsonElement parameters = tool.GetProperty("parameters");
-            Assert.False(parameters.GetProperty("additionalProperties").GetBoolean());
-            Assert.Equal(
-                parameters.GetProperty("properties").EnumerateObject().Select(item => item.Name).OrderBy(item => item).ToArray(),
-                parameters.GetProperty("required").EnumerateArray().Select(item => item.GetString()!).OrderBy(item => item).ToArray());
-            return FinalResponse("Terrain tool available.");
+            Assert.False(request.TryGetProperty("tools", out _));
+            return FinalResponse("Only official named geography is available.");
         });
         using HttpClient httpClient = Client(handler);
         using OpenAiAssistantService service = new(httpClient);
@@ -539,7 +531,7 @@ public sealed class OpenAiAssistantServiceTests
             TestContext.Current.CancellationToken);
 
         Assert.Equal(0, standard.RequestMetrics!.SelectedToolCount);
-        Assert.Equal(1, terrain.RequestMetrics!.SelectedToolCount);
+        Assert.Equal(0, terrain.RequestMetrics!.SelectedToolCount);
     }
 
     [Fact]
@@ -754,7 +746,7 @@ public sealed class OpenAiAssistantServiceTests
     public async Task DiagnosticLog_RedactsApiKeyConversationSnapshotAndToolResults()
     {
         const string apiKey = "sk-super-secret-key";
-        const string question = "What terrain objects are nearby? SECRET QUESTION";
+        const string question = "Give me a firing solution at range three hundred, bearing zero-nine-zero. SECRET QUESTION";
         const string secretMap = "SECRET MAP";
         const string toolResult = "SECRET TOOL RESULT";
         const string customStyle = "SECRET CUSTOM STYLE";
@@ -802,7 +794,9 @@ public sealed class OpenAiAssistantServiceTests
         OpenAiAssistantService service,
         Func<JsonElement, CancellationToken, Task<string>> query,
         CancellationToken cancellationToken)
-        => service.AskAsync("test-key", "gpt-5-mini", "What is nearby?", WorldSnapshot, query, cancellationToken);
+        => service.AskAsync(
+            "test-key", "gpt-5-mini", "Give me a firing solution at range three hundred, bearing zero-nine-zero.",
+            WorldSnapshot, (name, arguments, token) => query(arguments, token), cancellationToken);
 
     private static HttpClient Client(HttpMessageHandler handler) => new(handler)
     {
@@ -828,7 +822,7 @@ public sealed class OpenAiAssistantServiceTests
         Assert.Contains(input, item =>
             ReadString(item, "type") == "function_call" &&
             ReadString(item, "call_id") == callId &&
-            ReadString(item, "name") == "query_environment" &&
+            ReadString(item, "name") == "calculate_firing_solution" &&
             ReadString(item, "arguments") == ValidToolArguments);
         Assert.Contains(input, item =>
             ReadString(item, "type") == "function_call_output" &&
@@ -867,7 +861,7 @@ public sealed class OpenAiAssistantServiceTests
     }
 
     private static HttpResponseMessage ToolResponse(
-        string reasoningId, string callId, string arguments, string name = "query_environment") => Json(
+        string reasoningId, string callId, string arguments, string name = "calculate_firing_solution") => Json(
         HttpStatusCode.OK,
         JsonSerializer.Serialize(new
         {

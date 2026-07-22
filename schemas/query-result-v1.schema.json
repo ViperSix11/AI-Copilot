@@ -19,6 +19,16 @@
         "analysis": { "type": "object" },
         "position": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number" } },
         "terrainHeightAslMeters": { "type": "number", "minimum": -1000, "maximum": 10000 }
+        ,"available": { "type": "boolean" }
+        ,"reason": { "type": "string", "maxLength": 128 }
+        ,"model": { "enum": ["ace3-advanced-ballistics"] }
+        ,"nominalSolution": { "type": "boolean" }
+        ,"rangeMeters": { "type": "number", "minimum": 25, "maximum": 5000 }
+        ,"bearingDegrees": { "type": "number", "minimum": 0, "exclusiveMaximum": 360 }
+        ,"elevationCorrectionMilliradians": { "type": "number" }
+        ,"horizontalCorrectionMilliradians": { "type": "number" }
+        ,"timeOfFlightSeconds": { "type": "number", "minimum": 0, "maximum": 30 }
+        ,"predictedImpactVelocityMetersPerSecond": { "type": "number", "minimum": 0, "maximum": 10000 }
       },
       "additionalProperties": true
     }

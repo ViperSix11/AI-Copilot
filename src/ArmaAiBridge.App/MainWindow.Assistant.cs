@@ -15,7 +15,7 @@ public partial class MainWindow
         TabControl? tabs = FindVisualChild<TabControl>(this);
         if (tabs is null) return;
         _assistantPanel = new AssistantPanel(
-            _pipeServer, _settingsService, _log, _worldSnapshotBuilder);
+            _pipeServer, _settingsService, _log, _worldSnapshotBuilder, _rawInputHotkeyService);
         _worldStateDiagnosticsPanel = new WorldStateDiagnosticsPanel(
             _worldStateStore, _worldSnapshotBuilder, _mapGazetteerStore, _stateRepository);
         tabs.Items.Insert(1, new TabItem { Header = "Assistant", Content = _assistantPanel });

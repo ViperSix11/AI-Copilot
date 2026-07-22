@@ -60,6 +60,12 @@ switch (_command) do
             ]];
         };
     };
+    case "calculate_ace_firing_solution":
+    {
+        private _result = [_parameters] call AAB_fnc_calculateAceFiringSolution;
+        _response set ["ok", true];
+        _response set ["result", _result];
+    };
     case "request_map_gazetteer":
     {
         [_requestId] spawn AAB_fnc_publishMapGazetteer;

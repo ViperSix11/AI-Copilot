@@ -100,8 +100,9 @@
       "required": ["available", "reason", "model", "supportedProjectileType", "weaponClass", "weaponDisplayName", "muzzleClass", "fireMode", "magazineClass", "magazineDisplayName", "ammunitionClass", "ammunitionDisplayName", "simulation", "loadedRounds", "currentZeroingMeters", "currentZeroingIndex", "initialSpeedMetersPerSecond", "airFriction", "gravityCoefficient", "typicalSpeedMetersPerSecond", "shooterPositionASL", "advancedBallisticsDetected"],
       "properties": {
         "available": { "type": "boolean" },
-        "reason": { "enum": ["", "unsupported_projectile", "missing_ballistic_config", "advanced_ballistics_mod_detected", "no_current_weapon"] },
-        "model": { "const": "arma-vanilla-config" },
+        "reason": { "enum": ["", "unsupported_projectile", "missing_ballistic_config", "advanced_ballistics_mod_detected", "no_current_weapon", "ace_advanced_ballistics_interface_unsupported", "ace_advanced_ballistics_version_unsupported", "ace_ballistic_profile_incomplete"] },
+        "model": { "enum": ["arma-vanilla-config", "ace3-advanced-ballistics"] },
+        "mode": { "enum": ["vanilla", "ace3-advanced", "unavailable"] },
         "supportedProjectileType": { "enum": ["", "bullet", "shell"] },
         "weaponClass": { "$ref": "#/$defs/text" }, "weaponDisplayName": { "$ref": "#/$defs/text" },
         "muzzleClass": { "$ref": "#/$defs/text" }, "fireMode": { "$ref": "#/$defs/text" },
@@ -114,7 +115,13 @@
         "airFriction": { "type": "number", "minimum": -10, "maximum": 10 },
         "gravityCoefficient": { "type": "number", "minimum": 0, "maximum": 100 },
         "typicalSpeedMetersPerSecond": { "type": "number", "minimum": 0, "maximum": 10000 },
-        "shooterPositionASL": { "$ref": "#/$defs/vector" }, "advancedBallisticsDetected": { "type": "boolean" }
+        "shooterPositionASL": { "$ref": "#/$defs/vector" }, "advancedBallisticsDetected": { "type": "boolean" },
+        "aceAdvancedBallisticsEnabled": { "type": "boolean" }, "aceAdapterAvailable": { "type": "boolean" },
+        "aceVersion": { "$ref": "#/$defs/text" }, "aceSupportedBaseline": { "$ref": "#/$defs/text" },
+        "aceProfileSupported": { "type": "boolean" }, "aceMuzzleVelocityVariationEnabled": { "type": "boolean" },
+        "aceTemperatureCorrectionEnabled": { "type": "boolean" }, "aceBarrelLengthCorrectionEnabled": { "type": "boolean" },
+        "aceMuzzleVelocityVariationStandardDeviationPercent": { "type": "number", "minimum": 0, "maximum": 10 },
+        "profileFingerprint": { "type": "string", "maxLength": 128 }
       },
       "additionalProperties": false
     },
@@ -160,8 +167,8 @@
       "additionalProperties": false
     },
     "contact": {
-      "type": "object", "required": ["sourceId", "class", "broadType", "perceivedSide", "estimatedPosition", "positionErrorMeters", "lastSeenAgeSeconds", "lastThreatAgeSeconds", "observerGroupSourceIds"],
-      "properties": { "sourceId": { "$ref": "#/$defs/id" }, "class": { "$ref": "#/$defs/text" }, "broadType": { "enum": ["person", "air", "ground-vehicle", "naval", "other"] }, "perceivedSide": { "type": "string", "maxLength": 32 }, "estimatedPosition": { "$ref": "#/$defs/vector" }, "positionErrorMeters": { "type": "number", "minimum": 0, "maximum": 100000 }, "lastSeenAgeSeconds": { "type": "number", "minimum": -1 }, "lastThreatAgeSeconds": { "type": "number", "minimum": -1 }, "observerGroupSourceIds": { "type": "array", "minItems": 1, "maxItems": 128, "items": { "$ref": "#/$defs/id" } } },
+      "type": "object", "required": ["sourceId", "class", "displayName", "contactType", "perceivedSide", "relationship", "estimatedPosition", "positionErrorMeters", "lastSeenAgeSeconds", "lastThreatAgeSeconds", "observerGroupSourceIds"],
+      "properties": { "sourceId": { "$ref": "#/$defs/id" }, "class": { "$ref": "#/$defs/text" }, "displayName": { "$ref": "#/$defs/optionalText" }, "contactType": { "enum": ["person", "ground-vehicle", "air", "naval", "static-weapon", "unmanned-ground", "unmanned-air"] }, "perceivedSide": { "enum": ["WEST", "EAST", "GUER", "CIV", "ENEMY"] }, "relationship": { "enum": ["friendly", "hostile", "neutral", "civilian"] }, "estimatedPosition": { "$ref": "#/$defs/vector" }, "positionErrorMeters": { "type": "number", "minimum": 0, "maximum": 100000 }, "lastSeenAgeSeconds": { "type": "number", "minimum": -1, "maximum": 600 }, "lastThreatAgeSeconds": { "type": "number", "minimum": -1, "maximum": 600 }, "observerGroupSourceIds": { "type": "array", "minItems": 1, "maxItems": 128, "items": { "$ref": "#/$defs/id" } } },
       "additionalProperties": false
     },
     "knownContacts": { "type": "object", "required": ["sampledAt", "readiness"], "allOf": [{ "if": { "properties": { "readiness": { "enum": ["ready", "stale"] } } }, "then": { "required": ["contacts"] } }], "properties": { "sampledAt": { "type": "number", "minimum": 0 }, "readiness": { "$ref": "#/$defs/readiness" }, "contacts": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/contact" } } }, "additionalProperties": false },

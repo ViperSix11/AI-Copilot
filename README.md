@@ -84,19 +84,20 @@ separate conversation model.
 - deterministic position containment, distance, bearing, cardinal direction,
   salience ranking and current/last-known interpretation;
 - local response profiles with deterministic final-text terminators.
-- deterministic Vanilla-config bullet/shell firing solutions with current
-  zeroing, terrain-height lookup and fail-closed advanced-ballistics detection;
-- conditional 1.5-second English radio acknowledgements and deterministic
+- deterministic Vanilla-config firing solutions when ACE Advanced Ballistics is
+  inactive, plus a version-gated ACE3 3.21.x runtime adapter when it is active;
+- conditional five-second English radio acknowledgements and deterministic
   speech-safe number/unit normalization;
-- configurable system-wide press-and-hold push-to-talk, default Shift + Space,
-  using documented Windows hotkey registration without hooks or injection.
+- configurable background press-and-hold push-to-talk, default Shift + Space,
+  using verified Windows Raw Input without hooks, injection or key suppression;
+- versioned local ballistic profiles with strict class matching, validation and
+  compact deterministic firing-solution results.
 
 ### Local read tools
 
 The current assistant may use only validated read-only tools:
 
 ```text
-query_environment(shape, direction, rangeMeters, angleDegrees, categories, maxResultsPerCategory)
 query_friendly_forces(entityType, maxDistanceMeters, includeStale, limit)
 query_assets(kind, availableOnly, maxDistanceMeters, includeStale, limit)
 query_mission_capabilities(enabledOnly, includeStale)
@@ -211,8 +212,8 @@ Version 0.8 does not provide:
 - player-reported observations or persistent operational memory;
 - persistent, runtime-object or full-static-map indexing;
 - perception of empty vehicles and other non-contact objects;
-- ACE integration, advanced-ballistics approximation, wind hold or optic-click
-  calculation;
+- ACE versions outside the documented 3.21.x adapter baseline, powered/guided
+  projectiles, or optic-click calculation;
 - route planning, landing-zone scoring or support execution;
 - hardened multiplayer packaging, signatures or installer/updater support.
 

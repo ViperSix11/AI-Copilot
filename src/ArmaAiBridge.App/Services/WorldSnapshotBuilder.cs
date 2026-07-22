@@ -249,6 +249,15 @@ public sealed class WorldSnapshotBuilder
     public StateBallisticProfile? GetCurrentBallisticProfile()
         => _stateRepository?.GetLoadout()?.BallisticProfile;
 
+    public StateEnvironment? GetCurrentEnvironment()
+        => _stateRepository?.GetEnvironment();
+
+    public void SetBallisticCapabilityFactory(Func<StateBallisticProfile?, object> factory)
+    {
+        if (_operationalSnapshotBuilder is not null)
+            _operationalSnapshotBuilder.BallisticCapabilityFactory = factory ?? throw new ArgumentNullException(nameof(factory));
+    }
+
     private string BuildMirroredFriendlyForces(JsonElement arguments)
     {
         string entityType = ReadEnum(arguments, "entityType", "group", "unit", "vehicle", "all");
@@ -343,6 +352,7 @@ public sealed class WorldSnapshotBuilder
     private static object[] Contacts(IReadOnlyList<WorldKnownContactState> contacts)
         => contacts
             .Where(contact => contact.Metadata.FreshnessClass != WorldFreshness.Historical)
+            .Where(LegacyContactEligibilityPolicy.IsEligible)
             .OrderBy(contact => contact.Alias, StringComparer.Ordinal)
             .Take(32)
             .Select(contact => (object)Contact(contact))
@@ -351,8 +361,8 @@ public sealed class WorldSnapshotBuilder
     private static Dictionary<string, object?> Contact(WorldKnownContactState contact)
     {
         Dictionary<string, object?> result = Metadata(contact.Metadata);
-        result["class"] = contact.Class;
-        result["displayName"] = contact.DisplayName;
+        string relationship = LegacyContactEligibilityPolicy.NormalizeRelationship(contact.Relationship);
+        result["description"] = $"{relationship} {LegacyContactNoun(contact.TargetType)}";
         result["knownByPlayer"] = contact.KnownByPlayer;
         result["knownByGroup"] = contact.KnownByGroup;
         result["lastSeenAgeSeconds"] = Round(contact.LastSeenAgeSeconds);
@@ -360,10 +370,21 @@ public sealed class WorldSnapshotBuilder
         result["perceivedSide"] = contact.PerceivedSide;
         result["ignored"] = contact.Ignored;
         result["targetType"] = contact.TargetType;
-        result["relationship"] = contact.Relationship;
+        result["relationship"] = relationship;
         result["sensors"] = contact.Sensors;
         return result;
     }
+
+    private static string LegacyContactNoun(string targetType) => targetType switch
+    {
+        "person" or "Man" => "infantry",
+        "air" or "Air" => "aircraft",
+        "naval" or "Ship" => "naval vessel",
+        "static-weapon" or "StaticWeapon" => "static weapon",
+        "unmanned-ground" or "UGV" => "unmanned ground vehicle",
+        "unmanned-air" or "UAV" => "unmanned aircraft",
+        _ => "ground vehicle"
+    };
 
     private static Dictionary<string, object?> FriendlyForceSummary(WorldStateView view)
         => new()

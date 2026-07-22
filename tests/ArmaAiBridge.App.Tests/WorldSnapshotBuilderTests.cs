@@ -21,6 +21,7 @@ public sealed class WorldSnapshotBuilderTests
         ingest.Ingest(WorldModelTestData.Telemetry(
             group: groupLabel,
             contacts: new[] { WorldModelTestData.Contact(rawContactId) },
+            sensorContacts: new[] { WorldModelTestData.Sensor(rawContactId) },
             vehicle: WorldModelTestData.Vehicle()));
 
         string json = snapshots.BuildCurrentSituation();

@@ -26,12 +26,14 @@ public partial class MainWindow : Window
     private readonly TelemetryIngestService _telemetryIngestService;
     private readonly MapGazetteerCoordinator _mapGazetteerCoordinator;
     private readonly StateMirrorIngestService _stateMirrorIngestService;
+    private readonly WindowsRawInputHotkeyService _rawInputHotkeyService;
     private long _snapshotCount;
     private string? _pendingRequestId;
 
     public MainWindow()
     {
         InitializeComponent();
+        _rawInputHotkeyService = new WindowsRawInputHotkeyService();
         _pipeServer = new TelemetryPipeServer(_log);
         _worldStateStore = new WorldStateStore();
         _mapGazetteerStore = new MapGazetteerStore();
@@ -69,6 +71,7 @@ public partial class MainWindow : Window
     private async void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
         _assistantPanel?.Dispose();
+        _rawInputHotkeyService.Dispose();
         _worldStateDiagnosticsPanel?.Dispose();
         _mapGazetteerCoordinator.Dispose();
         _stateMirrorIngestService.Dispose();

@@ -272,6 +272,7 @@ public sealed class MapGazetteerStore
         string key = Required(item, "key", 128);
         string name = Required(item, "name", 160);
         string type = Required(item, "type", 64);
+        if (!NamedLocationEligibilityPolicy.IsAllowed(type)) throw Invalid("gazetteer_location_type_ineligible");
         JsonElement position = RequiredArray(item, "position");
         if (position.GetArrayLength() != 2) throw Invalid("gazetteer_position_invalid");
         double x = ElementNumber(position[0], -50000, 500000, "gazetteer_position_invalid");

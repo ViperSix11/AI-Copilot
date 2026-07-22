@@ -6,7 +6,7 @@ namespace ArmaAiBridge.App.Services;
 
 public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
 {
-    public static readonly TimeSpan AcknowledgementDelay = TimeSpan.FromMilliseconds(1500);
+    public static readonly TimeSpan AcknowledgementDelay = TimeSpan.FromMilliseconds(5000);
     private readonly IOpenAiAssistantService _assistant;
     private readonly Func<string, (bool Success, string Snapshot)> _snapshotFactory;
     private readonly Func<CancellationToken, Task<(string ApiKey, string Model, ResponseProfileSettings Profile)>> _settingsFactory;
@@ -17,6 +17,7 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
     private readonly RadioAcknowledgementService _acknowledgements;
     private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _acknowledgementDelay;
+    private readonly Func<TimeSpan, CancellationToken, Task> _acknowledgementWait;
     private readonly SemaphoreSlim _turnGate = new(1, 1);
     private bool _disposed;
 
@@ -30,7 +31,8 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
         Func<StateBallisticProfile?>? ballisticProfileFactory = null,
         Func<string, JsonElement, AssistantToolContext, CancellationToken, Task<string>>? contextualExecuteTool = null,
         TimeProvider? timeProvider = null,
-        TimeSpan? acknowledgementDelay = null)
+        TimeSpan? acknowledgementDelay = null,
+        Func<TimeSpan, CancellationToken, Task>? acknowledgementWait = null)
     {
         _assistant = assistant ?? throw new ArgumentNullException(nameof(assistant));
         ArgumentNullException.ThrowIfNull(snapshotFactory);
@@ -43,6 +45,7 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
         _acknowledgements = acknowledgements ?? new RadioAcknowledgementService();
         _timeProvider = timeProvider ?? TimeProvider.System;
         _acknowledgementDelay = acknowledgementDelay ?? AcknowledgementDelay;
+        _acknowledgementWait = acknowledgementWait ?? ((duration, token) => Task.Delay(duration, _timeProvider, token));
     }
 
     public AssistantTurnService(
@@ -55,7 +58,8 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
         Func<StateBallisticProfile?>? ballisticProfileFactory = null,
         Func<string, JsonElement, AssistantToolContext, CancellationToken, Task<string>>? contextualExecuteTool = null,
         TimeProvider? timeProvider = null,
-        TimeSpan? acknowledgementDelay = null)
+        TimeSpan? acknowledgementDelay = null,
+        Func<TimeSpan, CancellationToken, Task>? acknowledgementWait = null)
     {
         _assistant = assistant ?? throw new ArgumentNullException(nameof(assistant));
         _snapshotFactory = snapshotFactory ?? throw new ArgumentNullException(nameof(snapshotFactory));
@@ -67,6 +71,7 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
         _acknowledgements = acknowledgements ?? new RadioAcknowledgementService();
         _timeProvider = timeProvider ?? TimeProvider.System;
         _acknowledgementDelay = acknowledgementDelay ?? AcknowledgementDelay;
+        _acknowledgementWait = acknowledgementWait ?? ((duration, token) => Task.Delay(duration, _timeProvider, token));
     }
 
     public async Task<AssistantResponse> SubmitUserTurnAsync(
@@ -126,7 +131,7 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
                     : _contextualExecuteTool(name, arguments, toolContext, token),
                 cancellationToken);
             using CancellationTokenSource acknowledgementCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            Task delay = Task.Delay(_acknowledgementDelay, _timeProvider, cancellationToken);
+            Task delay = _acknowledgementWait(_acknowledgementDelay, cancellationToken);
             Task acknowledgementDelivery = Task.CompletedTask;
             RadioAcknowledgement? acknowledgement = null;
             bool acknowledgementEmitted = false;

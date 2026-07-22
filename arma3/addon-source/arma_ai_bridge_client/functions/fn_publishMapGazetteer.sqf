@@ -83,6 +83,12 @@ if ((count _entries) > 8192) exitWith
 
 private _locations = [];
 private _invalid = false;
+private _allowedTypes =
+[
+    "Name", "NameCityCapital", "NameCity", "NameVillage", "CityCenter", "NameLocal",
+    "Airport", "Strategic", "StrongpointArea", "Mount", "Hill", "ViewPoint", "NameMarine",
+    "BorderCrossing", "HistoricalSite", "CulturalProperty", "CivilDefense"
+];
 {
     private _key = configName _x;
     private _name = getText (_x >> "name");
@@ -91,6 +97,7 @@ private _invalid = false;
     private _radiusA = getNumber (_x >> "radiusA");
     private _radiusB = getNumber (_x >> "radiusB");
     private _angle = getNumber (_x >> "angle");
+    if !(_type in _allowedTypes) then { continue; };
     if
     (
         !(_key isEqualType "") || { count _key < 1 } || { count _key > 128 } ||

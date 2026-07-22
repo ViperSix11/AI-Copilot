@@ -22,6 +22,8 @@ class CfgFunctions
             class collectTelemetry {};
             class collectContacts {};
             class collectSensorContacts {};
+            class normalizeKnownContact {};
+            class calculateAceFiringSolution {};
             class getStableEntityId {};
             class initialiseSession {};
             class publishWorldEvent {};

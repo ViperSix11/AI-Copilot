@@ -282,15 +282,17 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
         }
         text.AppendLine();
 
+        WorldKnownContactState[] eligibleContacts = view.KnownContacts
+            .Where(LegacyContactEligibilityPolicy.IsEligible).ToArray();
         foreach (WorldFreshness freshness in Enum.GetValues<WorldFreshness>())
         {
-            int count = view.KnownContacts.Count(contact => contact.Metadata.FreshnessClass == freshness);
+            int count = eligibleContacts.Count(contact => contact.Metadata.FreshnessClass == freshness);
             text.AppendLine($"Contacts {freshness.ToString().ToLowerInvariant()}: {count}");
         }
-        if (view.KnownContacts.Count > 0)
+        if (eligibleContacts.Length > 0)
         {
             text.AppendLine();
-            foreach (WorldKnownContactState contact in view.KnownContacts.Take(64))
+            foreach (WorldKnownContactState contact in eligibleContacts.Take(64))
             {
                 text.AppendLine(
                     $"{contact.Alias}: {contact.Class} / {contact.PerceivedSide} / " +

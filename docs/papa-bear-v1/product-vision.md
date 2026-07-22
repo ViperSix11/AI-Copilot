@@ -43,8 +43,9 @@ runtime mission objects.
 - no full static map index, runtime terrain-object scan, SQLite map database or
   persistent operational memory;
 - no player-report memory, proactive contact reports or empty-object perception;
-- no ACE integration or approximation, routes, landing-zone scoring or support
-  execution; release 0.8 is limited to its bounded Vanilla-config firing solver;
+- no broader ACE integration, routes, landing-zone scoring or support
+  execution; release 0.8 is limited to its bounded Vanilla-config solver and
+  version-gated ACE3 Advanced Ballistics 3.21.x runtime adapter;
 - no always-on listening, wake word, streaming STT or streaming TTS;
 - no anti-cheat bypass or hidden extension loading.
 

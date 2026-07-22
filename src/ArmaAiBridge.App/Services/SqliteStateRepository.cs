@@ -10,7 +10,7 @@ namespace ArmaAiBridge.App.Services;
 
 public sealed class SqliteStateRepository : IStateRepository, IDisposable
 {
-    public const int SchemaVersion = 2;
+    public const int SchemaVersion = 3;
     public const int ProtocolVersion = 2;
     private static readonly string[] DynamicTables =
     {
@@ -161,6 +161,7 @@ public sealed class SqliteStateRepository : IStateRepository, IDisposable
                 Execute(transaction, "DELETE FROM named_locations WHERE world_key=$world;", ("$world", worldKey));
                 int ordinal = 1;
                 foreach (MapGazetteerLocation location in gazetteer.Locations
+                    .Where(item => NamedLocationEligibilityPolicy.IsAllowed(item.Type))
                     .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
                     .ThenBy(item => item.Type, StringComparer.Ordinal)
                     .ThenBy(item => item.Key, StringComparer.Ordinal))
@@ -259,7 +260,12 @@ public sealed class SqliteStateRepository : IStateRepository, IDisposable
                 Number(ballistic, "currentZeroingMeters"), Integer(ballistic, "currentZeroingIndex"),
                 Number(ballistic, "initialSpeedMetersPerSecond"), Number(ballistic, "airFriction"),
                 Number(ballistic, "gravityCoefficient"), Number(ballistic, "typicalSpeedMetersPerSecond"),
-                Vector(ballistic, "shooterPositionASL"), Boolean(ballistic, "advancedBallisticsDetected"));
+                Vector(ballistic, "shooterPositionASL"), Boolean(ballistic, "advancedBallisticsDetected"),
+                Boolean(ballistic, "aceAdvancedBallisticsEnabled"), Boolean(ballistic, "aceAdapterAvailable"),
+                Text(ballistic, "aceVersion"), Text(ballistic, "aceSupportedBaseline"),
+                Boolean(ballistic, "aceProfileSupported"), Boolean(ballistic, "aceMuzzleVelocityVariationEnabled"),
+                Number(ballistic, "aceMuzzleVelocityVariationStandardDeviationPercent"), Text(ballistic, "profileFingerprint"),
+                Boolean(ballistic, "aceTemperatureCorrectionEnabled"), Boolean(ballistic, "aceBarrelLengthCorrectionEnabled"));
             return new StateLoadout(Text(root, "primaryWeapon"), Text(root, "launcher"), Text(root, "handgun"),
                 Text(root, "selectedWeapon"), Text(root, "selectedWeaponDisplayName"), Text(root, "muzzle"),
                 Text(root, "fireMode"), Text(root, "currentMagazine"), Integer(root, "loadedRounds"),
@@ -309,10 +315,11 @@ public sealed class SqliteStateRepository : IStateRepository, IDisposable
             StateSectionMetadata? metadata = GetMetadata("knownContacts");
             if (metadata is null || (!includeStale && metadata.IsStale)) return System.Array.Empty<StateKnownContact>();
             return ReadRows("known_contacts", limit).Select(root => new StateKnownContact(
-                Text(root, "alias"), Text(root, "class"), Text(root, "broadType"), Text(root, "perceivedSide"),
+                Text(root, "alias"), Text(root, "class"), Text(root, "displayName"), Text(root, "contactType"), Text(root, "perceivedSide"),
+                Text(root, "relationship"),
                 Vector(root, "estimatedPosition"), Number(root, "positionErrorMeters"),
                 Number(root, "lastSeenAgeSeconds"), Number(root, "lastThreatAgeSeconds"),
-                Strings(root, "observerGroupAliases"), metadata)).ToArray();
+                Strings(root, "observerGroupAliases"), metadata)).Where(ContactEligibilityPolicy.IsEligible).ToArray();
         }
     }
 
@@ -362,8 +369,12 @@ public sealed class SqliteStateRepository : IStateRepository, IDisposable
             command.Parameters.AddWithValue("$limit", bounded);
             using SqliteDataReader reader = command.ExecuteReader();
             List<MapGazetteerLocation> result = new();
-            while (reader.Read()) result.Add(new MapGazetteerLocation(reader.GetString(0), reader.GetString(1), reader.GetString(2),
-                reader.GetDouble(3), reader.GetDouble(4), reader.GetDouble(5), reader.GetDouble(6), reader.GetDouble(7)));
+            while (reader.Read())
+            {
+                MapGazetteerLocation location = new(reader.GetString(0), reader.GetString(1), reader.GetString(2),
+                    reader.GetDouble(3), reader.GetDouble(4), reader.GetDouble(5), reader.GetDouble(6), reader.GetDouble(7));
+                if (NamedLocationEligibilityPolicy.IsAllowed(location.Type)) result.Add(location);
+            }
             return result;
         }
     }
@@ -509,13 +520,20 @@ public sealed class SqliteStateRepository : IStateRepository, IDisposable
             string[] groupAliases = Strings(item, "observerGroupSourceIds").Select(id => Alias("group", id)).Distinct(StringComparer.Ordinal).ToArray();
             JsonObject value = new()
             {
-                ["alias"] = alias, ["class"] = Text(item, "class"), ["broadType"] = Text(item, "broadType"),
-                ["perceivedSide"] = Text(item, "perceivedSide"), ["estimatedPosition"] = Clone(item, "estimatedPosition"),
+                ["alias"] = alias, ["class"] = Text(item, "class"), ["displayName"] = Text(item, "displayName"),
+                ["contactType"] = Text(item, "contactType"), ["perceivedSide"] = Text(item, "perceivedSide"),
+                ["relationship"] = Text(item, "relationship"), ["estimatedPosition"] = Clone(item, "estimatedPosition"),
                 ["positionErrorMeters"] = Number(item, "positionErrorMeters"),
                 ["lastSeenAgeSeconds"] = Number(item, "lastSeenAgeSeconds"),
                 ["lastThreatAgeSeconds"] = Number(item, "lastThreatAgeSeconds"),
                 ["observerGroupAliases"] = new JsonArray(groupAliases.Select(x => (JsonNode?)x).ToArray())
             };
+            StateKnownContact candidate = new(alias, Text(item, "class"), Text(item, "displayName"), Text(item, "contactType"),
+                Text(item, "perceivedSide"), Text(item, "relationship"), Vector(item, "estimatedPosition"),
+                Number(item, "positionErrorMeters"), Number(item, "lastSeenAgeSeconds"),
+                Number(item, "lastThreatAgeSeconds"), groupAliases,
+                new StateSectionMetadata("knownContacts", StateSectionReadiness.Ready, 0, DateTimeOffset.UnixEpoch, 0, false));
+            if (!ContactEligibilityPolicy.IsEligible(candidate)) continue;
             InsertEntity(tx, "known_contacts", alias, HashId("contact", raw), value);
             foreach (string groupAlias in groupAliases)
                 Execute(tx, "INSERT INTO known_contact_sources(contact_alias,group_alias) VALUES($contact,$group);",
@@ -649,6 +667,10 @@ public sealed class SqliteStateRepository : IStateRepository, IDisposable
             {
                 Execute(transaction, "ALTER TABLE state_section_metadata ADD COLUMN sampled_utc TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.0000000+00:00';");
                 Execute(transaction, "UPDATE state_section_metadata SET sampled_utc=received_utc;");
+            }
+            if (version < 3)
+            {
+                Execute(transaction, "DELETE FROM known_contact_sources; DELETE FROM known_contacts;");
             }
             Execute(transaction, $"PRAGMA user_version={SchemaVersion};");
             transaction.Commit();

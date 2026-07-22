@@ -91,8 +91,12 @@ public static class StateSnapshotParser
                     RequiredInteger(section, field, 0, 10000);
                 JsonElement ballistic = section.GetProperty("ballisticProfile");
                 RequiredBoolean(ballistic, "available"); RequiredBoolean(ballistic, "advancedBallisticsDetected");
+                foreach (string field in new[] { "aceAdvancedBallisticsEnabled", "aceAdapterAvailable", "aceProfileSupported", "aceMuzzleVelocityVariationEnabled", "aceTemperatureCorrectionEnabled", "aceBarrelLengthCorrectionEnabled" })
+                    if (ballistic.TryGetProperty(field, out _)) RequiredBoolean(ballistic, field);
                 foreach (string field in new[] { "reason", "model", "supportedProjectileType", "weaponClass", "weaponDisplayName", "muzzleClass", "fireMode", "magazineClass", "magazineDisplayName", "ammunitionClass", "ammunitionDisplayName", "simulation" })
                     RequiredString(ballistic, field, 256, allowEmpty: true);
+                foreach (string field in new[] { "mode", "aceVersion", "aceSupportedBaseline", "profileFingerprint" })
+                    if (ballistic.TryGetProperty(field, out _)) RequiredString(ballistic, field, 256, allowEmpty: true);
                 RequiredInteger(ballistic, "loadedRounds", 0, 100000);
                 RequiredInteger(ballistic, "currentZeroingIndex", -1, 10000);
                 RequiredNumber(ballistic, "currentZeroingMeters", 0, 10000);
@@ -100,6 +104,8 @@ public static class StateSnapshotParser
                 RequiredNumber(ballistic, "airFriction", -10, 10);
                 RequiredNumber(ballistic, "gravityCoefficient", 0, 100);
                 RequiredNumber(ballistic, "typicalSpeedMetersPerSecond", 0, 10000);
+                if (ballistic.TryGetProperty("aceMuzzleVelocityVariationStandardDeviationPercent", out _))
+                    RequiredNumber(ballistic, "aceMuzzleVelocityVariationStandardDeviationPercent", 0, 10);
                 Vector(ballistic, "shooterPositionASL");
                 break;
             case "friendlyForces":
@@ -125,8 +131,28 @@ public static class StateSnapshotParser
                 {
                     if (contact.ValueKind != JsonValueKind.Object || contact.TryGetProperty("actualPosition", out _))
                         throw Invalid("state_contact_invalid");
-                    RequiredString(contact, "sourceId", 128); Vector(contact, "estimatedPosition");
+                    HashSet<string> contactFields = new(StringComparer.Ordinal)
+                    {
+                        "sourceId", "class", "displayName", "contactType", "perceivedSide", "relationship",
+                        "estimatedPosition", "positionErrorMeters", "lastSeenAgeSeconds", "lastThreatAgeSeconds",
+                        "observerGroupSourceIds"
+                    };
+                    if (contact.EnumerateObject().Any(property => !contactFields.Contains(property.Name)))
+                        throw Invalid("state_contact_unknown_field");
+                    RequiredString(contact, "sourceId", 128);
+                    string contactClass = RequiredString(contact, "class", 256);
+                    if (!ContactEligibilityPolicy.IsSafeClass(contactClass)) throw Invalid("state_contact_ineligible");
+                    RequiredString(contact, "displayName", 160, allowEmpty: true);
+                    if (!ContactEligibilityPolicy.ContactTypes.Contains(RequiredString(contact, "contactType", 32)))
+                        throw Invalid("state_contact_type_invalid");
+                    if (!ContactEligibilityPolicy.PerceivedSides.Contains(RequiredString(contact, "perceivedSide", 16)))
+                        throw Invalid("state_contact_side_invalid");
+                    if (!ContactEligibilityPolicy.Relationships.Contains(RequiredString(contact, "relationship", 16)))
+                        throw Invalid("state_contact_relationship_invalid");
+                    Vector(contact, "estimatedPosition");
                     RequiredNumber(contact, "positionErrorMeters", 0, 100000);
+                    RequiredNumber(contact, "lastSeenAgeSeconds", -1, 600);
+                    RequiredNumber(contact, "lastThreatAgeSeconds", -1, 600);
                     ArrayLength(contact, "observerGroupSourceIds", 1, 128);
                 }
                 break;

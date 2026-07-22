@@ -68,6 +68,14 @@ detection. Raw classes remain local and are not copied into the compact model
 snapshot. Availability fails closed for missing config, non-bullet/shell,
 powered/guided/submunition/artillery or overriding advanced-ballistics cases.
 
+The desktop may resolve that current-shot identity against a local
+`arma-ai-bridge/ballistic-profiles-v1` document. This is not a Named Pipe or SQF
+command schema: it remains local application state and never replaces current
+weapon, muzzle, magazine, ammunition, zero, position or environmental facts.
+The model-facing capability is limited to availability, solver model, profile
+display name, current-match boolean and wind-correction availability. A tool
+result contains only the compact calculated correction, time and velocity.
+
 `query_terrain_height` is a closed read-only command accepting exactly one
 bounded two-dimensional position and returning `getTerrainHeightASL`. It exists
 only to resolve optional terrain elevation for `calculate_firing_solution`;
@@ -108,7 +116,6 @@ No action tool is exposed to OpenAI unless a corresponding capability is active.
 
 Local read-query capabilities include:
 
-- `query_environment`
 - `find_named_locations`
 - `query_friendly_forces`
 - `query_assets`
@@ -117,8 +124,11 @@ Local read-query capabilities include:
 
 `query_state` accepts only a fixed section enum, `includeStale` and a capped
 limit. It cannot accept SQL, file paths, SQF or commands. These remain local
-application reads. Standard model requests advertise no tools; only explicit
-terrain-object intent advertises strict `query_environment`.
+application reads. Standard model requests advertise no tools. The legacy
+manual environment command and bounded terrain-height lookup may remain
+internal, but no model declaration or allowed-tool route can return individual
+buildings, roads, vegetation, walls, rocks, lights or unnamed static-object
+coordinates.
 
 Once v2 is active, every operational question receives the same fixed compact
 `operational-snapshot-v1` domains with limits of five locations, eight groups,

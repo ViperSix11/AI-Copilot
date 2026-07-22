@@ -88,7 +88,17 @@ public sealed record StateBallisticProfile(
     double GravityCoefficient,
     double TypicalSpeedMetersPerSecond,
     WorldPosition ShooterPositionAsl,
-    bool AdvancedBallisticsDetected);
+    bool AdvancedBallisticsDetected,
+    bool AceAdvancedBallisticsEnabled,
+    bool AceAdapterAvailable,
+    string AceVersion,
+    string AceSupportedBaseline,
+    bool AceProfileSupported,
+    bool AceMuzzleVelocityVariationEnabled,
+    double AceMuzzleVelocityVariationStandardDeviationPercent,
+    string ProfileFingerprint,
+    bool AceTemperatureCorrectionEnabled = false,
+    bool AceBarrelLengthCorrectionEnabled = false);
 
 public sealed record StateLoadout(
     string PrimaryWeapon,
@@ -151,8 +161,10 @@ public sealed record StateFriendlyUnit(
 public sealed record StateKnownContact(
     string Alias,
     string Class,
-    string BroadType,
+    string DisplayName,
+    string ContactType,
     string PerceivedSide,
+    string Relationship,
     WorldPosition EstimatedPosition,
     double PositionErrorMeters,
     double LastSeenAgeSeconds,

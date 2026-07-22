@@ -49,9 +49,10 @@ English, one bounded max-token retry and configurable global press-and-hold PTT.
   units and the current Arma callsign permitted to differ.
 - Tools remain bounded, typed, locally validated and read-only until a later
   milestone explicitly introduces an authorized action.
-- ACE integration, routes, support execution, observation-fusion memory, full
-  map indexing and proactive notifications are deferred. Release 0.8 supports
-  only the explicitly bounded deterministic Vanilla-config ballistic solver.
+- Broader ACE integration, routes, support execution, observation-fusion
+  memory, full map indexing and proactive notifications are deferred. Release
+  0.8 supports only the bounded Vanilla solver and explicitly authorized,
+  version-gated ACE3 Advanced Ballistics 3.21.x runtime adapter.
 
 ## Active documents
 
@@ -75,6 +76,8 @@ English, one bounded max-token retry and configurable global press-and-hold PTT.
     contract.
 13. `codex-milestone-5-contextual-interpreter.md` — subordinate Phase A
     named-location, spatial-language and response-profile design.
+14. `release-0.8-raw-input-and-ballistic-profiles.md` — background Raw Input,
+    local ballistic profiles and the five-second acknowledgement patch.
 
 Other documents describe deferred designs or historical experiments. They are
 not automatically approved implementation scope. A later milestone must

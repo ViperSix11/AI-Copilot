@@ -104,8 +104,8 @@ public sealed class VanillaBallisticSolver
     {
         if (!profile.Available)
             throw new InvalidOperationException(string.IsNullOrWhiteSpace(profile.Reason) ? "missing_ballistic_config" : profile.Reason);
-        if (profile.AdvancedBallisticsDetected)
-            throw new InvalidOperationException("advanced_ballistics_mod_detected");
+        if (profile.AceAdvancedBallisticsEnabled)
+            throw new InvalidOperationException("ace_advanced_ballistics_interface_unsupported");
         if (profile.SupportedProjectileType is not ("bullet" or "shell") ||
             profile.InitialSpeedMetersPerSecond <= 0 || profile.AirFriction > 0 ||
             profile.GravityCoefficient <= 0 || !double.IsFinite(profile.InitialSpeedMetersPerSecond) ||
@@ -224,13 +224,22 @@ public sealed class BallisticToolService
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly VanillaBallisticSolver _solver;
     private readonly Func<double, double, CancellationToken, Task<double>> _terrainHeight;
+    private readonly IAceBallisticAdapter? _aceAdapter;
+    private readonly BallisticProfileManager? _profiles;
+    private readonly Func<FrozenBallisticEnvironment?>? _environment;
 
     public BallisticToolService(
         Func<double, double, CancellationToken, Task<double>> terrainHeight,
-        VanillaBallisticSolver? solver = null)
+        VanillaBallisticSolver? solver = null,
+        IAceBallisticAdapter? aceAdapter = null,
+        BallisticProfileManager? profiles = null,
+        Func<FrozenBallisticEnvironment?>? environment = null)
     {
         _terrainHeight = terrainHeight ?? throw new ArgumentNullException(nameof(terrainHeight));
         _solver = solver ?? new VanillaBallisticSolver();
+        _aceAdapter = aceAdapter;
+        _profiles = profiles;
+        _environment = environment;
     }
 
     public async Task<string> CalculateAsync(
@@ -238,9 +247,24 @@ public sealed class BallisticToolService
         StateBallisticProfile? profile,
         CancellationToken cancellationToken)
     {
-        if (profile is null) return Error("missing_ballistic_config");
-        if (!profile.Available) return Error(string.IsNullOrWhiteSpace(profile.Reason) ? "missing_ballistic_config" : profile.Reason);
         BallisticSolutionRequest request = VanillaBallisticSolver.ParseRequest(arguments);
+        string resolutionReason = string.Empty;
+        ResolvedBallisticProfile? resolved = _profiles?.Resolve(profile, out resolutionReason);
+        if (resolved is not null && profile is not null)
+            return await CalculateManualAsync(request, profile, resolved, cancellationToken).ConfigureAwait(false);
+        if (profile is null) return Error("missing_ballistic_config");
+        if (!profile.Available)
+            return Error(resolutionReason is "matched_manual_ballistic_profile_invalid" or "ambiguous_manual_ballistic_profile" or
+                         "invalid_forced_ballistic_profile" or "missing_muzzle_velocity" or "manual_vanilla_forbidden_while_ace_active"
+                ? resolutionReason
+                : string.IsNullOrWhiteSpace(profile.Reason) ? "missing_ballistic_config" : profile.Reason);
+        if (profile.AceAdvancedBallisticsEnabled)
+        {
+            if (!profile.AceAdapterAvailable) return Error("ace_advanced_ballistics_interface_unsupported");
+            if (!profile.AceProfileSupported) return Error("ace_ballistic_profile_incomplete");
+            if (_aceAdapter is null) return Error("ace_advanced_ballistics_interface_unsupported");
+            return await _aceAdapter.CalculateAsync(arguments, profile, cancellationToken).ConfigureAwait(false);
+        }
         (double x, double y) = VanillaBallisticSolver.TargetPoint(profile.ShooterPositionAsl, request.RangeMeters, request.BearingDegrees);
         bool terrainPointAssumed = !request.TargetElevationAslMeters.HasValue;
         double terrain = terrainPointAssumed
@@ -259,6 +283,110 @@ public sealed class BallisticToolService
                 projectileType = profile.SupportedProjectileType
             }
         }, JsonOptions);
+    }
+
+    private async Task<string> CalculateManualAsync(
+        BallisticSolutionRequest request,
+        StateBallisticProfile game,
+        ResolvedBallisticProfile resolved,
+        CancellationToken cancellationToken)
+    {
+        if (request.RangeMeters > resolved.MaximumRangeMeters)
+            return Error("range_exceeds_profile_maximum");
+        FrozenBallisticEnvironment frozen = _environment?.Invoke() ?? new(0, 0, 15, 0.5, game.ShooterPositionAsl.Z);
+        double dragScale = resolved.DragModel switch { "G1" => 1.25, "G2" => 1.1, "G5" => 1.02, "G6" => 0.98, "G7" => 0.9, "G8" => 0.95, _ => 1 };
+        double airFriction = resolved.ManualProfile.PreferredSolver == BallisticSolverPreference.VanillaArma
+            ? resolved.ManualProfile.VanillaAirFriction!.Value
+            : -0.00004 * dragScale / resolved.BallisticCoefficient;
+        airFriction *= AirDensityRatio(resolved.ManualProfile, frozen);
+        double muzzleVelocity = ApplyTemperatureCorrection(resolved,
+            ApplyBarrelCorrection(resolved), frozen.TemperatureCelsius);
+        StateBallisticProfile local = game with
+        {
+            Available = true,
+            Reason = string.Empty,
+            Model = resolved.Model,
+            InitialSpeedMetersPerSecond = muzzleVelocity,
+            TypicalSpeedMetersPerSecond = muzzleVelocity,
+            AirFriction = airFriction,
+            GravityCoefficient = resolved.ManualProfile.GravityCoefficient ?? 1,
+            AceAdvancedBallisticsEnabled = false
+        };
+        (double x, double y) = VanillaBallisticSolver.TargetPoint(local.ShooterPositionAsl, request.RangeMeters, request.BearingDegrees);
+        bool terrainPointAssumed = !request.TargetElevationAslMeters.HasValue;
+        double terrain = terrainPointAssumed
+            ? await _terrainHeight(x, y, cancellationToken).ConfigureAwait(false)
+            : request.TargetElevationAslMeters!.Value;
+        double target = request.TargetElevationAslMeters ?? terrain + (request.TargetHeightAboveTerrainMeters ?? 0);
+        BallisticSolution solution = _solver.Solve(local, request, target, terrainPointAssumed);
+        double bearing = request.BearingDegrees * Math.PI / 180;
+        double crosswind = frozen.WindX * Math.Cos(bearing) - frozen.WindY * Math.Sin(bearing);
+        double horizontal = resolved.WindCorrectionEnabled
+            ? -crosswind * solution.TimeOfFlightSeconds * 0.65 / request.RangeMeters * 1000 : 0;
+        string horizontalDirection = Math.Abs(horizontal) < 0.05 ? "no material correction" : horizontal > 0 ? "right" : "left";
+        return JsonSerializer.Serialize(new
+        {
+            firingSolution = new
+            {
+                available = true,
+                model = resolved.Model,
+                profileName = resolved.ManualProfile.DisplayName,
+                rangeMeters = solution.RangeMeters,
+                bearingDegrees = solution.BearingDegrees,
+                currentZeroingMeters = solution.CurrentZeroingMeters,
+                heightDifferenceMeters = solution.HeightDifferenceMeters,
+                verticalCorrectionMilliradians = solution.ElevationCorrectionMilliradians,
+                verticalHoldDirection = solution.HoldDirection,
+                horizontalCorrectionMilliradians = Math.Round(Math.Abs(horizontal), 3, MidpointRounding.AwayFromZero),
+                horizontalHoldDirection = horizontalDirection,
+                timeOfFlightSeconds = solution.TimeOfFlightSeconds,
+                impactVelocityMetersPerSecond = solution.PredictedImpactVelocityMetersPerSecond,
+                nominalMuzzleVelocityMetersPerSecond = muzzleVelocity,
+                nominalSolution = true,
+                windCorrectionAvailable = resolved.WindCorrectionEnabled
+            }
+        }, JsonOptions);
+    }
+
+    private static double ApplyTemperatureCorrection(ResolvedBallisticProfile resolved, double baseVelocity, double temperature)
+    {
+        UserBallisticProfile profile = resolved.ManualProfile;
+        if (!profile.TemperatureCorrectionEnabled || profile.TemperatureMuzzleVelocityShifts.Count == 0)
+            return baseVelocity;
+        double normalizedIndex = Math.Clamp((temperature + 15) / 5, 0, profile.TemperatureMuzzleVelocityShifts.Count - 1);
+        int lower = (int)Math.Floor(normalizedIndex), upper = Math.Min(lower + 1, profile.TemperatureMuzzleVelocityShifts.Count - 1);
+        double fraction = normalizedIndex - lower;
+        double shift = profile.TemperatureMuzzleVelocityShifts[lower] * (1 - fraction) + profile.TemperatureMuzzleVelocityShifts[upper] * fraction;
+        return baseVelocity + shift;
+    }
+
+    private static double ApplyBarrelCorrection(ResolvedBallisticProfile resolved)
+    {
+        UserBallisticProfile profile = resolved.ManualProfile;
+        if (!profile.BarrelLengthCorrectionEnabled || !profile.BarrelLengthMillimeters.HasValue ||
+            profile.BarrelLengthsMillimeters.Count == 0 ||
+            profile.BarrelLengthsMillimeters.Count != profile.BarrelMuzzleVelocitiesMetersPerSecond.Count)
+            return resolved.MuzzleVelocityMetersPerSecond;
+        double barrel = profile.BarrelLengthMillimeters.Value;
+        int upper = profile.BarrelLengthsMillimeters.FindIndex(value => value >= barrel);
+        if (upper <= 0) return profile.BarrelMuzzleVelocitiesMetersPerSecond[upper < 0 ? ^1 : 0];
+        double x0 = profile.BarrelLengthsMillimeters[upper - 1], x1 = profile.BarrelLengthsMillimeters[upper];
+        double y0 = profile.BarrelMuzzleVelocitiesMetersPerSecond[upper - 1], y1 = profile.BarrelMuzzleVelocitiesMetersPerSecond[upper];
+        return y0 + (y1 - y0) * (barrel - x0) / (x1 - x0);
+    }
+
+    private static double AirDensityRatio(UserBallisticProfile profile, FrozenBallisticEnvironment environment)
+    {
+        double altitude = Math.Clamp(environment.ShooterElevationAslMeters, -500, 10000);
+        double pressurePa = environment.PressureHectopascals.HasValue || profile.ManualPressureHectopascals.HasValue
+            ? (environment.PressureHectopascals ?? profile.ManualPressureHectopascals!.Value) * 100
+            : 101325 * Math.Pow(Math.Max(0.01, 1 - 2.25577e-5 * altitude), 5.25588);
+        double celsius = Math.Clamp(environment.TemperatureCelsius, -80, 60);
+        double temperatureKelvin = celsius + 273.15;
+        double saturationVaporPressure = 610.94 * Math.Exp(17.625 * celsius / (celsius + 243.04));
+        double vaporPressure = Math.Clamp(environment.Humidity, 0, 1) * saturationVaporPressure;
+        double density = (pressurePa - vaporPressure) / (287.05 * temperatureKelvin) + vaporPressure / (461.495 * temperatureKelvin);
+        return Math.Clamp(density / 1.225, 0.3, 1.5);
     }
 
     private static string Error(string reason) => JsonSerializer.Serialize(new

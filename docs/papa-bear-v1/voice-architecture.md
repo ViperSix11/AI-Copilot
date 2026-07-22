@@ -6,13 +6,13 @@ Voice is an adapter around the same turn service used by typed chat. It owns no
 world state, interpreter, conversation history or tool policy.
 
 ```text
-hold local button or registered global push-to-talk (maximum 15 seconds)
+hold local button or background Raw Input push-to-talk (maximum 15 seconds)
 -> bounded WAV
 -> OpenAI completed-utterance transcription
 -> visible final transcript
 -> shared AssistantTurnService
 -> frozen fixed compact operational snapshot when operational
--> start one OpenAI Responses/tool loop and 1,500-millisecond timer concurrently
+-> start one OpenAI Responses/tool loop and 5,000-millisecond timer concurrently
 -> conditional local English acknowledgement if final text remains pending
 -> cached acknowledgement ElevenLabs speech, cancellable before playback
 -> locally normalized final visible answer
@@ -21,8 +21,8 @@ hold local button or registered global push-to-talk (maximum 15 seconds)
 ```
 
 An ordinary operational question has no tool round because all fixed compact
-domains are in the initial snapshot. Explicit terrain-object intent adds only
-strict `query_environment`; explicit firing-solution intent adds only strict
+domains are in the initial snapshot. Arbitrary terrain-object enumeration is
+not model-facing; explicit firing-solution intent adds only strict
 `calculate_firing_solution`. Transcription is a separate OpenAI request. One
 bounded max-token retry may repeat the frozen Responses input without creating
 a second turn, history entry or acknowledgement.
@@ -77,6 +77,9 @@ ingestion.
 ## Deferred voice work
 
 Always-on listening, wake words, VAD, streaming STT/TTS, device selection and
-audio effects are not release 0.8 dependencies. Global PTT uses only
-`RegisterHotKey`, `WM_HOTKEY` and active-recording release polling; it installs
-no keyboard hook and records no arbitrary key activity.
+audio effects are not release 0.8 dependencies. Global PTT registers the generic
+keyboard once with `RegisterRawInputDevices`, exactly `RIDEV_INPUTSINK`, and a
+process-lifetime hidden `HwndSource`. `WM_INPUT` make/break events drive a bounded
+in-memory chord matcher while leaving normal keyboard input untouched. It uses
+no `RegisterHotKey`, polling, keyboard hook, injection, device-name lookup or
+arbitrary key logging.

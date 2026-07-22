@@ -168,7 +168,12 @@ public sealed class Release08OperationalRadioTests
             new OpenAiAssistantService(client),
             _ => (true, """{"schema":"arma-ai-bridge/operational-snapshot-v1","player":{"groupCallsign":"Alpha 1-1"}}"""),
             _ => Task.FromResult(("test-key", "gpt-5-mini", new ResponseProfileSettings())),
-            (_, _, _) => Task.FromResult("unused"));
+            (_, _, _) => Task.FromResult("unused"),
+            acknowledgementWait: (duration, token) =>
+            {
+                Assert.Equal(TimeSpan.FromSeconds(5), duration);
+                return Task.CompletedTask;
+            });
         TaskCompletionSource<RadioAcknowledgement> acknowledgementReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         Task<AssistantResponse> first = turns.SubmitUserTurnAsync(
@@ -206,7 +211,7 @@ public sealed class Release08OperationalRadioTests
         Assert.Equal(0, acknowledgements);
         Assert.True(answer.RequestMetrics!.AcknowledgementEligible);
         Assert.False(answer.RequestMetrics.AcknowledgementEmitted);
-        Assert.Equal(1500, answer.RequestMetrics.AcknowledgementThresholdMilliseconds);
+        Assert.Equal(5000, answer.RequestMetrics.AcknowledgementThresholdMilliseconds);
         Assert.True(answer.RequestMetrics.AnswerTextLatencyMilliseconds >= 0);
     }
 

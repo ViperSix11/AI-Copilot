@@ -10,6 +10,7 @@ public sealed class OperationalSnapshotBuilder
     private readonly LoadoutSummaryService _loadout = new();
     private readonly ForceSummaryService _force = new();
     private readonly ContactSummaryService _contacts = new();
+    public Func<StateBallisticProfile?, object>? BallisticCapabilityFactory { get; set; }
 
     public OperationalSnapshotBuilder(IStateRepository repository)
         => _repository = repository ?? throw new ArgumentNullException(nameof(repository));
@@ -36,13 +37,23 @@ public sealed class OperationalSnapshotBuilder
         };
     }
 
-    private static object Capabilities(MapGazetteerSnapshot gazetteer, StateBallisticProfile? profile)
+    private object Capabilities(MapGazetteerSnapshot gazetteer, StateBallisticProfile? profile)
     {
+        if (BallisticCapabilityFactory is not null)
+            return new
+            {
+                terrainObjectQuery = false,
+                officialNamedLocations = gazetteer.Readiness is MapGazetteerReadiness.Ready or MapGazetteerReadiness.Empty,
+                friendlyForcePicture = true,
+                ballistics = BallisticCapabilityFactory(profile),
+                supportExecution = false
+            };
         Dictionary<string, object?> ballistics = new(StringComparer.Ordinal)
         {
             ["available"] = profile?.Available == true,
-            ["model"] = "arma-vanilla-config",
-            ["windCorrectionAvailable"] = false
+            ["model"] = profile?.Model ?? "unavailable",
+            ["mode"] = profile?.AceAdvancedBallisticsEnabled == true ? "ace3-advanced" : "vanilla",
+            ["windCorrectionAvailable"] = profile?.AceAdvancedBallisticsEnabled == true && profile.Available
         };
         if (profile is null) ballistics["reason"] = "missing_ballistic_config";
         else
@@ -50,10 +61,15 @@ public sealed class OperationalSnapshotBuilder
             if (!profile.Available) ballistics["reason"] = string.IsNullOrWhiteSpace(profile.Reason) ? "missing_ballistic_config" : profile.Reason;
             if (!string.IsNullOrWhiteSpace(profile.SupportedProjectileType))
                 ballistics["supportedProjectileType"] = profile.SupportedProjectileType;
+            if (profile.AceMuzzleVelocityVariationEnabled)
+            {
+                ballistics["nominalSolution"] = true;
+                ballistics["muzzleVelocityVariationStandardDeviationPercent"] = profile.AceMuzzleVelocityVariationStandardDeviationPercent;
+            }
         }
         return new
         {
-            terrainObjectQuery = true,
+            terrainObjectQuery = false,
             officialNamedLocations = gazetteer.Readiness is MapGazetteerReadiness.Ready or MapGazetteerReadiness.Empty,
             friendlyForcePicture = true,
             ballistics,
@@ -225,7 +241,8 @@ public sealed class OperationalSnapshotBuilder
 
     private object KnownContacts()
     {
-        IReadOnlyList<StateKnownContact> contacts = _repository.GetKnownContacts(100, includeStale: true);
+        StateKnownContact[] contacts = _repository.GetKnownContacts(100, includeStale: true)
+            .Where(ContactEligibilityPolicy.IsEligible).ToArray();
         ContactSummary summary = _contacts.Summarize(contacts);
         Dictionary<string, object?> value = new(StringComparer.Ordinal)
         {
@@ -233,8 +250,8 @@ public sealed class OperationalSnapshotBuilder
             {
                 summary.KnownContactCount,
                 summary.StaleContactCount,
-                summary.ByPerceivedSide,
-                summary.ByBroadType
+                summary.ByRelationship,
+                summary.ByContactType
             }
         };
         object[] records = contacts
@@ -256,9 +273,10 @@ public sealed class OperationalSnapshotBuilder
             ["positionErrorMeters"] = contact.PositionErrorMeters,
             ["approximate"] = contact.PositionErrorMeters > 0
         };
-        AddText(value, "class", contact.Class);
-        AddText(value, "type", contact.BroadType);
+        AddText(value, "description", ContactEligibilityPolicy.Description(contact));
+        AddText(value, "type", contact.ContactType);
         AddText(value, "perceivedSide", contact.PerceivedSide);
+        AddText(value, "relationship", contact.Relationship);
         if (contact.LastSeenAgeSeconds >= 0) value["lastSeenSecondsAgo"] = contact.LastSeenAgeSeconds;
         AddSemanticState(value, contact.Metadata);
         return value;

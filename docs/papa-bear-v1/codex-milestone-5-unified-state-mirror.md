@@ -7,19 +7,20 @@ accepted 0.7 voice path and the already implemented Phase A named-location,
 position-interpretation and response-profile work, then adds one bounded
 periodic Arma state message and a local SQLite current-state mirror. Every
 operational assistant turn receives one frozen, fixed, bounded compact snapshot
-and a conditional local English radio acknowledgement after 1,500 milliseconds.
+and a conditional local English radio acknowledgement after 5,000 milliseconds.
 The acknowledgement and final answer use the current Arma player-group
 callsign, never a configured or hardcoded substitute. The release patch also
-adds one deterministic Vanilla-config firing-solution tool, speech-safe English
-normalization and a configurable system-wide press-and-hold hotkey.
+adds one deterministic firing-solution tool with Vanilla and version-gated ACE3
+3.21.x runtime paths, speech-safe English normalization and a configurable
+system-wide press-and-hold hotkey.
 
 The release is user-initiated only. State changes never invoke OpenAI,
 ElevenLabs or playback. This is not the abandoned static-map index or
 observation-fusion design: the database stores current selected state, not an
 append-only observation history.
 
-Explicitly out of scope are ACE integration or ACE ballistic approximation, routes, support execution, a full
-vehicle subsystem, unrestricted world enumeration, camera/cursor/view-focus
+Explicitly out of scope are broader ACE integration, routes, support execution,
+a full vehicle subsystem, unrestricted world enumeration, camera/cursor/view-focus
 state, player reports, confidence fusion, R-tree indexing, arbitrary SQL or
 SQF, and proactive notifications.
 
@@ -235,10 +236,14 @@ the active task plus at most two additional tasks, at most five relevant
 markers and explicit local capability flags. Individual friendly units are
 omitted by default. Attachments and magazine summary rows are each capped at
 eight. `capabilities.ballistics` is typed and becomes available only when the
-current shot is a supported unpowered `shotBullet` or `shotShell` trajectory
-with valid config and no loaded advanced-ballistics override. Otherwise its
-reason is `unsupported_projectile`, `missing_ballistic_config`,
-`advanced_ballistics_mod_detected` or `no_current_weapon`.
+current shot is a supported unpowered trajectory with valid config. ACE
+Advanced Ballistics absent or installed-but-disabled selects Vanilla. Supported
+active ACE3 3.21.x selects the bounded Arma runtime adapter; active unsupported
+versions, interfaces or profiles fail closed and never select Vanilla. Reasons
+include `unsupported_projectile`, `missing_ballistic_config`,
+`ace_advanced_ballistics_version_unsupported`,
+`ace_advanced_ballistics_interface_unsupported`,
+`ace_ballistic_profile_incomplete` and `no_current_weapon`.
 
 Missing optional strings and objects are omitted; meaningful zero counts,
 ammunition, rain/fog and false capability flags remain. Normal ready/live
@@ -274,26 +279,27 @@ compact eligible shape.
 
 ## Local tools
 
-Standard turns attach no tool definitions. A deterministic local pre-classifier
-attaches only strict `query_environment` for an explicit terrain-object request
-that needs buildings, vegetation, roads, walls or rocks absent from the compact
-snapshot. A question explicitly asking for a firing, fire, elevation or
+Standard turns attach no tool definitions. Arbitrary runtime/static environment
+objects are not model-facing; official named locations are the only static
+geography. A question explicitly asking for a firing, fire, elevation or
 ballistic solution, holdover or impact correction attaches only strict
 `calculate_firing_solution`. It accepts a range from 25 through 5,000 metres,
 a normalized bearing and mutually exclusive optional target ASL or height above
 terrain. Missing target elevation is resolved by one bounded
 `getTerrainHeightASL` query at the range/bearing point derived from frozen
-`eyePos player`. The deterministic C# low-angle solver integrates Arma drag and
-gravity, compares the required elevation with current zero, and returns signed
-degrees/milliradians, hold direction, time of flight and impact velocity. It
-never calculates wind hold or optic clicks. Only the completed compact result
-enters model context, and the answer must call it an in-game Arma solution.
+`eyePos player`. In Vanilla mode the deterministic C# low-angle solver
+integrates Arma drag and gravity. In supported ACE mode the version-gated SQF
+adapter freezes the current profile/environment and invokes the loaded ACE
+runtime calculation without firing a projectile or mutating ATragMX working
+memory. Both compare against current zero and return signed vertical correction,
+time of flight and impact velocity; ACE also returns horizontal correction.
+Neither calculates optic clicks. Only the compact result enters model context.
 
 ## One-request, privacy and diagnostics
 
 After a valid typed question or completed transcription, the application
 freezes the snapshot/callsign/settings, starts Responses immediately and starts
-one 1,500-millisecond timer concurrently. It selects and displays one of eight
+one 5,000-millisecond timer concurrently. It selects and displays one of eight
 local English acknowledgements only if final text is still pending when that
 timer expires. If final text wins, acknowledgement UI, synthesis and playback
 are skipped. If text arrives during acknowledgement synthesis, preparation is
@@ -373,25 +379,27 @@ write control and does not touch credentials/profiles.
 ## Global press-and-hold push-to-talk
 
 The persisted typed setting is `enabled`, supported modifier flags and exactly
-one non-modifier Windows virtual key; default is Shift plus Space. WPF registers
-only that combination with documented `RegisterHotKey`, receives `WM_HOTKEY`
-through its own `HwndSource`, and polls the configured primary key's documented
-`GetAsyncKeyState` high bit only while a recording is active. No keyboard hook,
-injection, administrator privilege, simulated input, Arma process access or
-native-transport change is used.
+one non-modifier Windows virtual key; default is Shift plus Space. One
+process-lifetime hidden `HwndSource` registers the generic keyboard collection
+with Usage Page `0x01`, Usage `0x06` and exactly `RIDEV_INPUTSINK`. Registration
+is verified with `GetRegisteredRawInputDevices` against that stable HWND.
+Foreground `RIM_INPUT` and background `RIM_INPUTSINK` make/break events drive
+the matcher. `RegisterHotKey`, release polling, hooks, injection, administrator
+privilege, simulated input, Arma process access and native transport changes
+are not used.
 
-The first activation freezes the current binding, enters the existing exclusive
-voice-operation gate and starts capture. Repeat messages are ignored. Primary
-key release stops once; the existing 15-second maximum submits once and still
-requires release before reactivation. A recording shorter than 200 milliseconds
-is discarded locally before transcription. Disable unregisters immediately;
-shutdown cancels polling and unregisters/disposes the Windows handle hook.
-Changes made during capture are deferred until release and never alter that
-capture's release key. Capture mode suspends normal activation, accepts the next
-valid modifier-plus-key combination or Escape, persists the exact selection,
-and reports registration conflicts without fallback or retry loops. Safe logs
-contain only enable/registration/result/activation source, duration and
-short-press flag—never arbitrary key activity or content.
+The first primary-key Make with the exact configured aggregate modifiers freezes
+the binding, enters the exclusive voice-operation gate and starts capture.
+Duplicate/repeat Make events are ignored. Only the active physical primary key's
+Break stops once, even if modifiers were released first; a 15-second deadline
+also stops a missed Break. Modifiers may be aggregated across keyboards, but
+the active primary device/key owns release. A recording shorter than 200
+milliseconds is discarded locally before transcription. Disable retains the
+verified central registration but disables recognition. Binding changes during
+capture apply after release. Shutdown stops active capture, detaches the
+controller and centrally unregisters Raw Input. Safe logs contain only aggregate
+registration/activation/release/duration outcomes, never arbitrary keys, device
+identity or content.
 
 ## Deterministic automated acceptance
 
@@ -408,7 +416,9 @@ The Windows suite must prove:
 9. restart rows remain stale until handshake plus fresh snapshot.
 10. weather/astronomy and loadout aggregation are exact.
 11. groups, waypoints and unit state are bounded.
-12. contacts deduplicate sources and never use hostile actual position.
+12. targets and sensor targets share one pre-identity eligibility function;
+    contacts deduplicate sources, never use hostile actual position and admit
+    only the closed person/vehicle/air/naval/static-weapon/UAV/UGV types.
 13. tasks/markers are client-scoped, bounded and absent from logs.
 14. typed repository and `query_state` validation reject arbitrary SQL/sections.
 15. every operational question receives every fixed compact domain; clearly
@@ -418,9 +428,9 @@ The Windows suite must prove:
 17. raw IDs, aliases, paths, complete database/collections, normal readiness,
     current ages, duplicate legacy facts and empty placeholders never enter the
     fixed operational context.
-18. standard requests attach zero tools; terrain requests attach only strict
-    `query_environment`; explicit firing requests attach only strict
-    `calculate_firing_solution`; snapshot/profile state stays frozen.
+18. standard and terrain-object requests attach zero tools; explicit firing
+    requests attach only strict `calculate_firing_solution`; snapshot/profile
+    state stays frozen and no arbitrary static-object result reaches OpenAI.
 19. repository verifier, WPF win-x64, native x64, PBO and matching ZIP pass.
 20. active runtime/schema/payload fixtures contain no `sunDirection`,
     `getLighting`, `lightDirection`, `starsVisibility` or `moonIntensity`;
@@ -434,7 +444,7 @@ The Windows suite must prove:
 23. `groupId (group player)` reaches canonical `groupCallsign`, updates on the
     next player snapshot, clears on a new session and appears identically in
     acknowledgement state, diagnostics and final model context.
-24. eight English-only placeholder acknowledgements are local, delayed 1,500
+24. eight English-only placeholder acknowledgements are local, delayed 5,000
     milliseconds, absent for a fast answer, emitted at most once, cancellable
     before playback and absent from history; playback never overlaps final speech.
 25. speech-only digit formatting preserves stored/visible callsign identity,
@@ -442,15 +452,30 @@ The Windows suite must prove:
     no hardcoded callsign remains in active runtime or templates.
 26. profiles, terminators, partial-success text/TTS/replay behavior and every
     accepted 0.7 regression remain green.
-27. rifle, modded .338, gravity, zeroing, above/below target, rocket, missing
-    config and advanced-ballistics fixtures prove bounded deterministic solver
-    convergence, signed correction and no fabricated wind hold or hidden target.
+27. rifle, modded .338, gravity, zeroing, above/below target, rocket and missing
+    config fixtures preserve Vanilla behavior; ACE inactive/active/unsupported,
+    profile-array, version, nominal-variation, adapter/result and no-fallback
+    fixtures prove deterministic bounded dispatch.
 28. TTS input expands numeric/unit/acronym forms while visible callsign identity
     stays exact and spoken callsign identity stays deterministic.
-29. Shift plus Space persistence, startup registration, change/reset/conflict,
-    press/hold/release, repeat suppression, short/max-duration handling,
-    operation gating, disable, deferred change and shutdown are deterministic
-    behind Windows integration interfaces.
+29. Raw Input registration/verification flags and HWND, foreground/background
+    delivery, Shift plus Space and custom chords, left/right modifiers,
+    multi-keyboard release ownership, repeat/duplicate suppression, short/max
+    duration, operation gating, disable, deferred change and shutdown are
+    deterministic behind the native boundary interface.
+30. lamps, runway/navigation lights, lighthouse/fuel-feed objects, generic
+    static classes, empty CIV vehicles and dead CIV bodies are rejected before
+    identity, schema, SQLite, summaries, state query and outbound context.
+31. civilians, hostile infantry, mission-dependent GUER relationships, crewed
+    operational vehicles, active UAV/UGV and crewed static weapons follow the
+    documented closed policy; legacy invalid contact rows are purged by schema
+    migration 3.
+32. only non-empty official `CfgWorlds/<world>/Names` records with allowlisted
+    types enter the gazetteer; vegetation/flat/rock/unknown mod types fail closed.
+33. versioned ballistic-profile persistence/import, exact matching, specificity,
+    forced/ambiguous selection, validation, field provenance, compact context,
+    deterministic `.338 LM` calculation, range bounds and frozen wind behavior
+    remain local and deterministic.
 
 ## Exact live acceptance
 
@@ -464,16 +489,15 @@ Use the extended Stratis mission and matching 0.8 app/DLL/PBO:
    callsign in the final answer. Change group/unit and group ID, respawn and
    start a new session; confirm the next player sample replaces it without
    retaining the prior identity. Empty group ID must use the neutral fallback.
-4. Ask the fast `What is my current weapon?`; if text completes within 1,500
+4. Ask the fast `What is my current weapon?`; if text completes within 5,000
    milliseconds, confirm no acknowledgement UI/audio and one final answer.
    Ask `Give me a complete situation report`; when it exceeds the threshold,
    confirm one English acknowledgement and non-overlapping final speech.
-5. Ask an explicit buildings/roads-ahead question; confirm only
-   `query_environment`. Ask `I need a firing solution. Bearing one hundred
-   ninety, range six hundred sixty metres.` With a Vanilla rifle and the modded
-   Vector .338 LM profile, confirm only `calculate_firing_solution`, a
-   deterministic in-game solution, full spoken English units/numbers and no
-   wind correction. Load ACE Advanced Ballistics and confirm fail-closed reason.
+5. Ask explicit buildings/roads/lights questions; confirm no terrain-object tool
+   is advertised and no unnamed static-object class or coordinate enters the
+   request. Ask `I need a firing solution. Bearing one hundred ninety, range six
+   hundred sixty metres.` With a Vanilla rifle and the modded Vector .338 LM
+   profile, confirm only `calculate_firing_solution` and no wind correction.
 6. With two WEST groups, confirm friendly counts/status/current waypoint.
 7. Let only the remote group know an EAST target. Confirm estimated
    position/error/source alias, never hostile actual position. If locality
@@ -488,14 +512,37 @@ Use the extended Stratis mission and matching 0.8 app/DLL/PBO:
 13. Change mission; old dynamic state and callsign disappear before new state is visible.
 14. Reset requires confirmation and preserves keys/profiles.
 15. Logs contain only approved metrics and no protected content or callsign.
-16. Without administrator rights, verify default Shift plus Space with Bridge
-    focused, Arma focused and Bridge minimized; holding records without focus
-    theft, repeat starts nothing, and release submits exactly once.
-17. Change to Control plus Shift plus V, restart and confirm persistence and the
-    old binding no longer activates. Test a known conflict and confirm a visible
-    failure with no fallback. Reset restores Shift plus Space. Verify a short
-    tap calls no provider and a setting change during recording takes effect
-    only after release.
+16. Near Stratis runway lights, navigation lights, lamps, a fuel station and a
+    lighthouse, repeatedly request all contacts and situation reports. Confirm
+    each forbidden object is absent from the State Mirror itself and from a
+    captured request; zero eligible actors means zero contacts.
+17. Reveal a civilian, hostile soldier, independent soldier under two different
+    WEST/GUER relations, crewed hostile vehicle, active UAV/UGV and crewed static
+    weapon. Confirm relationships follow the mission, friendly actors remain in
+    `friendlyForces`, positions are engine-estimated and empty/dead objects stay
+    absent. Verify villages, cities, airports, NameLocal bases and peaks work,
+    while unknown modded location types remain absent.
+18. Run the full ACE gate in `ace-advanced-ballistics-integration.md`: ACE 3.21.x
+    disabled selects Vanilla; enabled supported profiles select the ACE model;
+    unsupported profiles fail closed. Record Arma/CBA/ACE versions and compare
+    vertical/horizontal correction, time of flight and impact velocity to the
+    matching ACE Range Card or ATragMX tolerances before removing draft status.
+19. Without administrator rights, record Windows version, Arma display mode and
+    elevation state, then verify Shift plus Space with Bridge focused, Arma
+    focused and Bridge minimized in windowed, borderless and fullscreen modes.
+    Registration must report `raw-input-registered`; holding records without
+    focus theft, repeat starts nothing and release submits exactly once.
+20. Change to Control plus Shift plus V, restart and confirm persistence. Have a
+    separate application reserve the same `RegisterHotKey`; Raw Input must remain
+    independent. Reset restores Shift plus Space. Verify ordinary typing and
+    Alt+Tab remain unaffected, a short tap calls no provider and a deferred
+    setting change takes effect after release.
+21. Open Ballistic Profiles, create from the current modded `.338 Lapua Magnum`
+    weapon, enter the actual missing values, validate and confirm automatic
+    exact-class match. Ask bearing 45/range 800 and verify compact vertical/wind
+    corrections, time of flight and impact velocity without unsupported-projectile
+    or alternate-weapon advice. Compare against the installed ACE 3.21.x Range
+    Card/ATragMX and record versions and differences before removing draft status.
 
 Live regression for the release-blocking astronomy fault and its final cleanup:
 
@@ -536,5 +583,5 @@ hotkey focus/release behavior, Windows audio or long-run database behavior.
 Config-defined ammo event handlers fail closed, but official configuration
 documentation cannot prove the absence of mission-added runtime flight scripts.
 Official OpenAI documentation also cannot verify this account's actual latency,
-quota or whether a live answer crosses the 1,500-millisecond acknowledgement
+quota or whether a live answer crosses the 5,000-millisecond acknowledgement
 threshold. These remain live acceptance requirements.
