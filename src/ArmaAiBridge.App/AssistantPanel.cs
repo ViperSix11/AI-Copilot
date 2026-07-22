@@ -269,7 +269,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
                 question,
                 UserTurnSource.Typed,
                 _activeRequest.Token);
-            Append("Papa Bear", response.Text);
+            CommitVisibleAnswer(response.Text);
             _status.Text = FormatCompletion(response);
             SetVoiceStage(VoiceStage.Ready);
             _log.Info($"Typed assistant turn completed: model={response.Model}, tools={response.ToolCalls}, inputTokens={response.InputTokens}, outputTokens={response.OutputTokens}.");
@@ -369,11 +369,12 @@ public sealed class AssistantPanel : UserControl, IDisposable
             ? (true, snapshot)
             : (false, string.Empty);
 
-    private async Task<(string ApiKey, string Model)> LoadOpenAiSettingsAsync(CancellationToken cancellationToken)
+    private async Task<(string ApiKey, string Model, ResponseProfileSettings Profile)> LoadOpenAiSettingsAsync(CancellationToken cancellationToken)
     {
         AppSettings settings = await _settings.LoadAsync(cancellationToken);
         string model = Dispatcher.CheckAccess() ? _model.Text.Trim() : Dispatcher.Invoke(() => _model.Text.Trim());
-        return (DpapiService.Unprotect(settings.OpenAiApiKeyProtected), model);
+        return (DpapiService.Unprotect(settings.OpenAiApiKeyProtected), model,
+            ResponseProfilePolicy.Normalize(settings.ResponseProfile));
     }
 
     private async Task<VoiceProviderSettings> LoadVoiceSettingsAsync(CancellationToken cancellationToken)
@@ -395,6 +396,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
             "query_friendly_forces" => Task.FromResult(_snapshots.BuildFriendlyForces(arguments)),
             "query_assets" => Task.FromResult(_snapshots.BuildAssets(arguments)),
             "query_mission_capabilities" => Task.FromResult(_snapshots.BuildMissionCapabilities(arguments)),
+            "find_named_locations" => Task.FromResult(_snapshots.BuildNamedLocations(arguments)),
             _ => Task.FromException<string>(new InvalidOperationException("Unsupported local tool."))
         };
 

@@ -30,6 +30,7 @@ class CfgFunctions
             class updateFriendlyForcePicture {};
             class collectMissionCapabilities {};
             class publishMissionCapabilities {};
+            class publishMapGazetteer {};
             class sendTelemetry {};
             class pollCommands {};
             class executeQuery {};

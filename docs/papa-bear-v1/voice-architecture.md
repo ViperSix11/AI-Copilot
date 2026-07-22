@@ -1,87 +1,62 @@
 # Voice architecture
 
-## Role of the voice layer
+## Active release 0.8 pipeline
 
-Voice is an input/output adapter around the same Papa Bear orchestrator used by typed chat. It does not own world state, tools, memory or action policy.
-
-## Target pipeline
-
-```text
-Push-to-talk microphone audio
-→ OpenAI completed-utterance audio transcription
-→ final turn transcript
-→ Papa Bear orchestrator and OpenAI Responses tool loop
-→ final radio response text
-→ ElevenLabs text-to-speech
-→ radio audio effects and playback
-```
-
-Audio transcription and Responses are separate OpenAI API requests using the
-same locally encrypted OpenAI key. ElevenLabs is the exclusive speech-output
-provider; OpenAI text-to-speech is not used. Game telemetry continues to update
-while transcription, reasoning, synthesis, or playback is active.
-
-## Input behavior
-
-- primary mode: push-to-talk;
-- optional later mode: voice activation with explicit wake phrase;
-- no partial transcripts in the current completed-utterance path;
-- final transcript emitted after the bounded push-to-talk recording is uploaded;
-- custom vocabulary/key terms for callsigns, map names, ACE terminology, units and military phrases;
-- quick cancel/retry after a bad transcript;
-- typed input always remains available.
-
-Suggested key terms include:
+Voice is an adapter around the same turn service used by typed chat. It owns no
+world state, interpreter, conversation history or tool policy.
 
 ```text
-Papa Bear
-MEDEVAC
-LZ
-MRAD
-MOA
-windage
-elevation
-bearing
-ATragMX
-ACE
-callsigns and current map locations
+hold push-to-talk (maximum 15 seconds)
+→ bounded WAV
+→ OpenAI completed-utterance transcription
+→ visible final transcript
+→ shared AssistantTurnService
+→ fresh minimized snapshot with local interpretedLocation
+→ one OpenAI Responses/tool loop
+→ locally normalized final visible answer
+→ ElevenLabs synthesis of that exact text
+→ Windows playback
 ```
 
-## Output behavior
+An ordinary position question has no tool round because the deterministic
+interpretation is in the initial snapshot. Transcription is a separate OpenAI
+request; “one Responses request” refers to the reasoning stage and does not
+misdescribe STT as part of Responses.
 
-- ElevenLabs voice ID stored encrypted with other credentials;
-- streaming playback to reduce time-to-first-audio;
-- optional radio band-pass, compression, squelch and start/end tones;
-- spoken text and visual transcript generated from the same final response;
-- numbers and bearings formatted for intelligible radio speech;
-- ability to interrupt or cancel playback;
-- urgent operation updates can be queued by priority.
+## Shared turn behavior
 
-## State machine
+- typed and spoken input use the same current world snapshot, position
+  interpreter, response profile, OpenAI history and strict tool dispatcher;
+- response profiles are local style data and cannot override immutable rules;
+- the final assistant answer is normalized once before it enters assistant
+  history, the UI, ElevenLabs or replay;
+- Over/Out suffixes are removed and the configured terminator is appended once;
+- replay synthesizes or replays the last normalized answer and never repeats STT
+  or Responses.
+
+## State and failure behavior
 
 ```text
-idle
-→ listening
-→ transcribing
-→ reasoning
-→ waiting_for_tool
-→ speaking
-→ idle
+ready → recording → transcribing → thinking
+      → generating-voice → speaking → ready
 ```
 
-Cancellation and error transitions exist from every active state. The UI must show the current state and last actionable error.
+The transcript becomes visible immediately after successful transcription. The
+answer becomes visible immediately after successful Responses. TTS or playback
+failure is partial success: text remains usable and retryable. Cancellation is
+available at every asynchronous stage and does not block bridge ingestion.
 
-## Concurrency
+## Providers and privacy
 
-- telemetry and operation monitoring never pause;
-- only one user dialogue turn is committed at a time in v1;
-- background operation events are queued and may interrupt only under configured priority rules;
-- TTS playback must not block the Named Pipe or world-model update loop.
+- one DPAPI-protected OpenAI key is used for transcription and Responses;
+- ElevenLabs is the only active speech-output provider;
+- microphone data is transmitted only for explicit transcription or hold-to-talk;
+- questions, transcripts, answers, style text, prompts, snapshots, provider
+  bodies, credentials and audio content are not logged;
+- temporary recordings are bounded and deleted on success, failure or cancel;
+- Responses uses `store: false`, which is not a Zero Data Retention promise.
 
-## Deployment choice
+## Deferred voice work
 
-Preferred final implementation is C# in the existing .NET application using direct WebSocket/HTTP integrations. A Python voice worker is acceptable only as an isolated prototype or if SDK capability proves materially better; it must communicate with the C# orchestrator over a local typed protocol and must not maintain a second game-state model.
-
-## Privacy
-
-Microphone audio is transmitted only while push-to-talk is active. The UI must indicate transmission clearly. Audio and transcripts are not persisted by default. Provider retention behavior must be documented in settings before voice is enabled.
+Always-on listening, wake words, VAD, streaming STT/TTS, device selection,
+global hotkeys and audio effects are not release 0.8 dependencies.

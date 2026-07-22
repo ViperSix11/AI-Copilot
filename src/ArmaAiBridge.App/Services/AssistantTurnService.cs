@@ -7,7 +7,7 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
 {
     private readonly IOpenAiAssistantService _assistant;
     private readonly Func<(bool Success, string Snapshot)> _snapshotFactory;
-    private readonly Func<CancellationToken, Task<(string ApiKey, string Model)>> _settingsFactory;
+    private readonly Func<CancellationToken, Task<(string ApiKey, string Model, ResponseProfileSettings Profile)>> _settingsFactory;
     private readonly Func<string, JsonElement, CancellationToken, Task<string>> _executeTool;
     private readonly SemaphoreSlim _turnGate = new(1, 1);
     private bool _disposed;
@@ -15,7 +15,7 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
     public AssistantTurnService(
         IOpenAiAssistantService assistant,
         Func<(bool Success, string Snapshot)> snapshotFactory,
-        Func<CancellationToken, Task<(string ApiKey, string Model)>> settingsFactory,
+        Func<CancellationToken, Task<(string ApiKey, string Model, ResponseProfileSettings Profile)>> settingsFactory,
         Func<string, JsonElement, CancellationToken, Task<string>> executeTool)
     {
         _assistant = assistant ?? throw new ArgumentNullException(nameof(assistant));
@@ -41,13 +41,14 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
             if (!success)
                 throw new InvalidOperationException("No local Arma world state is available yet.");
 
-            (string apiKey, string model) = await _settingsFactory(cancellationToken).ConfigureAwait(false);
+            (string apiKey, string model, ResponseProfileSettings profile) = await _settingsFactory(cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             return await _assistant.AskAsync(
                 apiKey,
                 model,
                 text.Trim(),
                 snapshot,
+                profile,
                 _executeTool,
                 cancellationToken).ConfigureAwait(false);
         }

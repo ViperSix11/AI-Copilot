@@ -91,6 +91,7 @@ public interface IOpenAiAssistantService : IDisposable
         string model,
         string question,
         string worldSnapshotJson,
+        ResponseProfileSettings responseProfile,
         Func<string, System.Text.Json.JsonElement, CancellationToken, Task<string>> executeTool,
         CancellationToken cancellationToken);
 

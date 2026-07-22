@@ -27,5 +27,10 @@ missionNamespace setVariable ["AAB_lastHandshakeAt", -100];
 missionNamespace setVariable ["AAB_lastCapabilitiesAt", -100];
 missionNamespace setVariable ["AAB_lastCapabilitySignature", ""];
 missionNamespace setVariable ["AAB_lastReconciliationId", ""];
+missionNamespace setVariable ["AAB_gazetteerCacheStatus", "unavailable"];
+missionNamespace setVariable ["AAB_gazetteerCache", []];
+missionNamespace setVariable ["AAB_gazetteerCacheError", ""];
+missionNamespace setVariable ["AAB_gazetteerBatchSequence", 0];
+missionNamespace setVariable ["AAB_gazetteerCollectionCount", 0];
 
 call AAB_fnc_publishSessionHandshake

@@ -1,0 +1,19 @@
+{
+  "schema": "arma-ai-bridge/arma3/map-gazetteer-v1",
+  "messageId": "message-000005",
+  "missionId": "m5-live",
+  "sessionId": "session-test",
+  "timestamp": 1.5,
+  "sequence": 5,
+  "requestId": "request-test",
+  "batchId": "gazetteer-000001",
+  "pageIndex": 0,
+  "pageCount": 1,
+  "world": { "name": "Stratis", "sizeMeters": 8192 },
+  "totalLocations": 1,
+  "status": "complete",
+  "errorCode": null,
+  "locations": [
+    { "key": "AgiaMarina", "name": "Agia Marina", "type": "NameCity", "position": [3000, 4000], "radiusA": 250, "radiusB": 180, "angle": 0 }
+  ]
+}

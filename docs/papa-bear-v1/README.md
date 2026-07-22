@@ -1,6 +1,6 @@
 # Papa Bear v1 — architecture and milestone record
 
-Status: **version 0.7 Voice Position MVP accepted live**.
+Status: **version 0.8 Contextual Interpreter in draft; version 0.7 accepted live**.
 
 This directory records the current product boundaries, accepted milestones and
 future architecture decisions for Papa Bear. The repository is developed
@@ -24,6 +24,10 @@ The accepted 0.7 proof of concept answers a spoken question about the player’s
 current position using live Arma state and returns both visible text and spoken
 ElevenLabs audio.
 
+The 0.8 milestone adds local deterministic named-place interpretation to that
+accepted path. It reads only official active-world `Names` configuration, keeps
+the complete gazetteer local and uses the existing single Responses call.
+
 ## Active architectural decisions
 
 - Arma remains authoritative for game state and perception.
@@ -35,9 +39,12 @@ ElevenLabs audio.
 - One encrypted OpenAI key is used for transcription and Responses.
 - ElevenLabs is the only speech-output provider in the active product.
 - Failed TTS or playback must never discard a completed transcript or answer.
+- Arma supplies measured facts; local services calculate spatial relations; one
+  existing Responses request supplies natural language; ElevenLabs speaks the
+  exact final visible text.
 - Tools remain bounded, typed, locally validated and read-only until a later
   milestone explicitly introduces an authorized action.
-- ACE, ballistics, persistent operational memory and full map indexing are
+- ACE, ballistics, routes, support execution, persistent operational memory and full map indexing are
   deferred and are not dependencies of the current POC.
 
 ## Active documents
@@ -57,6 +64,9 @@ ElevenLabs audio.
 11. `codex-milestone-4a-voice-position-mvp.md` — the accepted push-to-talk
     position-answer proof of concept.
 
+12. `codex-milestone-5-contextual-interpreter.md` — release 0.8 bounded
+    named-location and deterministic spatial-language contract.
+
 Other documents describe deferred designs or historical experiments. They are
 not automatically approved implementation scope. A later milestone must
 explicitly reactivate them.
@@ -73,9 +83,8 @@ explicitly reactivate them.
 - OpenAI Responses API with strict function tools;
 - ElevenLabs text-to-speech.
 
-## Next product step
+## Active product step
 
-The next intended milestone is a narrow **Arma Knowledge Mirror**: aggregate
-Arma’s existing own-side target knowledge across friendly groups and prove that
-a remote friendly unit’s recognized enemy contact reaches Papa Bear. It must
-not introduce a parallel visibility or perception simulation.
+Complete release 0.8 automated verification and the exact live Stratis plus
+alternate-map acceptance. No later tactical-awareness or execution milestone is
+active until it receives its own reviewed specification.

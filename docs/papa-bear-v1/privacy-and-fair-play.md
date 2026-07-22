@@ -2,68 +2,58 @@
 
 ## Perspective-bound information
 
-Papa Bear may know:
+Papa Bear may use measured player/current-vehicle state, mission-authorized
+own-side state, contacts already available through the accepted perspective
+model, read-only mission assets/capabilities, bounded manual environment-query
+results and official active-world named-location configuration.
 
-- player and own-group state;
-- friendly-side state shared by the mission/HQ network;
-- known enemy contacts with the same uncertainty and age available to the player's side;
-- static map/config data;
-- mission-declared objectives, assets and capabilities;
-- ACE state legitimately available on the client or explicitly shared by mission scripts.
+Official names are cartographic facts. They reveal no runtime units, objects or
+enemy state. Release 0.8 reads only `CfgWorlds >> worldName >> Names`; it does
+not enumerate terrain objects, mission objects, buildings, roads, vegetation,
+vehicles or units for the gazetteer.
 
-Papa Bear may not use unrestricted server object lists to reveal unknown enemies, mines, hidden objectives or private opposing-side state.
+Papa Bear may not use unrestricted server lists or opposing-side truth to reveal
+unknown enemies, mines, objectives or private state. Public-server use requires
+server/mod approval; the project does not implement injection or anti-cheat
+evasion.
 
-## Multiplayer policy
+## Model boundary
 
-Initial support remains Editor, single-player and authorized local/private multiplayer. Public-server use requires explicit server/mod approval, signing and compatibility with BattlEye/server policy. The project will not implement injection, anti-cheat evasion or hidden extension loading.
+OpenAI receives only the current purpose-specific snapshot and bounded selected
+tool results. The complete local gazetteer, raw pages and raw 4 Hz telemetry are
+never sent. Position context contains the measured position plus no more than
+three deterministic named references.
 
-## Model access
+Profile names, UIDs, raw engine IDs and source mission/session identifiers stay
+out of model context. Map configuration text and custom style text are untrusted
+data and cannot redefine factual, fair-play or tool policy.
 
-OpenAI receives only purpose-built context required for the current turn. The local system removes unnecessary identity fields and replaces stable game identifiers with scoped references where possible.
+## Tool and prompt security
 
-Do not log or transmit by default:
+- strict local schemas, allowlists, numeric bounds, result limits and timeouts;
+- no arbitrary SQF, C++, PowerShell, shell or operating-system commands;
+- current tools remain read-only;
+- immutable rules precede measured/derived facts, style profile and question;
+- custom profile text is capped at 2,000 characters, sanitized and style-only;
+- distances, bearings, directions, containment and freshness are local results,
+  not model calculations.
 
-- API keys;
-- Steam/player UID;
-- local Windows paths or account names;
-- raw microphone audio outside active push-to-talk;
-- full conversation history beyond configured memory;
-- entire raw world-model databases;
-- unrestricted server state.
+## Retention and logging
 
-OpenAI requests should use `store: false`. This controls response-state storage but does not by itself guarantee Zero Data Retention; provider data controls must be documented accurately.
-
-## Tool security
-
-- strict JSON schemas;
-- local range/category/action allowlists;
-- timeouts and result limits;
-- authorization and capability checks;
-- idempotency for mutations;
-- no arbitrary code or shell tools;
-- cancellation and emergency action-disable control;
-- redacted diagnostic logging.
-
-## Prompt-injection resistance
-
-Game text, mission descriptions, object names, transcripts and tool results are untrusted data. They cannot redefine system policy, enable hidden tools or bypass confirmation. Tool authorization is implemented in code, not prompt instructions.
-
-## Data retention
-
-Default local retention:
-
-- map/equipment indexes: persistent by fingerprint;
-- mission world model: current mission plus optional short diagnostic retention;
-- operation audit: configurable and redacted;
-- conversation: memory-only unless user explicitly enables storage;
-- audio: not retained.
+- API keys are DPAPI-encrypted; response profiles are ordinary local settings;
+- world state, conversation and the named-location gazetteer are memory-only for
+  their current scopes;
+- no SQLite map index, map fingerprint cache or operational-memory database is
+  active in release 0.8;
+- audio, questions, transcripts, answers, custom style, full prompts, snapshots,
+  tool payloads, raw gazetteer pages, provider bodies and credentials are not
+  logged;
+- temporary WAV files are deleted after success, failure or cancellation;
+- OpenAI Responses uses `store: false`; provider retention policy remains an
+  external account/data-control consideration.
 
 ## Transparency
 
-Papa Bear should disclose when:
-
-- information is stale, estimated or unavailable;
-- ACE is absent or a lower-fidelity fallback is active;
-- target elevation is assumed;
-- an action cannot be executed due to policy or mission capability;
-- a cloud service is unavailable.
+Papa Bear must preserve live versus last-known status, disclose unavailable or
+stale information, fall back to world/grid when no valid name exists and never
+invent a place, distance, bearing, coordinate or hidden contact.

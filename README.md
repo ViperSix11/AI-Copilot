@@ -6,9 +6,10 @@ Named Pipe. The WPF application maintains a privacy-minimized world model and
 lets **Papa Bear** answer typed or push-to-talk questions about the current
 mission.
 
-**Current release: 0.7** (`0.7.0` assembly version).
+**Current release: 0.8** (`0.8.0` assembly version).
 
-Version 0.7 is the first live-accepted voice proof of concept. A player can ask
+Version 0.8 adds deterministic contextual interpretation to the live-accepted
+voice proof of concept. A player can ask
 by microphone, for example, “Papa Bear, welche Position habe ich?”, and receive
 a grounded text answer plus spoken output using the configured ElevenLabs
 voice.
@@ -53,6 +54,8 @@ separate conversation model.
 - own-side groups, units and crewed vehicles with delta updates and periodic
   reconciliation;
 - bounded request-driven environment queries.
+- one bounded, config-only export of official `CfgWorlds` named locations per
+  mission session; no terrain-object scan or static map index.
 
 ### Local application
 
@@ -69,6 +72,10 @@ separate conversation model.
 - OpenAI completed-utterance transcription;
 - ElevenLabs speech synthesis;
 - replay, cancellation and partial-success handling.
+- in-memory named-location gazetteer with atomic paged assembly;
+- deterministic position containment, distance, bearing, cardinal direction,
+  salience ranking and current/last-known interpretation;
+- local response profiles with deterministic final-text terminators.
 
 ### Local read tools
 
@@ -79,6 +86,7 @@ query_environment(shape, direction, rangeMeters, angleDegrees, categories, maxRe
 query_friendly_forces(entityType, maxDistanceMeters, includeStale, limit)
 query_assets(kind, availableOnly, maxDistanceMeters, includeStale, limit)
 query_mission_capabilities(enabledOnly, includeStale)
+find_named_locations(query, maxDistanceMeters, limit)
 ```
 
 No tool can execute arbitrary SQF, C++, PowerShell or operating-system commands.
@@ -123,9 +131,11 @@ mod/
 
 Do not mix the EXE, DLL and PBO from different builds.
 
-## Voice MVP acceptance
+## Contextual position acceptance
 
-The following sequence has been accepted live for version 0.7:
+The following sequence was accepted live for version 0.7. Version 0.8 retains
+it and adds the exact Stratis and alternate-map checks in
+`docs/papa-bear-v1/codex-milestone-5-contextual-interpreter.md`:
 
 1. Start any Arma mission and verify map, position and grid telemetry.
 2. Select **Test Papa Bear Voice** and hear:
@@ -176,7 +186,7 @@ reasoning.
 
 ## Current limitations
 
-Version 0.7 does not yet provide:
+Version 0.8 does not provide:
 
 - always-on listening, wake words, VAD or a global push-to-talk hotkey;
 - streaming transcription or streaming speech output;
@@ -184,7 +194,7 @@ Version 0.7 does not yet provide:
 - side-wide enemy knowledge aggregation across all friendly groups;
 - proactive military contact reports;
 - player-reported observations or persistent operational memory;
-- named-location gazetteer lookup for tactical reports;
+- persistent, runtime-object or full-static-map indexing;
 - perception of empty vehicles and other non-contact objects;
 - ACE integration or deterministic ballistics;
 - route planning, landing-zone scoring or support execution;
@@ -192,7 +202,13 @@ Version 0.7 does not yet provide:
 
 These are follow-on capabilities, not dependencies of the accepted MVP.
 
-## Active roadmap
+## Roadmap status
+
+Release 0.8 Contextual Interpreter is the only active product milestone. The
+following older proposals are retained as historical context only; none is an
+active dependency or authorized implementation scope.
+
+## Historical roadmap proposals
 
 ### M4B — Arma knowledge mirror
 
@@ -251,6 +267,9 @@ application, native DLL, `mod.cpp` and PBO.
 - **0.7** — live-accepted Voice Position MVP, OpenAI audio transcription,
   ElevenLabs-only speech output, partial-success preservation, clean provider
   setup and verified matching Windows artifact.
+
+- **0.8** — bounded official named-location gazetteer, deterministic contextual
+  position interpretation, bounded location lookup and local response profiles.
 
 Detailed architectural records and milestone acceptance specifications are under
 [`docs/papa-bear-v1`](docs/papa-bear-v1/).

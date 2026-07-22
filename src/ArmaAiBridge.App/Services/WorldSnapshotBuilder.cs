@@ -8,12 +8,20 @@ public sealed class WorldSnapshotBuilder
 {
     public const string SnapshotSchema = "arma-ai-bridge/world-snapshot-v1";
     private readonly WorldStateStore _store;
+    private readonly MapGazetteerStore? _gazetteerStore;
+    private readonly PositionInterpretationService _positionInterpreter;
     private readonly TimeProvider _timeProvider;
 
-    public WorldSnapshotBuilder(WorldStateStore store, TimeProvider? timeProvider = null)
+    public WorldSnapshotBuilder(
+        WorldStateStore store,
+        TimeProvider? timeProvider = null,
+        MapGazetteerStore? gazetteerStore = null,
+        PositionInterpretationService? positionInterpreter = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _gazetteerStore = gazetteerStore;
+        _positionInterpreter = positionInterpreter ?? new PositionInterpretationService();
     }
 
     public bool TryBuildCurrentSituation(out string json)
@@ -147,8 +155,30 @@ public sealed class WorldSnapshotBuilder
         });
     }
 
+    public string BuildNamedLocations(JsonElement arguments)
+    {
+        WorldStateView view = RequireWorldState();
+        MapGazetteerSnapshot gazetteer = _gazetteerStore?.GetSnapshot()
+            ?? new MapGazetteerSnapshot(
+                MapGazetteerReadiness.Unavailable,
+                view.Map!.Name,
+                view.Map.SizeMeters,
+                Array.Empty<MapGazetteerLocation>(),
+                "gazetteer_not_configured");
+        return _positionInterpreter.FindNamedLocations(view, gazetteer, arguments);
+    }
+
     private Dictionary<string, object?> BuildCurrentSituation(WorldStateView view)
-        => new()
+    {
+        MapGazetteerSnapshot gazetteer = _gazetteerStore?.GetSnapshot()
+            ?? new MapGazetteerSnapshot(
+                MapGazetteerReadiness.Unavailable,
+                view.Map!.Name,
+                view.Map.SizeMeters,
+                Array.Empty<MapGazetteerLocation>(),
+                "gazetteer_not_configured");
+        PositionInterpretation interpretation = _positionInterpreter.Interpret(view, gazetteer);
+        return new()
         {
             ["schema"] = SnapshotSchema,
             ["purpose"] = "current-situation",
@@ -156,6 +186,7 @@ public sealed class WorldSnapshotBuilder
             ["session"] = Session(view),
             ["map"] = Map(view.Map!),
             ["player"] = Player(view.Player!),
+            ["interpretedLocation"] = interpretation,
             ["group"] = view.Group is null ? null : Group(view.Group),
             ["vehicle"] = view.Vehicle is null ? null : Vehicle(view.Vehicle),
             ["knownContacts"] = Contacts(view.KnownContacts),
@@ -163,6 +194,7 @@ public sealed class WorldSnapshotBuilder
             ["missionCapabilitySummary"] = MissionCapabilitySummary(view),
             ["reconciliation"] = Reconciliation(view.Reconciliation)
         };
+    }
 
     private static Dictionary<string, object?> Session(WorldStateView view)
         => new()

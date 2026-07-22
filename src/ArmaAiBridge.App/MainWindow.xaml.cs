@@ -20,8 +20,10 @@ public partial class MainWindow : Window
     private readonly SettingsService _settingsService = new();
     private readonly TelemetryPipeServer _pipeServer;
     private readonly WorldStateStore _worldStateStore;
+    private readonly MapGazetteerStore _mapGazetteerStore;
     private readonly WorldSnapshotBuilder _worldSnapshotBuilder;
     private readonly TelemetryIngestService _telemetryIngestService;
+    private readonly MapGazetteerCoordinator _mapGazetteerCoordinator;
     private long _snapshotCount;
     private string? _pendingRequestId;
 
@@ -30,9 +32,13 @@ public partial class MainWindow : Window
         InitializeComponent();
         _pipeServer = new TelemetryPipeServer(_log);
         _worldStateStore = new WorldStateStore();
-        _worldSnapshotBuilder = new WorldSnapshotBuilder(_worldStateStore);
+        _mapGazetteerStore = new MapGazetteerStore();
+        _worldSnapshotBuilder = new WorldSnapshotBuilder(
+            _worldStateStore, gazetteerStore: _mapGazetteerStore);
         _telemetryIngestService = new TelemetryIngestService(
             _pipeServer, _worldStateStore, _log);
+        _mapGazetteerCoordinator = new MapGazetteerCoordinator(
+            _pipeServer, _worldStateStore, _mapGazetteerStore, _log);
         _log.EntryWritten += OnLogEntryWritten;
         _pipeServer.ClientConnectionChanged += OnClientConnectionChanged;
         _pipeServer.MessageReceived += OnBridgeMessageReceived;
@@ -46,7 +52,7 @@ public partial class MainWindow : Window
         {
             await LoadSettingsAsync();
             await StartListenerAsync();
-            _log.Info("ArmA AI Bridge v0.6.0 started.");
+            _log.Info("ArmA AI Bridge v0.8.0 started.");
         }
         catch (Exception exception)
         {
@@ -59,6 +65,7 @@ public partial class MainWindow : Window
     {
         _assistantPanel?.Dispose();
         _worldStateDiagnosticsPanel?.Dispose();
+        _mapGazetteerCoordinator.Dispose();
         _telemetryIngestService.Dispose();
         await _pipeServer.DisposeAsync();
     }
@@ -77,6 +84,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        ApplyResponseProfile(settings.ResponseProfile);
         try
         {
             OpenAiKeyBox.Password = DpapiService.Unprotect(settings.OpenAiApiKeyProtected);
@@ -194,7 +202,8 @@ public partial class MainWindow : Window
             {
                 OpenAiApiKeyProtected = DpapiService.Protect(OpenAiKeyBox.Password.Trim()),
                 ElevenLabsApiKeyProtected = DpapiService.Protect(ElevenLabsKeyBox.Password.Trim()),
-                ElevenLabsVoiceId = ElevenLabsVoiceIdBox.Text.Trim()
+                ElevenLabsVoiceId = ElevenLabsVoiceIdBox.Text.Trim(),
+                ResponseProfile = ReadResponseProfile()
             };
             await _settingsService.SaveAsync(settings);
             SettingsStatusText.Text = $"Saved at {DateTime.Now:T}.";
@@ -213,6 +222,46 @@ public partial class MainWindow : Window
         ElevenLabsKeyBox.Clear();
         ElevenLabsVoiceIdBox.Clear();
         SettingsStatusText.Text = "Fields cleared locally. Click Save to overwrite stored values.";
+    }
+
+    private void RestoreResponseProfileButton_Click(object sender, RoutedEventArgs e)
+    {
+        ApplyResponseProfile(ResponseProfilePolicy.Defaults());
+        SettingsStatusText.Text = "Response profile defaults restored locally. Click Save to persist them.";
+    }
+
+    private ResponseProfileSettings ReadResponseProfile()
+        => ResponseProfilePolicy.Normalize(new ResponseProfileSettings
+        {
+            Preset = ReadSelectedTag(ResponsePresetBox, "authentic-military"),
+            Language = ReadSelectedTag(ResponseLanguageBox, "auto"),
+            Length = ReadSelectedTag(ResponseLengthBox, "short"),
+            Terminator = ReadSelectedTag(ResponseTerminatorBox, "none"),
+            CustomStyle = ResponseCustomStyleBox.Text,
+            CustomTerminator = ResponseCustomTerminatorBox.Text
+        });
+
+    private void ApplyResponseProfile(ResponseProfileSettings? profile)
+    {
+        ResponseProfileSettings value = ResponseProfilePolicy.Normalize(profile);
+        SelectTag(ResponsePresetBox, value.Preset);
+        SelectTag(ResponseLanguageBox, value.Language);
+        SelectTag(ResponseLengthBox, value.Length);
+        SelectTag(ResponseTerminatorBox, value.Terminator);
+        ResponseCustomStyleBox.Text = value.CustomStyle;
+        ResponseCustomTerminatorBox.Text = value.CustomTerminator;
+    }
+
+    private static void SelectTag(ComboBox box, string tag)
+    {
+        foreach (object item in box.Items)
+        {
+            if (item is ComboBoxItem choice && string.Equals(choice.Tag as string, tag, StringComparison.Ordinal))
+            {
+                box.SelectedItem = choice;
+                return;
+            }
+        }
     }
 
     private void OpenLogFolderButton_Click(object sender, RoutedEventArgs e)
@@ -290,6 +339,16 @@ public partial class MainWindow : Window
                     {
                         schema,
                         status = "Ingested into World State; source identifiers are hidden in this view."
+                    }, new JsonSerializerOptions { WriteIndented = true });
+                }
+                else if (schema == MapGazetteerStore.Schema)
+                {
+                    MapGazetteerDiagnostics status = _mapGazetteerStore.GetDiagnostics();
+                    RawTelemetryTextBox.Text = JsonSerializer.Serialize(new
+                    {
+                        schema,
+                        status = status.Readiness.ToString().ToLowerInvariant(),
+                        message = "Gazetteer page handled locally; raw configuration payload hidden from this view."
                     }, new JsonSerializerOptions { WriteIndented = true });
                 }
                 else

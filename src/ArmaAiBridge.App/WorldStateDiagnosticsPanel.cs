@@ -14,17 +14,23 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
 {
     private readonly WorldStateStore _store;
     private readonly WorldSnapshotBuilder _snapshots;
+    private readonly MapGazetteerStore? _gazetteerStore;
     private readonly DispatcherTimer _refreshTimer;
     private readonly TextBox _summary = ReadOnlyTextBox(wrap: true);
     private readonly TextBox _snapshot = ReadOnlyTextBox(wrap: false);
     private bool _disposed;
 
-    public WorldStateDiagnosticsPanel(WorldStateStore store, WorldSnapshotBuilder snapshots)
+    public WorldStateDiagnosticsPanel(
+        WorldStateStore store,
+        WorldSnapshotBuilder snapshots,
+        MapGazetteerStore? gazetteerStore = null)
     {
         _store = store;
         _snapshots = snapshots;
+        _gazetteerStore = gazetteerStore;
         Content = BuildUi();
         _store.StateChanged += OnStateChanged;
+        if (_gazetteerStore is not null) _gazetteerStore.Changed += OnGazetteerChanged;
         _refreshTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
         {
             Interval = TimeSpan.FromSeconds(1)
@@ -94,11 +100,17 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
         _ = Dispatcher.BeginInvoke(Refresh, DispatcherPriority.Background);
     }
 
+    private void OnGazetteerChanged()
+    {
+        if (_disposed || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+        _ = Dispatcher.BeginInvoke(Refresh, DispatcherPriority.Background);
+    }
+
     private void Refresh()
     {
         if (_disposed) return;
         WorldStateView view = _store.GetCurrentView();
-        _summary.Text = BuildSummary(view);
+        _summary.Text = BuildSummary(view, _gazetteerStore?.GetDiagnostics());
         if (_snapshots.TryBuildCurrentSituation(out string json))
         {
             using JsonDocument document = JsonDocument.Parse(json);
@@ -112,7 +124,7 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
         }
     }
 
-    private static string BuildSummary(WorldStateView view)
+    private static string BuildSummary(WorldStateView view, MapGazetteerDiagnostics? gazetteer)
     {
         StringBuilder text = new();
         text.AppendLine($"Connection: {(view.IsConnected ? "connected" : "disconnected")}");
@@ -157,6 +169,14 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
         {
             text.AppendLine($"Map: {view.Map.Name} ({view.Map.SizeMeters:N0} m)");
             text.AppendLine($"Map state: {Describe(view.Map.Metadata)}");
+        }
+        if (gazetteer is not null)
+        {
+            text.AppendLine(
+                $"Named-location gazetteer: {gazetteer.Readiness.ToString().ToLowerInvariant()} / " +
+                $"{gazetteer.LocationCount} locations / pages {gazetteer.ReceivedPages}/{gazetteer.ExpectedPages}");
+            if (gazetteer.DiagnosticCode.Length > 0)
+                text.AppendLine($"Gazetteer diagnostic: {gazetteer.DiagnosticCode}");
         }
         if (view.Player is not null)
         {
@@ -258,5 +278,6 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
         _disposed = true;
         _refreshTimer.Stop();
         _store.StateChanged -= OnStateChanged;
+        if (_gazetteerStore is not null) _gazetteerStore.Changed -= OnGazetteerChanged;
     }
 }

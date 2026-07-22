@@ -17,7 +17,7 @@ public partial class MainWindow
         _assistantPanel = new AssistantPanel(
             _pipeServer, _settingsService, _log, _worldSnapshotBuilder);
         _worldStateDiagnosticsPanel = new WorldStateDiagnosticsPanel(
-            _worldStateStore, _worldSnapshotBuilder);
+            _worldStateStore, _worldSnapshotBuilder, _mapGazetteerStore);
         tabs.Items.Insert(1, new TabItem { Header = "Assistant", Content = _assistantPanel });
         tabs.Items.Insert(2, new TabItem { Header = "World State", Content = _worldStateDiagnosticsPanel });
     }

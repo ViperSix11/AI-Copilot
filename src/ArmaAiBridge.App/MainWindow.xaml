@@ -19,7 +19,7 @@
             </Grid.ColumnDefinitions>
             <StackPanel>
                 <TextBlock Text="ArmA AI Bridge" FontSize="28" FontWeight="SemiBold" />
-                <TextBlock Text="Papa Bear telemetry, world state and push-to-talk · v0.7"
+                <TextBlock Text="Papa Bear telemetry, contextual interpretation and push-to-talk · v0.8"
                            Foreground="{StaticResource MutedTextBrush}" Margin="0,4,0,0" />
             </StackPanel>
             <Border Grid.Column="1" Background="{StaticResource PanelBrush}"
@@ -187,9 +187,55 @@
                         <PasswordBox x:Name="ElevenLabsKeyBox" Width="700" Margin="0,0,0,16" />
                         <TextBlock Text="ElevenLabs voice ID" Margin="0,0,0,6" />
                         <TextBox x:Name="ElevenLabsVoiceIdBox" Width="700" Margin="0,0,0,16" />
+                        <TextBlock Text="Response profile" FontSize="18" FontWeight="SemiBold" Margin="0,8,0,12" />
+                        <TextBlock Text="Style settings affect wording only. They cannot change facts, privacy, fair play, calculations or tool policy."
+                                   Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,12" />
+                        <WrapPanel Margin="0,0,0,12">
+                            <StackPanel Margin="0,0,16,0">
+                                <TextBlock Text="Preset" Margin="0,0,0,6" />
+                                <ComboBox x:Name="ResponsePresetBox" Width="180" SelectedIndex="0">
+                                    <ComboBoxItem Content="Authentic military" Tag="authentic-military" />
+                                    <ComboBoxItem Content="Concise military" Tag="concise-military" />
+                                    <ComboBoxItem Content="Plain" Tag="plain" />
+                                    <ComboBoxItem Content="Cinematic" Tag="cinematic" />
+                                    <ComboBoxItem Content="Custom" Tag="custom" />
+                                </ComboBox>
+                            </StackPanel>
+                            <StackPanel Margin="0,0,16,0">
+                                <TextBlock Text="Language" Margin="0,0,0,6" />
+                                <ComboBox x:Name="ResponseLanguageBox" Width="130" SelectedIndex="0">
+                                    <ComboBoxItem Content="Automatic" Tag="auto" />
+                                    <ComboBoxItem Content="English" Tag="en" />
+                                    <ComboBoxItem Content="German" Tag="de" />
+                                </ComboBox>
+                            </StackPanel>
+                            <StackPanel Margin="0,0,16,0">
+                                <TextBlock Text="Length" Margin="0,0,0,6" />
+                                <ComboBox x:Name="ResponseLengthBox" Width="130" SelectedIndex="1">
+                                    <ComboBoxItem Content="Very short" Tag="very-short" />
+                                    <ComboBoxItem Content="Short" Tag="short" />
+                                    <ComboBoxItem Content="Normal" Tag="normal" />
+                                </ComboBox>
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Text="Terminator" Margin="0,0,0,6" />
+                                <ComboBox x:Name="ResponseTerminatorBox" Width="130" SelectedIndex="0">
+                                    <ComboBoxItem Content="None" Tag="none" />
+                                    <ComboBoxItem Content="Over" Tag="over" />
+                                    <ComboBoxItem Content="Out" Tag="out" />
+                                    <ComboBoxItem Content="Custom" Tag="custom" />
+                                </ComboBox>
+                            </StackPanel>
+                        </WrapPanel>
+                        <TextBlock Text="Custom style (maximum 2,000 characters)" Margin="0,0,0,6" />
+                        <TextBox x:Name="ResponseCustomStyleBox" Width="700" MaxLength="2000" MinHeight="60"
+                                 AcceptsReturn="True" TextWrapping="Wrap" Margin="0,0,0,12" />
+                        <TextBlock Text="Custom terminator (maximum 32 characters)" Margin="0,0,0,6" />
+                        <TextBox x:Name="ResponseCustomTerminatorBox" Width="700" MaxLength="32" Margin="0,0,0,16" />
                         <StackPanel Orientation="Horizontal">
                             <Button Content="Save encrypted settings" Click="SaveSettingsButton_Click" />
                             <Button Content="Clear fields" Click="ClearSettingsButton_Click" />
+                            <Button Content="Reset to Default" Click="RestoreResponseProfileButton_Click" />
                         </StackPanel>
                         <TextBlock x:Name="SettingsStatusText" Foreground="{StaticResource AccentBrush}" Margin="0,14,0,0" />
                     </StackPanel>

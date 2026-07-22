@@ -15,6 +15,7 @@ public sealed class Milestone3ProtocolTests
     [InlineData("friendly-force-snapshot-v1")]
     [InlineData("friendly-force-delta-v1")]
     [InlineData("mission-capabilities-v1")]
+    [InlineData("map-gazetteer-v1")]
     public void ContractFixture_MatchesStrictTopLevelSchema(string contract)
     {
         using JsonDocument schema = JsonDocument.Parse(Fixture($"schemas/{contract}.schema.json"));
@@ -45,7 +46,7 @@ public sealed class Milestone3ProtocolTests
 
             WorldStateView initial = store.GetCurrentView();
             Assert.Equal("own-side", initial.Protocol?.Visibility);
-            Assert.Equal(4, initial.Protocol?.Features.Count);
+            Assert.Equal(5, initial.Protocol?.Features.Count);
             Assert.True(initial.Reconciliation.HasCompleteReconciliation);
             Assert.False(initial.Reconciliation.IsDegraded);
             Assert.Equal("group-001", Assert.Single(initial.FriendlyGroups).Alias);

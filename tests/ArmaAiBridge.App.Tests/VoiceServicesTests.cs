@@ -348,7 +348,7 @@ public sealed class VoiceServicesTests
                 snapshot++;
                 return (true, $"{{\"schema\":\"{WorldSnapshotBuilder.SnapshotSchema}\",\"map\":{{\"name\":\"Altis\",\"grid\":\"{snapshot:000000}\"}},\"player\":{{\"positionAsl\":[{snapshot},2,3],\"freshnessClass\":\"live\",\"confidence\":1.0}}}}");
             },
-            _ => Task.FromResult(("openai-secret", "gpt-5-mini")),
+            _ => Task.FromResult(("openai-secret", "gpt-5-mini", new ResponseProfileSettings())),
             (_, _, _) => Task.FromResult("tool"));
 
         await turns.SubmitUserTurnAsync("typed", UserTurnSource.Typed, TestContext.Current.CancellationToken);
@@ -528,6 +528,45 @@ public sealed class VoiceServicesTests
         Assert.Equal("Papa Bear online. Radio check complete.", VoiceInteractionService.VoiceTestPhrase);
     }
 
+    [Fact]
+    public async Task VoiceTurn_SpeaksExactlyTheNormalizedVisibleAnswer()
+    {
+        ScriptedHttpHandler handler = new(_ => Task.FromResult(Json(HttpStatusCode.OK,
+            JsonSerializer.Serialize(new
+            {
+                model = "gpt-5-mini",
+                output = new[]
+                {
+                    new
+                    {
+                        id = "msg_1", type = "message", role = "assistant",
+                        content = new[] { new { type = "output_text", text = "Position confirmed. Over. Over!", annotations = Array.Empty<object>() } }
+                    }
+                },
+                usage = new { input_tokens = 12, output_tokens = 6 }
+            }))));
+        using HttpClient client = new(handler) { BaseAddress = new Uri("https://api.openai.test/v1/") };
+        using AssistantTurnService turns = new(
+            new OpenAiAssistantService(client),
+            () => (true, """{"schema":"arma-ai-bridge/world-snapshot-v1","purpose":"current-situation","map":{"name":"Stratis"},"player":{"position":[1,2,3]}}"""),
+            _ => Task.FromResult(("openai-key", "gpt-5-mini", new ResponseProfileSettings { Terminator = "over" })),
+            (_, _, _) => Task.FromResult("unused"));
+        FakeSpeechToText speech = new("Where am I?");
+        FakeTextToSpeech synthesis = new();
+        using VoiceInteractionService voice = CreateVoice(speech, turns, synthesis, new FakePlayback());
+        List<string> visible = new();
+
+        VoiceTurnResult result = await voice.RunVoiceTurnAsync(
+            new Recording(Encoding.ASCII.GetBytes("wave")), null, _ => { },
+            answer => visible.Add(answer.Text), TestContext.Current.CancellationToken);
+
+        Assert.Equal(new[] { "Position confirmed. Over." }, visible);
+        Assert.Equal(visible, synthesis.Texts);
+        Assert.Equal("Position confirmed. Over.", result.Answer.Text);
+        Assert.Equal(1, handler.RequestCount);
+        result.Audio?.Dispose();
+    }
+
     [Theory]
     [InlineData(VoiceStage.Transcribing)]
     [InlineData(VoiceStage.Thinking)]
@@ -685,6 +724,7 @@ public sealed class VoiceServicesTests
             string model,
             string question,
             string worldSnapshotJson,
+            ResponseProfileSettings responseProfile,
             Func<string, JsonElement, CancellationToken, Task<string>> executeTool,
             CancellationToken cancellationToken)
         {

@@ -1,121 +1,71 @@
 # Implementation roadmap
 
-Each milestone is developed on a focused branch/PR and must pass automated
-Windows CI plus its explicit live Arma acceptance gate. Scope is intentionally
-narrow: a functioning vertical product slice takes priority over speculative
-breadth.
+Each milestone uses a focused branch and draft PR, deterministic Windows tests,
+matching app/native/PBO packaging and an explicit live Arma acceptance gate.
+Later ideas are not implementation authority.
 
 ## M1 — OpenAI text tool loop
 
 Status: **accepted**.
 
-- repair multi-round stateless Responses tool handling;
-- expose safe, useful API errors;
-- add deterministic mocked tests;
-- preserve the existing PBO/DLL protocol.
+Repaired the stateless Responses tool loop, surfaced safe provider errors and
+preserved the existing bridge protocol.
 
-Exit achieved: direct and tool-assisted text questions complete reliably.
-
-## M2 — Local world-model foundation
+## M2 — Local world model
 
 Status: **accepted**.
 
-- local entity state with provenance, freshness and uncertainty;
-- telemetry ingestion and session reset handling;
-- purpose-built privacy-minimized snapshots;
-- read-only diagnostics.
-
-Exit achieved: current player, group and known-contact state can be inspected
-locally without OpenAI.
+Added provenance, freshness, uncertainty, reset handling, minimized
+purpose-specific snapshots and read-only diagnostics.
 
 ## M3 — Friendly-force picture
 
-Status: **accepted for the current read-only scope**.
+Status: **accepted for read-only scope**.
 
-- own-side groups, units and crewed vehicles;
-- event-driven deltas and periodic full reconciliation;
-- stale-position handling;
-- read-only mission-declared asset and capability registry.
+Added mission/session handshake, own-side groups, units and crewed vehicles,
+deltas plus reconciliation, and read-only mission assets/capabilities.
 
-Exit achieved: Papa Bear can report current friendly positions and status from
-the local world model. No support execution is available.
+## M4A / Release 0.7 — Voice Position MVP
 
-## M4A — Voice Position MVP
+Status: **accepted live**.
 
-Status: **accepted live in version 0.7**.
+Added 15-second push-to-talk, OpenAI completed-utterance transcription, one
+shared typed/spoken turn service, ElevenLabs output, replay, cancellation and
+partial-success preservation.
 
-- bounded 15-second push-to-talk microphone capture;
-- OpenAI completed-utterance transcription;
-- shared typed/spoken `AssistantTurnService`;
-- fresh Arma world snapshot for every turn;
-- ElevenLabs-only Papa Bear speech output;
-- isolated microphone, transcription and voice tests;
-- cancellation, replay and partial-success preservation;
-- matching app, DLL and PBO artifact.
+## M5 / Release 0.8 — Contextual Interpreter
 
-Exit achieved: the player asks by microphone for the current position and
-receives a correct grounded text answer plus spoken ElevenLabs output.
+Status: **implementation draft; live acceptance pending**.
 
-## M4B — Arma Knowledge Mirror
+- export only official `CfgWorlds >> worldName >> Names` entries in strict,
+  bounded pages over the existing duplex transport;
+- assemble an in-memory, mission/world-scoped gazetteer atomically;
+- derive containment, distance, rounded distance, bearing, cardinal direction,
+  salience ranking and live/last-known status locally;
+- add compact `interpretedLocation` context and bounded
+  `find_named_locations` lookup;
+- add local style-only response profiles and exact final-text terminators;
+- retain one Responses request for an ordinary position question.
 
-Status: **next**.
+Exit: all automated gates pass and live Stratis plus alternate-map acceptance
+confirms correct place relations, language/profile behavior, identical visible
+and spoken text, one gazetteer collection and no second Responses request.
 
-Goal: read what Arma’s own-side AI already knows rather than constructing a
-parallel perception simulation.
+## Next milestone selection
 
-- aggregate `targets`, `targetKnowledge`, `knowsAbout` and documented sensor
-  knowledge across eligible friendly groups;
-- preserve source group, Arma estimated position, position error and age;
-- deduplicate the same target across observers;
-- exclude actual hidden enemy position and unrestricted world truth;
-- add a bounded `query_known_contacts` local tool;
-- prove that a remote WEST unit’s recognized EAST contact reaches Papa Bear.
+No follow-on feature is active yet. Select the next smallest live product gap
+after 0.8 acceptance, write its specification first and preserve all accepted
+boundaries.
 
-Exit: a remote friendly unit recognizes an enemy and Papa Bear can accurately
-report the same engine-provided contact knowledge.
+## Deferred backlog
 
-## M4C — Named locations and proactive contact report
+The following require new evidence and explicit authorization; they are not
+active dependencies:
 
-Status: planned after M4B.
-
-- load only official high-level named locations;
-- resolve the nearest named place to an already-known contact position;
-- detect a first-known hostile contact transition;
-- emit one deduplicated military contact message;
-- speak the alert through the accepted ElevenLabs path.
-
-Exit: Papa Bear announces one grounded military contact report with source
-unit and location, without repeated radio spam.
-
-## M5 — Player reports and selected physical objects
-
-Status: deferred until M4B/M4C are stable.
-
-- accept explicit spoken player observations;
-- support correction and retraction;
-- evaluate whether empty vehicles and tactical objects are represented by
-  Arma’s knowledge model;
-- add only narrowly scoped supplementary collection where a demonstrated gap
-  exists;
-- introduce mission memory only when required by accepted use cases.
-
-## M6 — Voice and product hardening
-
-- microphone and output-device selection;
-- configurable global push-to-talk hotkey;
-- latency and provider-failure measurement;
-- streaming only when it produces a demonstrated UX benefit;
-- installer, updater and release packaging;
-- longer soak and regression tests.
-
-## Later backlog
-
-These are not active dependencies and require a new architecture decision:
-
-- ACE/CBA integration;
-- deterministic ballistics;
-- routes and landing-zone evaluation;
-- persistent operational memory;
-- full static map indexing;
-- validated transport, evacuation or support actions;
-- multiplayer permissions, signatures and server packaging.
+- broader own-side hostile-knowledge aggregation or proactive contact reports;
+- player-report or persistent operational memory;
+- empty vehicles and tactical-object perception;
+- full static map indexing or a spatial database;
+- ACE/CBA integration and deterministic ballistics;
+- routes, landing-zone evaluation and support execution;
+- always-on/streaming voice, global hotkeys and release hardening.
