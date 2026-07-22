@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using ArmaAiBridge.App.Models;
 using ArmaAiBridge.App.Services;
@@ -9,18 +10,30 @@ namespace ArmaAiBridge.App;
 
 public sealed class AssistantPanel : UserControl, IDisposable
 {
+    private enum CapturePurpose { MicrophoneTest, TranscriptionTest, AssistantTurn }
+
     private readonly SettingsService _settings;
     private readonly LogService _log;
     private readonly ArmaQueryCoordinator _queries;
     private readonly WorldSnapshotBuilder _snapshots;
-    private readonly OpenAiAssistantService _assistant = new();
+    private readonly PushToTalkCaptureCoordinator _capture;
+    private readonly AssistantTurnService _turns;
+    private readonly VoiceInteractionService _voice;
     private readonly TextBox _conversation = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly TextBox _question = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 76 };
     private readonly TextBox _model = new() { Text = "gpt-5-mini", Width = 220 };
     private readonly TextBlock _status = new() { Text = "Ready.", TextWrapping = TextWrapping.Wrap };
+    private readonly TextBlock _voiceStage = new() { Text = "Voice: ready", TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold };
     private readonly Button _ask = new() { Content = "Ask", MinWidth = 100 };
+    private readonly Button _testMicrophone = new() { Content = "Test Microphone", MinWidth = 130, ToolTip = "Press and hold to record; release to play locally." };
+    private readonly Button _testTranscription = new() { Content = "Test Transcription", MinWidth = 135, ToolTip = "Press and hold to record; release to send only to AssemblyAI." };
+    private readonly Button _voiceTest = new() { Content = "Test Papa Bear Voice", MinWidth = 160 };
+    private readonly Button _holdToTalk = new() { Content = "Hold to Talk", MinWidth = 130, ToolTip = "Press and hold while speaking; release to submit." };
+    private readonly Button _replay = new() { Content = "Replay Last Answer", MinWidth = 145, IsEnabled = false };
     private readonly Button _cancel = new() { Content = "Cancel", MinWidth = 100, IsEnabled = false };
     private CancellationTokenSource? _activeRequest;
+    private Button? _heldButton;
+    private AudioPayload? _lastAnswerAudio;
     private bool _disposed;
 
     public AssistantPanel(
@@ -33,9 +46,29 @@ public sealed class AssistantPanel : UserControl, IDisposable
         _log = log;
         _snapshots = snapshots;
         _queries = new ArmaQueryCoordinator(pipe);
+        _capture = new PushToTalkCaptureCoordinator(new WindowsMicrophoneCaptureService());
+
+        OpenAiAssistantService openAi = new();
+        _turns = new AssistantTurnService(
+            openAi,
+            BuildSnapshot,
+            LoadOpenAiSettingsAsync,
+            ExecuteToolAsync);
+        _voice = new VoiceInteractionService(
+            new AssemblyAiSpeechToTextService(),
+            _turns,
+            new ElevenLabsTextToSpeechService(),
+            new WindowsAudioPlaybackService(),
+            LoadVoiceSettingsAsync);
+
         Content = BuildUi();
         _ask.Click += Ask_Click;
-        _cancel.Click += (_, _) => _activeRequest?.Cancel();
+        _cancel.Click += Cancel_Click;
+        _voiceTest.Click += VoiceTest_Click;
+        _replay.Click += Replay_Click;
+        AttachHoldAction(_testMicrophone, CapturePurpose.MicrophoneTest);
+        AttachHoldAction(_testTranscription, CapturePurpose.TranscriptionTest);
+        AttachHoldAction(_holdToTalk, CapturePurpose.AssistantTurn);
     }
 
     private UIElement BuildUi()
@@ -46,82 +79,288 @@ public sealed class AssistantPanel : UserControl, IDisposable
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.Children.Add(new TextBlock
         {
-            Text = "Text assistant · OpenAI Responses API · live Arma tool calls",
-            FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 12)
+            Text = "Papa Bear assistant · typed and push-to-talk · current Arma world state",
+            FontSize = 20,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 12)
         });
-        Border transcript = Panel(_conversation); Grid.SetRow(transcript, 1); grid.Children.Add(transcript);
+        Border transcript = Panel(_conversation);
+        Grid.SetRow(transcript, 1);
+        grid.Children.Add(transcript);
 
         StackPanel bottom = new() { Margin = new Thickness(0, 12, 0, 0) };
         bottom.Children.Add(new TextBlock
         {
-            Text = "Questions and answers are not written to the application log. Player name, UID, group ID and object IDs are removed before API requests.",
-            Foreground = Brushes.Gray, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8)
+            Text = "Questions, answers, transcripts and audio are not written to the application log. Hold-to-talk records for at most 15 seconds.",
+            Foreground = Brushes.Gray,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 8)
         });
         bottom.Children.Add(_question);
-        StackPanel actions = new() { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
-        actions.Children.Add(_ask); actions.Children.Add(_cancel);
+
+        WrapPanel assistantActions = new() { Margin = new Thickness(0, 8, 0, 0) };
+        assistantActions.Children.Add(_ask);
+        assistantActions.Children.Add(_cancel);
         Button clear = new() { Content = "Clear conversation", MinWidth = 140 };
-        clear.Click += (_, _) => { _assistant.ResetConversation(); _conversation.Clear(); _status.Text = "Conversation cleared."; };
-        actions.Children.Add(clear);
-        actions.Children.Add(new TextBlock { Text = "Model", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(18, 0, 8, 0) });
-        actions.Children.Add(_model);
-        bottom.Children.Add(actions);
-        _status.Margin = new Thickness(0, 8, 0, 0); bottom.Children.Add(_status);
-        Grid.SetRow(bottom, 2); grid.Children.Add(bottom);
+        clear.Click += (_, _) =>
+        {
+            if (_activeRequest is not null) return;
+            _turns.ResetConversation();
+            _conversation.Clear();
+            _status.Text = "Conversation cleared.";
+        };
+        assistantActions.Children.Add(clear);
+        assistantActions.Children.Add(new TextBlock { Text = "Model", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(18, 0, 8, 0) });
+        assistantActions.Children.Add(_model);
+        bottom.Children.Add(assistantActions);
+
+        WrapPanel voiceActions = new() { Margin = new Thickness(0, 8, 0, 0) };
+        voiceActions.Children.Add(_testMicrophone);
+        voiceActions.Children.Add(_testTranscription);
+        voiceActions.Children.Add(_voiceTest);
+        voiceActions.Children.Add(_holdToTalk);
+        voiceActions.Children.Add(_replay);
+        bottom.Children.Add(voiceActions);
+
+        _voiceStage.Margin = new Thickness(0, 8, 0, 0);
+        bottom.Children.Add(_voiceStage);
+        _status.Margin = new Thickness(0, 4, 0, 0);
+        bottom.Children.Add(_status);
+        Grid.SetRow(bottom, 2);
+        grid.Children.Add(bottom);
         return grid;
     }
 
     private static Border Panel(UIElement child) => new()
     {
         Background = new SolidColorBrush(Color.FromRgb(14, 18, 22)),
-        BorderBrush = new SolidColorBrush(Color.FromRgb(58, 70, 81)), BorderThickness = new Thickness(1),
-        CornerRadius = new CornerRadius(6), Padding = new Thickness(12), Child = child
+        BorderBrush = new SolidColorBrush(Color.FromRgb(58, 70, 81)),
+        BorderThickness = new Thickness(1),
+        CornerRadius = new CornerRadius(6),
+        Padding = new Thickness(12),
+        Child = child
     };
+
+    private void AttachHoldAction(Button button, CapturePurpose purpose)
+    {
+        button.PreviewMouseLeftButtonDown += async (_, eventArgs) =>
+        {
+            eventArgs.Handled = true;
+            await BeginCaptureAsync(button, purpose);
+        };
+        button.PreviewMouseLeftButtonUp += async (_, eventArgs) =>
+        {
+            eventArgs.Handled = true;
+            button.ReleaseMouseCapture();
+            await StopCaptureAsync();
+        };
+    }
+
+    private async Task BeginCaptureAsync(Button button, CapturePurpose purpose)
+    {
+        if (_activeRequest is not null || _disposed) return;
+        try
+        {
+            _activeRequest = new CancellationTokenSource();
+            _heldButton = button;
+            button.CaptureMouse();
+            SetOperationBusy(true);
+            SetVoiceStage(VoiceStage.Recording);
+            _status.Text = "Release the button to stop recording.";
+            Task<IAudioRecording> recording = _capture.BeginAsync(_activeRequest.Token);
+            _ = ObserveCaptureAsync(recording, purpose, _activeRequest);
+        }
+        catch (Exception exception)
+        {
+            HandleVoiceFailure(exception);
+            FinishOperation();
+        }
+    }
+
+    private async Task StopCaptureAsync()
+    {
+        try { await _capture.ReleaseAsync(); }
+        catch (Exception exception) { HandleVoiceFailure(exception); }
+    }
+
+    private async Task ObserveCaptureAsync(
+        Task<IAudioRecording> recordingTask,
+        CapturePurpose purpose,
+        CancellationTokenSource request)
+    {
+        try
+        {
+            await using (IAudioRecording recording = await recordingTask)
+            {
+                if (!ReferenceEquals(request, _activeRequest)) return;
+                request.Token.ThrowIfCancellationRequested();
+                Progress<VoiceStage> progress = new(SetVoiceStage);
+                switch (purpose)
+                {
+                    case CapturePurpose.MicrophoneTest:
+                        await _voice.PlayMicrophoneTestAsync(recording, progress, request.Token);
+                        _status.Text = "Microphone test completed locally. No provider was contacted.";
+                        break;
+                    case CapturePurpose.TranscriptionTest:
+                        string transcript = await _voice.RunTranscriptionTestAsync(recording, progress, request.Token);
+                        Append("Transcription test", transcript);
+                        _status.Text = "AssemblyAI transcription completed. OpenAI and ElevenLabs were not contacted.";
+                        break;
+                    case CapturePurpose.AssistantTurn:
+                        VoiceTurnResult result = await _voice.RunVoiceTurnAsync(recording, progress, request.Token);
+                        Append("You", result.Transcript);
+                        Append("Papa Bear", result.Answer.Text);
+                        ReplaceLastAudio(result.Audio);
+                        _status.Text = FormatCompletion(result.Answer);
+                        _log.Info($"Spoken assistant turn completed: model={result.Answer.Model}, tools={result.Answer.ToolCalls}, inputTokens={result.Answer.InputTokens}, outputTokens={result.Answer.OutputTokens}.");
+                        break;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            SetVoiceStage(VoiceStage.Ready);
+            _status.Text = "Voice operation cancelled.";
+        }
+        catch (Exception exception)
+        {
+            HandleVoiceFailure(exception);
+        }
+        finally
+        {
+            if (ReferenceEquals(request, _activeRequest)) FinishOperation();
+        }
+    }
 
     private async void Ask_Click(object sender, RoutedEventArgs e)
     {
         if (_activeRequest is not null) return;
         string question = _question.Text.Trim();
-        if (question.Length == 0) { _status.Text = "Enter a question first."; return; }
-        if (!_snapshots.TryBuildCurrentSituation(out string worldSnapshot))
+        if (question.Length == 0)
         {
-            _status.Text = "No local Arma world state is available yet.";
+            _status.Text = "Enter a question first.";
             return;
         }
 
         try
         {
-            AppSettings settings = await _settings.LoadAsync();
-            string apiKey = DpapiService.Unprotect(settings.OpenAiApiKeyProtected);
             _activeRequest = new CancellationTokenSource();
-            SetBusy(true); Append("You", question); _question.Clear();
-            AssistantResponse response = await _assistant.AskAsync(
-                apiKey, _model.Text.Trim(), question, worldSnapshot,
-                ExecuteToolAsync, _activeRequest.Token);
-            Append("Bridge", response.Text);
-            _status.Text = $"{response.Model} · {response.ToolCalls} tool call(s) · {response.InputTokens} input / {response.OutputTokens} output tokens";
-            _log.Info($"OpenAI assistant completed: model={response.Model}, tools={response.ToolCalls}, inputTokens={response.InputTokens}, outputTokens={response.OutputTokens}.");
+            SetOperationBusy(true);
+            SetVoiceStage(VoiceStage.Thinking);
+            Append("You", question);
+            _question.Clear();
+            AssistantResponse response = await _turns.SubmitUserTurnAsync(
+                question,
+                UserTurnSource.Typed,
+                _activeRequest.Token);
+            Append("Papa Bear", response.Text);
+            _status.Text = FormatCompletion(response);
+            SetVoiceStage(VoiceStage.Ready);
+            _log.Info($"Typed assistant turn completed: model={response.Model}, tools={response.ToolCalls}, inputTokens={response.InputTokens}, outputTokens={response.OutputTokens}.");
         }
-        catch (OperationCanceledException) { _status.Text = "Request cancelled."; }
-        catch (Exception ex)
+        catch (OperationCanceledException)
         {
-            _status.Text = ex.Message;
-            _log.Warn(OpenAiAssistantService.FormatFailureForLog(ex));
+            SetVoiceStage(VoiceStage.Ready);
+            _status.Text = "Assistant turn cancelled.";
+        }
+        catch (Exception exception)
+        {
+            HandleAssistantFailure(exception);
         }
         finally
         {
-            _activeRequest?.Dispose(); _activeRequest = null; SetBusy(false);
+            FinishOperation();
         }
     }
 
-    private void Append(string speaker, string text)
+    private async void VoiceTest_Click(object sender, RoutedEventArgs e)
     {
-        if (_conversation.Text.Length > 0) _conversation.AppendText(Environment.NewLine + Environment.NewLine);
-        _conversation.AppendText($"{speaker}: {text}"); _conversation.ScrollToEnd();
+        if (_activeRequest is not null) return;
+        try
+        {
+            _activeRequest = new CancellationTokenSource();
+            SetOperationBusy(true);
+            Progress<VoiceStage> progress = new(SetVoiceStage);
+            AudioPayload audio = await _voice.RunVoiceTestAsync(progress, _activeRequest.Token);
+            ReplaceLastAudio(audio);
+            _status.Text = $"Played: “{VoiceInteractionService.VoiceTestPhrase}”";
+        }
+        catch (OperationCanceledException)
+        {
+            SetVoiceStage(VoiceStage.Ready);
+            _status.Text = "Voice test cancelled.";
+        }
+        catch (Exception exception)
+        {
+            HandleVoiceFailure(exception);
+        }
+        finally
+        {
+            FinishOperation();
+        }
+    }
+
+    private async void Replay_Click(object sender, RoutedEventArgs e)
+    {
+        if (_activeRequest is not null || _lastAnswerAudio is null) return;
+        try
+        {
+            _activeRequest = new CancellationTokenSource();
+            SetOperationBusy(true);
+            Progress<VoiceStage> progress = new(SetVoiceStage);
+            await _voice.ReplayAsync(_lastAnswerAudio, progress, _activeRequest.Token);
+            _status.Text = "Last spoken answer replayed.";
+        }
+        catch (OperationCanceledException)
+        {
+            SetVoiceStage(VoiceStage.Ready);
+            _status.Text = "Replay cancelled.";
+        }
+        catch (Exception exception)
+        {
+            HandleVoiceFailure(exception);
+        }
+        finally
+        {
+            FinishOperation();
+        }
+    }
+
+    private async void Cancel_Click(object sender, RoutedEventArgs e)
+    {
+        CancellationTokenSource? request = _activeRequest;
+        if (request is null) return;
+        request.Cancel();
+        _voice.StopPlayback();
+        try { await _capture.ReleaseAsync(); }
+        catch { }
+    }
+
+    private (bool Success, string Snapshot) BuildSnapshot()
+        => _snapshots.TryBuildCurrentSituation(out string snapshot)
+            ? (true, snapshot)
+            : (false, string.Empty);
+
+    private async Task<(string ApiKey, string Model)> LoadOpenAiSettingsAsync(CancellationToken cancellationToken)
+    {
+        AppSettings settings = await _settings.LoadAsync(cancellationToken);
+        string model = Dispatcher.CheckAccess() ? _model.Text.Trim() : Dispatcher.Invoke(() => _model.Text.Trim());
+        return (DpapiService.Unprotect(settings.OpenAiApiKeyProtected), model);
+    }
+
+    private async Task<VoiceProviderSettings> LoadVoiceSettingsAsync(CancellationToken cancellationToken)
+    {
+        AppSettings settings = await _settings.LoadAsync(cancellationToken);
+        return new VoiceProviderSettings(
+            DpapiService.Unprotect(settings.AssemblyAiApiKeyProtected),
+            DpapiService.Unprotect(settings.ElevenLabsApiKeyProtected),
+            settings.ElevenLabsVoiceId.Trim());
     }
 
     private Task<string> ExecuteToolAsync(
-        string name, JsonElement arguments, CancellationToken cancellationToken)
+        string name,
+        JsonElement arguments,
+        CancellationToken cancellationToken)
         => name switch
         {
             "query_environment" => _queries.QueryEnvironmentAsync(arguments, cancellationToken),
@@ -131,15 +370,88 @@ public sealed class AssistantPanel : UserControl, IDisposable
             _ => Task.FromException<string>(new InvalidOperationException("Unsupported local tool."))
         };
 
-    private void SetBusy(bool busy)
+    private void Append(string speaker, string text)
     {
-        _ask.IsEnabled = !busy; _cancel.IsEnabled = busy; _question.IsEnabled = !busy; _model.IsEnabled = !busy;
-        if (busy) _status.Text = "Reasoning…";
+        if (_conversation.Text.Length > 0) _conversation.AppendText(Environment.NewLine + Environment.NewLine);
+        _conversation.AppendText($"{speaker}: {text}");
+        _conversation.ScrollToEnd();
     }
+
+    private void ReplaceLastAudio(AudioPayload audio)
+    {
+        AudioPayload? previous = _lastAnswerAudio;
+        _lastAnswerAudio = audio;
+        previous?.Dispose();
+        _replay.IsEnabled = _activeRequest is null;
+    }
+
+    private void SetVoiceStage(VoiceStage stage)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(() => SetVoiceStage(stage));
+            return;
+        }
+        string value = stage switch
+        {
+            VoiceStage.GeneratingVoice => "generating-voice",
+            _ => stage.ToString().ToLowerInvariant()
+        };
+        _voiceStage.Text = $"Voice: {value}";
+    }
+
+    private void SetOperationBusy(bool busy)
+    {
+        _ask.IsEnabled = !busy;
+        _cancel.IsEnabled = busy;
+        _question.IsEnabled = !busy;
+        _model.IsEnabled = !busy;
+        _testMicrophone.IsEnabled = !busy;
+        _testTranscription.IsEnabled = !busy;
+        _voiceTest.IsEnabled = !busy;
+        _holdToTalk.IsEnabled = !busy;
+        if (busy && _heldButton is not null) _heldButton.IsEnabled = true;
+        _replay.IsEnabled = !busy && _lastAnswerAudio is not null;
+    }
+
+    private void FinishOperation()
+    {
+        _heldButton?.ReleaseMouseCapture();
+        _heldButton = null;
+        _activeRequest?.Dispose();
+        _activeRequest = null;
+        SetOperationBusy(false);
+    }
+
+    private void HandleAssistantFailure(Exception exception)
+    {
+        SetVoiceStage(VoiceStage.Failed);
+        _status.Text = exception.Message;
+        _log.Warn(OpenAiAssistantService.FormatFailureForLog(exception));
+    }
+
+    private void HandleVoiceFailure(Exception exception)
+    {
+        SetVoiceStage(VoiceStage.Failed);
+        _status.Text = exception.Message;
+        _log.Warn(SpeechServiceException.FormatForLog(exception));
+    }
+
+    private static string FormatCompletion(AssistantResponse response)
+        => $"{response.Model} · {response.ToolCalls} tool call(s) · {response.InputTokens} input / {response.OutputTokens} output tokens";
 
     public void Dispose()
     {
-        if (_disposed) return; _disposed = true;
-        _activeRequest?.Cancel(); _activeRequest?.Dispose(); _queries.Dispose(); _assistant.Dispose();
+        if (_disposed) return;
+        _disposed = true;
+        _activeRequest?.Cancel();
+        _voice.StopPlayback();
+        _ = _capture.ReleaseAsync();
+        _lastAnswerAudio?.Dispose();
+        _voice.Dispose();
+        _turns.Dispose();
+        _queries.Dispose();
+        _ = _capture.DisposeAsync();
+        _activeRequest?.Dispose();
     }
 }

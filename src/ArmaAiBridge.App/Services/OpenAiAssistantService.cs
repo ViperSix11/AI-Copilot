@@ -7,7 +7,7 @@ using ArmaAiBridge.App.Models;
 
 namespace ArmaAiBridge.App.Services;
 
-public sealed class OpenAiAssistantService : IDisposable
+public sealed class OpenAiAssistantService : IOpenAiAssistantService
 {
     private const string EncryptedReasoningInclude = "reasoning.encrypted_content";
     private const string Instructions = """
@@ -257,7 +257,7 @@ Keep ordinary answers to a few sentences unless more detail is requested.
         };
         using HttpRequestMessage request = new(HttpMethod.Post, "responses");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        request.Headers.UserAgent.ParseAdd("ArmA-AI-Bridge/0.3.0");
+        request.Headers.UserAgent.ParseAdd("ArmA-AI-Bridge/0.6.0");
         request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
         HttpResponseMessage response;
         try

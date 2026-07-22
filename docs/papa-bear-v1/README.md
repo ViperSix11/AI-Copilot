@@ -33,6 +33,8 @@ The target system combines:
 11. `implementation-roadmap.md` — ordered milestones and exit criteria.
 12. `codex-milestone-1.md` — first bounded Codex task.
 13. `codex-milestone-2.md` — local provenance-aware world-model foundation.
+14. `codex-milestone-3.md` — friendly-force picture and read-only mission capabilities.
+15. `codex-milestone-4a-voice-position-mvp.md` — bounded push-to-talk position-answer proof of concept.
 
 ## Binding architectural decisions
 

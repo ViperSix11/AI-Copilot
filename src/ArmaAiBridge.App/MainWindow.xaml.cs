@@ -46,7 +46,7 @@ public partial class MainWindow : Window
         {
             await LoadSettingsAsync();
             await StartListenerAsync();
-            _log.Info("ArmA AI Bridge v0.2.0 started.");
+            _log.Info("ArmA AI Bridge v0.6.0 started.");
         }
         catch (Exception exception)
         {
