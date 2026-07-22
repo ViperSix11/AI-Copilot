@@ -18,15 +18,23 @@ one bounded envelope every four seconds, but each section carries its own game
 sample time and is refreshed independently:
 
 - player position and motion: 1 second;
-- current weapon, vehicle and loadout: 2 seconds;
-- friendly forces and side-wide own-side known contacts: 4 seconds;
-- weather, time, tasks and markers: 8 seconds;
+- friendly forces and side-wide own-side known contacts: 2 seconds;
+- loadout, tasks and markers: 4 seconds;
+- weather, time and astronomy: 8 seconds;
 - all sections: 30-second full reconciliation.
 
 Every envelope contains all eight section wrappers. A ready, successfully
 sampled empty array authoritatively clears that section. A failed or unavailable
 section preserves its last good rows as stale. The desktop rejects out-of-order
 sequences and atomically replaces current-state tables in one SQLite transaction.
+Optional SQF collectors fail independently through an `isNil { code }`
+boundary, so one bad section cannot suppress publication. The required player
+cache must exist before the first useful snapshot is sent.
+
+Time/astronomy retains only mission date/time, moon facts, `sunOrMoon`, and the
+validated `lightDirection` plus bounded `starsVisibility` extracted from one
+`getLighting` call. The complete lighting array and ambient color/brightness
+values are not exported.
 
 ## Required player state
 

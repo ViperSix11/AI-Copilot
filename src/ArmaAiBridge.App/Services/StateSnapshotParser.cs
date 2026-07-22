@@ -69,9 +69,10 @@ public static class StateSnapshotParser
                 RequiredNumber(section, "nextWeatherChange", -1, 1e12);
                 break;
             case "timeAstronomy":
-                ArrayLength(section, "missionDate", 5, 5); ArrayLength(section, "sunDirection", 3, 3);
+                ArrayLength(section, "missionDate", 5, 5); Vector(section, "lightDirection");
                 foreach (string field in new[] { "daytime", "elapsedMissionTime", "timeMultiplier", "moonPhase", "moonIntensity", "sunOrMoon" })
                     RequiredNumber(section, field, field == "moonPhase" ? -1 : 0, field == "elapsedMissionTime" ? 1e12 : 120);
+                RequiredNumber(section, "starsVisibility", 0, 1);
                 break;
             case "loadout":
                 foreach (string field in new[] { "primaryWeapon", "launcher", "handgun", "selectedWeapon", "selectedWeaponDisplayName", "muzzle", "fireMode", "currentMagazine", "binocular", "uniformClass", "vestClass", "backpackClass", "loadoutHash" })

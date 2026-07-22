@@ -27,22 +27,49 @@ private _due =
     (diag_tickTime - (_lastSamples getOrDefault [_name, -100])) >= _seconds
 };
 
-if (["player", 1] call _due) then
+private _runSection =
 {
-    private _value = createHashMapFromArray
-    [
-        ["sourceId", [player, "unit"] call AAB_fnc_getStableEntityId],
-        ["side", str (side player)],
-        ["groupSourceId", [group player, "group"] call AAB_fnc_getStableEntityId],
-        ["positionATL", getPosATL player],
-        ["positionASL", getPosASL player],
-        ["grid", mapGridPosition player]
-    ];
-    ["player", _value] call _finish;
-    uiSleep 0;
+    params ["_name", "_seconds", "_collector"];
+    if ([_name, _seconds] call _due) then
+    {
+        private _failed = isNil { call _collector };
+        if (_failed) then
+        {
+            [_name] call _fail;
+            private _failureLogs = missionNamespace getVariable ["AAB_stateFailureLogs", createHashMap];
+            private _lastLog = _failureLogs getOrDefault [_name, -100];
+            if ((diag_tickTime - _lastLog) >= 30) then
+            {
+                diag_log format ["[ArmA AI Bridge] State section collection failed: %1", _name];
+                _failureLogs set [_name, diag_tickTime];
+                missionNamespace setVariable ["AAB_stateFailureLogs", _failureLogs];
+            };
+        };
+        uiSleep 0;
+    };
 };
 
-if (["environment", 8] call _due) then
+[
+    "player",
+    1,
+    {
+        private _value = createHashMapFromArray
+        [
+            ["sourceId", [player, "unit"] call AAB_fnc_getStableEntityId],
+            ["side", str (side player)],
+            ["groupSourceId", [group player, "group"] call AAB_fnc_getStableEntityId],
+            ["positionATL", getPosATL player],
+            ["positionASL", getPosASL player],
+            ["grid", mapGridPosition player]
+        ];
+        ["player", _value] call _finish;
+        false
+    }
+] call _runSection;
+
+[
+    "environment",
+    8,
 {
     private _temperature = ambientTemperature;
     private _value = createHashMapFromArray
@@ -64,12 +91,47 @@ if (["environment", 8] call _due) then
         ["nextWeatherChange", nextWeatherChange]
     ];
     ["environment", _value] call _finish;
-    uiSleep 0;
-};
+    false
+}
+] call _runSection;
 
-if (["timeAstronomy", 8] call _due) then
+[
+    "timeAstronomy",
+    8,
 {
     private _missionDate = date;
+    private _lighting = getLighting;
+    private _lightDirection =
+        if (
+            _lighting isEqualType [] &&
+            { count _lighting >= 3 } &&
+            { (_lighting select 2) isEqualType [] } &&
+            { count (_lighting select 2) == 3 } &&
+            { ({ _x isEqualType 0 && { finite _x } && { abs _x <= 10000000 } } count (_lighting select 2)) == 3 }
+        )
+        then
+        {
+            _lighting select 2
+        }
+        else
+        {
+            [0, 0, -1]
+        };
+    private _starsVisibility =
+        if (
+            _lighting isEqualType [] &&
+            { count _lighting >= 4 } &&
+            { (_lighting select 3) isEqualType 0 } &&
+            { finite (_lighting select 3) }
+        )
+        then
+        {
+            ((_lighting select 3) max 0) min 1
+        }
+        else
+        {
+            0
+        };
     private _value = createHashMapFromArray
     [
         ["missionDate", _missionDate],
@@ -79,13 +141,17 @@ if (["timeAstronomy", 8] call _due) then
         ["moonPhase", moonPhase _missionDate],
         ["moonIntensity", moonIntensity],
         ["sunOrMoon", sunOrMoon],
-        ["sunDirection", sunDirection]
+        ["lightDirection", _lightDirection],
+        ["starsVisibility", _starsVisibility]
     ];
     ["timeAstronomy", _value] call _finish;
-    uiSleep 0;
-};
+    false
+}
+] call _runSection;
 
-if (["loadout", 4] call _due) then
+[
+    "loadout",
+    4,
 {
     private _magazines = [];
     private _totals = createHashMap;
@@ -166,10 +232,13 @@ if (["loadout", 4] call _due) then
     ];
     _value set ["loadoutHash", str (hashValue (toJSON _value))];
     ["loadout", _value] call _finish;
-    uiSleep 0;
-};
+    false
+}
+] call _runSection;
 
-if (["friendlyForces", 2] call _due) then
+[
+    "friendlyForces",
+    2,
 {
     private _viewerSide = playerSide;
     private _visibility = toLower (missionNamespace getVariable ["AAB_friendlyForceVisibility", "own-side"]);
@@ -235,7 +304,22 @@ if (["friendlyForces", 2] call _due) then
         ]);
     } forEach _friendlyUnits;
     ["friendlyForces", createHashMapFromArray [["groups", _groupRecords], ["units", _unitRecords]]] call _finish;
+    false
+}
+] call _runSection;
 
+[
+    "knownContacts",
+    2,
+{
+    private _viewerSide = playerSide;
+    private _visibility = toLower (missionNamespace getVariable ["AAB_friendlyForceVisibility", "own-side"]);
+    private _friendlyUnits = if (_visibility isEqualTo "own-group") then { units (group player) } else { units _viewerSide };
+    _friendlyUnits = _friendlyUnits select { !isNull _x && { side (group _x) isEqualTo _viewerSide } };
+    if ((count _friendlyUnits) > 512) then { _friendlyUnits resize 512; };
+    private _groups = [];
+    { _groups pushBackUnique (group _x); } forEach _friendlyUnits;
+    if ((count _groups) > 128) then { _groups resize 128; };
     private _contactMap = createHashMap;
     {
         private _group = _x;
@@ -319,10 +403,13 @@ if (["friendlyForces", 2] call _due) then
     private _contacts = [];
     { if ((count _contacts) < 256) then { _contacts pushBack (_contactMap get _x); }; } forEach (keys _contactMap);
     ["knownContacts", createHashMapFromArray [["contacts", _contacts]]] call _finish;
-    uiSleep 0;
-};
+    false
+}
+] call _runSection;
 
-if (["tasks", 4] call _due) then
+[
+    "tasks",
+    4,
 {
     private _taskRecords = [];
     private _activeTask = currentTask player;
@@ -343,10 +430,13 @@ if (["tasks", 4] call _due) then
         ]);
     } forEach (simpleTasks player);
     ["tasks", createHashMapFromArray [["tasks", _taskRecords]]] call _finish;
-    uiSleep 0;
-};
+    false
+}
+] call _runSection;
 
-if (["markers", 4] call _due) then
+[
+    "markers",
+    4,
 {
     private _markerRecords = [];
     {
@@ -365,14 +455,17 @@ if (["markers", 4] call _due) then
         };
     } forEach allMapMarkers;
     ["markers", createHashMapFromArray [["markers", _markerRecords]]] call _finish;
-    uiSleep 0;
-};
+    false
+}
+] call _runSection;
 
 missionNamespace setVariable ["AAB_stateSectionCaches", _caches];
 missionNamespace setVariable ["AAB_stateLastSamples", _lastSamples];
 
 private _lastPublish = missionNamespace getVariable ["AAB_lastStatePublishAt", -100];
 if ((_now - _lastPublish) < 4) exitWith { false };
+private _playerSection = _caches getOrDefault ["player", createHashMap];
+if ((count _playerSection) <= 2) exitWith { false };
 private _required = ["player", "environment", "timeAstronomy", "loadout", "friendlyForces", "knownContacts", "tasks", "markers"];
 private _sections = createHashMap;
 {

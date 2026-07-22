@@ -229,7 +229,8 @@ public sealed class SqliteStateRepository : IStateRepository, IDisposable
             JsonElement root = value.Value;
             return new StateTimeAstronomy(IntNumbers(root, "missionDate", 5), Number(root, "daytime"),
                 Number(root, "elapsedMissionTime"), Number(root, "timeMultiplier"), Number(root, "moonPhase"),
-                Number(root, "moonIntensity"), Number(root, "sunOrMoon"), Numbers(root, "sunDirection", 3), metadata);
+                Number(root, "moonIntensity"), Number(root, "sunOrMoon"), Numbers(root, "lightDirection", 3),
+                Number(root, "starsVisibility"), metadata);
         }
     }
 

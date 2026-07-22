@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using ArmaAiBridge.App.Models;
 using ArmaAiBridge.App.Services;
 using Microsoft.Data.Sqlite;
@@ -26,11 +27,21 @@ public sealed class Milestone5UnifiedStateMirrorTests
             string definition = reference.Split('/').Last();
             Assert.False(root.GetProperty("$defs").GetProperty(definition).GetProperty("additionalProperties").GetBoolean());
         }
+        JsonElement astronomySchema = root.GetProperty("$defs").GetProperty("timeAstronomy");
+        string[] readyAstronomyFields = astronomySchema.GetProperty("allOf")[0].GetProperty("then").GetProperty("required")
+            .EnumerateArray().Select(item => item.GetString()!).ToArray();
+        Assert.Contains("lightDirection", readyAstronomyFields);
+        Assert.Contains("starsVisibility", readyAstronomyFields);
+        Assert.Equal("#/$defs/vector", astronomySchema.GetProperty("properties").GetProperty("lightDirection").GetProperty("$ref").GetString());
+        Assert.Equal("#/$defs/unit", astronomySchema.GetProperty("properties").GetProperty("starsVisibility").GetProperty("$ref").GetString());
         StateSnapshotMessage parsed = StateSnapshotParser.Parse(fixture.RootElement, Start);
         Assert.Equal(42, parsed.Sequence);
         Assert.True(parsed.FullReconciliation);
         Assert.Equal(8, parsed.Sections.Count);
         Assert.Equal(38, parsed.Sections["environment"].SampledAtGameTime);
+        StateTimeAstronomy astronomy = ReadyRepositoryTime(parsed);
+        Assert.Equal(new[] { 0.1, 0.2, -0.9 }, astronomy.LightDirection);
+        Assert.Equal(0.35, astronomy.StarsVisibility);
     }
 
     [Fact]
@@ -47,6 +58,20 @@ public sealed class Milestone5UnifiedStateMirrorTests
         JsonNode hidden = SnapshotNode();
         hidden["sections"]!["knownContacts"]!["contacts"]![0]!["actualPosition"] = new JsonArray(1, 2, 3);
         Assert.Equal("state_contact_invalid", ParseFailure(hidden));
+
+        JsonNode badDirection = SnapshotNode();
+        badDirection["sections"]!["timeAstronomy"]!["lightDirection"] = new JsonArray(1, 2);
+        Assert.Equal("state_array_invalid", ParseFailure(badDirection));
+
+        JsonNode badStars = SnapshotNode();
+        badStars["sections"]!["timeAstronomy"]!["starsVisibility"] = 1.01;
+        Assert.Equal("state_number_invalid", ParseFailure(badStars));
+
+        JsonNode failedAstronomy = SnapshotNode();
+        failedAstronomy["sections"]!["timeAstronomy"] = new JsonObject { ["sampledAt"] = 40, ["readiness"] = "failed" };
+        StateSnapshotMessage failedMessage = Parse(failedAstronomy, new ManualTimeProvider(Start));
+        Assert.Equal(8, failedMessage.Sections.Count);
+        Assert.Equal(StateSectionReadiness.Failed, failedMessage.Sections["timeAstronomy"].Readiness);
     }
 
     [Fact]
@@ -130,6 +155,26 @@ public sealed class Milestone5UnifiedStateMirrorTests
         JsonNode next = SnapshotNode(sequence: 43);
         Assert.Equal(TelemetryIngestStatus.Applied, restarted.ApplySnapshot(Parse(next, time)).Status);
         Assert.False(restarted.GetSectionMetadata().Single(item => item.Section == "knownContacts").IsStale);
+    }
+
+    [Fact]
+    public void FailedAstronomy_PreservesLastGoodLightingAsStaleAndAdvancesSequence()
+    {
+        using TempDatabase database = new();
+        ManualTimeProvider time = new(Start);
+        using SqliteStateRepository repository = ReadyRepository(database.Path, time);
+        StateTimeAstronomy good = repository.GetTimeAstronomy()!;
+
+        JsonNode failed = SnapshotNode(sequence: 43);
+        failed["sections"]!["timeAstronomy"] = new JsonObject { ["sampledAt"] = 41, ["readiness"] = "failed" };
+        Assert.Equal(TelemetryIngestStatus.Applied, repository.ApplySnapshot(Parse(failed, time)).Status);
+
+        StateTimeAstronomy stale = repository.GetTimeAstronomy()!;
+        Assert.Equal(good.LightDirection, stale.LightDirection);
+        Assert.Equal(good.StarsVisibility, stale.StarsVisibility);
+        Assert.True(stale.Metadata.IsStale);
+        Assert.Equal(StateSectionReadiness.Failed, stale.Metadata.Readiness);
+        Assert.Equal(43, repository.GetDiagnostics().LastSequence);
     }
 
     [Fact]
@@ -222,7 +267,10 @@ public sealed class Milestone5UnifiedStateMirrorTests
         using TelemetryIngestService legacy = new(world, time);
         using StateMirrorIngestService state = new(repository, legacy, timeProvider: time);
         string handshake = Handshake();
-        legacy.Ingest(handshake); state.Ingest(handshake); state.Ingest(Fixture("state-snapshot-v2.json"));
+        legacy.Ingest(handshake); state.Ingest(handshake);
+        Assert.Equal(TelemetryIngestStatus.Applied, state.Ingest(Fixture("state-snapshot-v2.json")).Status);
+        Assert.Equal(42, repository.GetDiagnostics().LastSequence);
+        Assert.True(world.GetCurrentView().HasTelemetry);
         WorldSnapshotBuilder builder = new(world, time, stateRepository: repository);
         Assert.True(builder.TryBuildCurrentSituation("Wie steht der Wind?", out string snapshot));
         Assert.Contains("environment", snapshot, StringComparison.Ordinal);
@@ -232,6 +280,29 @@ public sealed class Milestone5UnifiedStateMirrorTests
         using JsonDocument document = JsonDocument.Parse(snapshot);
         Assert.Empty(document.RootElement.GetProperty("knownContacts").EnumerateArray());
         Assert.Equal(new[] { "environment" }, document.RootElement.GetProperty("stateMirror").GetProperty("selectedSections").EnumerateArray().Select(item => item.GetString()).ToArray());
+    }
+
+    [Fact]
+    public void FailedOptionalAstronomySnapshot_StillAdvancesAndProjectsPlayerTelemetry()
+    {
+        using TempDatabase database = new();
+        ManualTimeProvider time = new(Start);
+        using SqliteStateRepository repository = new(database.Path, time);
+        WorldStateStore world = new(time);
+        using TelemetryIngestService legacy = new(world, time);
+        using StateMirrorIngestService state = new(repository, legacy, timeProvider: time);
+        string handshake = Handshake();
+        legacy.Ingest(handshake); state.Ingest(handshake);
+        JsonNode snapshot = SnapshotNode();
+        snapshot["sections"]!["timeAstronomy"] = new JsonObject { ["sampledAt"] = 40, ["readiness"] = "failed" };
+
+        Assert.Equal(TelemetryIngestStatus.Applied, state.Ingest(snapshot.ToJsonString()).Status);
+        Assert.Equal(42, repository.GetDiagnostics().LastSequence);
+        Assert.True(world.GetCurrentView().HasTelemetry);
+        Assert.Equal(StateSectionReadiness.Failed,
+            repository.GetSectionMetadata().Single(item => item.Section == "timeAstronomy").Readiness);
+        Assert.True(new WorldSnapshotBuilder(world, time, stateRepository: repository)
+            .TryBuildCurrentSituation("Wo bin ich?", out _));
     }
 
     [Fact]
@@ -247,6 +318,32 @@ public sealed class Milestone5UnifiedStateMirrorTests
             foreach (JsonElement token in file.GetProperty("forbiddenTokens").EnumerateArray())
                 Assert.DoesNotContain(token.GetString()!, source, StringComparison.Ordinal);
         }
+
+        string publisher = File.ReadAllText(Path.Combine(root, "arma3/addon-source/arma_ai_bridge_client/functions/fn_publishStateSnapshot.sqf"));
+        Assert.Single(Regex.Matches(publisher, @"\bgetLighting\b", RegexOptions.CultureInvariant).Cast<Match>());
+        foreach ((string section, int cadence) in new[]
+        {
+            ("environment", 8), ("timeAstronomy", 8), ("loadout", 4),
+            ("friendlyForces", 2), ("knownContacts", 2), ("tasks", 4), ("markers", 4)
+        })
+            Assert.Matches($@"\[\s*""{section}""\s*,\s*{cadence}\s*,\s*\{{", publisher);
+        Assert.True(publisher.IndexOf("call _runSection", StringComparison.Ordinal) < publisher.IndexOf("private _lastPublish", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void DeprecatedSunDirection_IsAbsentFromRuntimeSchemaAndPayloadFixtures()
+    {
+        string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../.."));
+        foreach (string relative in new[]
+        {
+            "arma3/addon-source/arma_ai_bridge_client/functions/fn_publishStateSnapshot.sqf",
+            "schemas/state-snapshot-v2.schema.json",
+            "tests/fixtures/state-snapshot-v2.json",
+            "src/ArmaAiBridge.App/Models/StateMirrorModels.cs",
+            "src/ArmaAiBridge.App/Services/StateSnapshotParser.cs",
+            "src/ArmaAiBridge.App/Services/SqliteStateRepository.cs"
+        })
+            Assert.DoesNotContain("sunDirection", File.ReadAllText(Path.Combine(root, relative)), StringComparison.Ordinal);
     }
 
     private static SqliteStateRepository ReadyRepository(string path, ManualTimeProvider time)
@@ -259,6 +356,18 @@ public sealed class Milestone5UnifiedStateMirrorTests
     {
         using JsonDocument document = JsonDocument.Parse(Fixture("state-snapshot-v2.json"));
         return StateSnapshotParser.Parse(document.RootElement, time.GetUtcNow());
+    }
+    private static StateTimeAstronomy ReadyRepositoryTime(StateSnapshotMessage parsed)
+    {
+        JsonElement value = parsed.Sections["timeAstronomy"].Payload;
+        return new StateTimeAstronomy(
+            value.GetProperty("missionDate").EnumerateArray().Select(item => item.GetInt32()).ToArray(),
+            value.GetProperty("daytime").GetDouble(), value.GetProperty("elapsedMissionTime").GetDouble(),
+            value.GetProperty("timeMultiplier").GetDouble(), value.GetProperty("moonPhase").GetDouble(),
+            value.GetProperty("moonIntensity").GetDouble(), value.GetProperty("sunOrMoon").GetDouble(),
+            value.GetProperty("lightDirection").EnumerateArray().Select(item => item.GetDouble()).ToArray(),
+            value.GetProperty("starsVisibility").GetDouble(),
+            new StateSectionMetadata("timeAstronomy", StateSectionReadiness.Ready, 38, Start, 2, false));
     }
     private static StateSnapshotMessage Parse(JsonNode node, ManualTimeProvider time)
     {

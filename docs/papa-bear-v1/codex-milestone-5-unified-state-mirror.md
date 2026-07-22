@@ -37,7 +37,7 @@ it does not call setters or execute mission actions.
 | --- | --- | --- |
 | player | [`getPosATL`](https://community.bohemia.net/wiki/getPosATL), [`getPosASL`](https://community.bohemia.net/wiki/getPosASL), [`mapGridPosition`](https://community.bohemia.net/wiki/mapGridPosition), [`side`](https://community.bohemia.net/wiki/side), [`group`](https://community.bohemia.net/wiki/group) | local player only |
 | weather | [`overcast`](https://community.bohemia.net/wiki/overcast), [`overcastForecast`](https://community.bohemia.net/wiki/overcastForecast), [`rain`](https://community.bohemia.net/wiki/rain), [`fog`](https://community.bohemia.net/wiki/fog), [`fogParams`](https://community.bohemia.net/wiki/fogParams), [`fogForecast`](https://community.bohemia.net/wiki/fogForecast), [`wind`](https://community.bohemia.net/wiki/wind), [`windDir`](https://community.bohemia.net/wiki/windDir), [`windStr`](https://community.bohemia.net/wiki/windStr), [`gusts`](https://community.bohemia.net/wiki/gusts), [`waves`](https://community.bohemia.net/wiki/waves), [`lightnings`](https://community.bohemia.net/wiki/lightnings), [`humidity`](https://community.bohemia.net/wiki/humidity), [`ambientTemperature`](https://community.bohemia.net/wiki/ambientTemperature), [`nextWeatherChange`](https://community.bohemia.net/wiki/nextWeatherChange) | client weather; forecast fog may differ by machine; temperature is unavailable before Arma 3 2.06 |
-| time/astronomy | [`date`](https://community.bohemia.net/wiki/date), [`daytime`](https://community.bohemia.net/wiki/daytime), [`time`](https://community.bohemia.net/wiki/time), [`timeMultiplier`](https://community.bohemia.net/wiki/timeMultiplier), [`moonPhase`](https://community.bohemia.net/wiki/moonPhase), [`moonIntensity`](https://community.bohemia.net/wiki/moonIntensity), [`sunOrMoon`](https://community.bohemia.net/wiki/sunOrMoon), [`sunDirection`](https://community.bohemia.net/wiki/sunDirection) | structured scalar/vector facts only; `getLightingAt` is deliberately omitted because its array is not a stable bounded product contract |
+| time/astronomy | [`date`](https://community.bohemia.net/wiki/date), [`daytime`](https://community.bohemia.net/wiki/daytime), [`time`](https://community.bohemia.net/wiki/time), [`timeMultiplier`](https://community.bohemia.net/wiki/timeMultiplier), [`moonPhase`](https://community.bohemia.net/wiki/moonPhase), [`moonIntensity`](https://community.bohemia.net/wiki/moonIntensity), [`sunOrMoon`](https://community.bohemia.net/wiki/sunOrMoon), [`getLighting`](https://community.bohemia.net/wiki/getLighting) | one `getLighting` call per sample; only its validated general light-direction vector and bounded stars-visibility scalar are retained; ambient color/brightness and the complete array are omitted |
 | loadout | [`primaryWeapon`](https://community.bohemia.net/wiki/primaryWeapon), [`secondaryWeapon`](https://community.bohemia.net/wiki/secondaryWeapon), [`handgunWeapon`](https://community.bohemia.net/wiki/handgunWeapon), [`currentWeapon`](https://community.bohemia.net/wiki/currentWeapon), [`currentMuzzle`](https://community.bohemia.net/wiki/currentMuzzle), [`currentWeaponMode`](https://community.bohemia.net/wiki/currentWeaponMode), [`currentMagazine`](https://community.bohemia.net/wiki/currentMagazine), [`ammo`](https://community.bohemia.net/wiki/ammo), weapon-item getters, [`magazinesAmmoFull`](https://community.bohemia.net/wiki/magazinesAmmoFull), [`assignedItems`](https://community.bohemia.net/wiki/assignedItems), container getters and [`hashValue`](https://community.bohemia.net/wiki/hashValue) | local player; arrays are capped and normalized |
 | groups/units | [`units`](https://community.bohemia.net/wiki/units), [`leader`](https://community.bohemia.net/wiki/leader), [`groupID`](https://community.bohemia.net/wiki/groupID), [`behaviour`](https://community.bohemia.net/wiki/behaviour), [`combatMode`](https://community.bohemia.net/wiki/combatMode), [`formation`](https://community.bohemia.net/wiki/formation), [`currentWaypoint`](https://community.bohemia.net/wiki/currentWaypoint), [`waypointPosition`](https://community.bohemia.net/wiki/waypointPosition), [`waypointType`](https://community.bohemia.net/wiki/waypointType), [`expectedDestination`](https://community.bohemia.net/wiki/expectedDestination), [`assignedTarget`](https://community.bohemia.net/wiki/assignedTarget), [`currentCommand`](https://community.bohemia.net/wiki/currentCommand), `alive`, `lifeState`, `canMove`, `damage` | own side or configured own group only; no opposing-unit enumeration |
 | contacts | [`targets`](https://community.bohemia.net/wiki/targets), [`targetKnowledge`](https://community.bohemia.net/wiki/targetKnowledge), [`getSensorTargets`](https://community.bohemia.net/wiki/getSensorTargets), [`local`](https://community.bohemia.net/wiki/local) | an eligible local unit represents each own-side group; groups with no local representative are omitted; the local player's vehicle sensors contribute only targets whose estimated state can be read through `targetKnowledge`; estimated position/error are exported, never hostile `getPos` |
@@ -100,6 +100,14 @@ values or discard a previously sampled value. Limits are 128 groups, 512
 units, 256 contacts, 128 tasks, 256 markers, 64 magazines, 64 item classes per
 container and 128 polyline coordinates per marker.
 
+Each due collector runs inside the documented `isNil { code }` evaluation
+boundary. Player is required before the first useful publication. Environment,
+time/astronomy, loadout, friendly forces, known contacts, tasks and markers
+invoke `_fail` independently; a nil/error result preserves that section's last
+good cache, marks it failed, emits only a throttled section-name RPT indication
+and continues to the publication footer. No task, marker, loadout or contact
+content is logged.
+
 ## Section contracts
 
 ### Player
@@ -116,8 +124,11 @@ Environment contains current/forecast overcast, rain, fog plus bounded
 engine wind direction/strength, gusts, waves, lightning, humidity, optional
 ambient temperature and next weather-change game time. Time/astronomy contains
 mission date, daytime, elapsed mission time, multiplier, moon phase/intensity,
-sun-or-moon scalar and the bounded three-number sun direction. It never exports
-an unstructured lighting array.
+sun-or-moon scalar, a bounded three-number general `lightDirection` and
+`starsVisibility` from zero through one. The latter two are extracted from one
+validated `getLighting` result. Invalid optional shapes use `[0,0,-1]` and `0`;
+a command/collector failure marks the whole time/astronomy section failed. The
+complete lighting array and ambient RGB/brightness values are never exported.
 
 ### Loadout
 
@@ -262,6 +273,9 @@ The Windows suite must prove:
 18. profiles, terminators, visible/history/TTS/replay identity and every 0.7
     regression remain green.
 19. repository verifier, WPF win-x64, native x64, PBO and matching ZIP pass.
+20. active runtime/schema/payload fixtures contain no `sunDirection`; `getLighting`,
+    `lightDirection`, `starsVisibility` and per-section failure isolation are
+    contract-protected.
 
 ## Exact live acceptance
 
@@ -284,6 +298,17 @@ Use the extended Stratis mission and matching 0.8 app/DLL/PBO:
 11. Change mission; old dynamic state disappears before new state is visible.
 12. Reset requires confirmation and preserves keys/profiles.
 13. Logs contain no protected content.
+
+Live regression for the release-blocking astronomy fault:
+
+- before the fix, RPT repeats `Error Undefined variable in expression:
+  sunDirection`, State Mirror sequence remains zero and World State waits for
+  its first valid telemetry observation;
+- after the fix, that RPT error is absent, the handshake advertises
+  `state-snapshot@2`, the first snapshot is accepted within approximately five
+  seconds, sequence is greater than zero and all eight wrappers appear;
+- `timeAstronomy` is either ready with validated lighting fields or explicitly
+  failed without blocking the other sections or subsequent publications.
 
 The draft PR remains unmerged until this gate passes. Official documentation
 cannot verify multiplayer locality coverage, third-party task/marker behavior,
