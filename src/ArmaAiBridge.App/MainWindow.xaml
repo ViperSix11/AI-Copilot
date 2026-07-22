@@ -19,7 +19,7 @@
             </Grid.ColumnDefinitions>
             <StackPanel>
                 <TextBlock Text="ArmA AI Bridge" FontSize="28" FontWeight="SemiBold" />
-                <TextBlock Text="Arma 3 client telemetry and dynamic map queries · v0.2.0"
+                <TextBlock Text="Papa Bear telemetry, world state and push-to-talk · v0.7"
                            Foreground="{StaticResource MutedTextBrush}" Margin="0,4,0,0" />
             </StackPanel>
             <Border Grid.Column="1" Background="{StaticResource PanelBrush}"
@@ -179,7 +179,7 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20" MaxWidth="760" HorizontalAlignment="Left">
                         <TextBlock Text="Credentials" FontSize="22" FontWeight="SemiBold" />
-                        <TextBlock Text="Keys are encrypted with Windows DPAPI for the current user. They are not used by v0.2.0 yet."
+                        <TextBlock Text="Keys are encrypted with Windows DPAPI for the current user. Voice audio and conversation content are never written to application logs."
                                    Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,6,0,22" />
                         <TextBlock Text="OpenAI API key" Margin="0,0,0,6" />
                         <PasswordBox x:Name="OpenAiKeyBox" Width="700" Margin="0,0,0,16" />
@@ -187,8 +187,6 @@
                         <PasswordBox x:Name="ElevenLabsKeyBox" Width="700" Margin="0,0,0,16" />
                         <TextBlock Text="ElevenLabs voice ID" Margin="0,0,0,6" />
                         <TextBox x:Name="ElevenLabsVoiceIdBox" Width="700" Margin="0,0,0,16" />
-                        <TextBlock Text="AssemblyAI API key (optional)" Margin="0,0,0,6" />
-                        <PasswordBox x:Name="AssemblyAiKeyBox" Width="700" Margin="0,0,0,20" />
                         <StackPanel Orientation="Horizontal">
                             <Button Content="Save encrypted settings" Click="SaveSettingsButton_Click" />
                             <Button Content="Clear fields" Click="ClearSettingsButton_Click" />

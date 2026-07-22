@@ -21,6 +21,8 @@ FORBIDDEN_MARKERS = (
 
 EXPECTED_PATHS = (
     ".github/workflows/build.yml",
+    "docs/papa-bear-v1/codex-milestone-4a-voice-position-mvp.md",
+    "scripts/package_pbo.py",
     "arma3/@Arma_AI_Bridge/mod.cpp",
     "arma3/addon-source/arma_ai_bridge_client/config.cpp",
     "arma3/addon-source/arma_ai_bridge_client/functions/fn_pollCommands.sqf",
@@ -206,6 +208,8 @@ def main() -> int:
         "native/ArmaAiBridge",
         "@Arma_AI_Bridge",
         "arma_ai_bridge_x64.dll",
+        "arma_ai_bridge_client.pbo",
+        "scripts/package-mod.ps1",
     ):
         if required not in workflow:
             errors.append(f"Workflow is missing current path/name: {required}")

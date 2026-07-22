@@ -8,22 +8,25 @@ Voice is an input/output adapter around the same Papa Bear orchestrator used by 
 
 ```text
 Push-to-talk microphone audio
-→ AssemblyAI streaming speech-to-text
+→ OpenAI completed-utterance audio transcription
 → final turn transcript
-→ Papa Bear orchestrator and OpenAI tool loop
+→ Papa Bear orchestrator and OpenAI Responses tool loop
 → final radio response text
-→ ElevenLabs streaming text-to-speech
+→ ElevenLabs text-to-speech
 → radio audio effects and playback
 ```
 
-The AssemblyAI tutorial combining streaming STT, OpenAI and ElevenLabs is a useful prototype pattern, but its linear receptionist design is not the application architecture. Game telemetry continues to update while transcription, reasoning or speech playback is active.
+Audio transcription and Responses are separate OpenAI API requests using the
+same locally encrypted OpenAI key. ElevenLabs is the exclusive speech-output
+provider; OpenAI text-to-speech is not used. Game telemetry continues to update
+while transcription, reasoning, synthesis, or playback is active.
 
 ## Input behavior
 
 - primary mode: push-to-talk;
 - optional later mode: voice activation with explicit wake phrase;
-- partial transcript shown in UI;
-- final transcript emitted only after end-of-turn detection;
+- no partial transcripts in the current completed-utterance path;
+- final transcript emitted after the bounded push-to-talk recording is uploaded;
 - custom vocabulary/key terms for callsigns, map names, ACE terminology, units and military phrases;
 - quick cancel/retry after a bad transcript;
 - typed input always remains available.

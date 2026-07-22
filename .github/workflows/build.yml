@@ -46,7 +46,10 @@ jobs:
           $dll = Get-ChildItem native/ArmaAiBridge/build -Recurse -Filter arma_ai_bridge_x64.dll | Select-Object -First 1
           if (-not $dll) { throw "Native extension output was not found." }
           Copy-Item $dll.FullName artifacts/mod/@Arma_AI_Bridge/arma_ai_bridge_x64.dll
-          Copy-Item -Recurse arma3/addon-source artifacts/arma3-addon-source
+          & scripts/package-mod.ps1 -DestinationModPath artifacts/mod/@Arma_AI_Bridge
+          $pbo = "artifacts/mod/@Arma_AI_Bridge/addons/arma_ai_bridge_client.pbo"
+          if (-not (Test-Path $pbo)) { throw "Development artifact PBO was not produced." }
+          python scripts/package_pbo.py verify $pbo --prefix arma_ai_bridge_client
 
       - uses: actions/upload-artifact@v4
         with:

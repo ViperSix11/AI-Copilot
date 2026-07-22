@@ -1,60 +1,81 @@
-# Papa Bear v1 — authoritative architecture specification
+# Papa Bear v1 — architecture and milestone record
 
-Status: approved product direction, implementation pending.
+Status: **version 0.7 Voice Position MVP accepted live**.
 
-This directory is the source of truth for the planned Papa Bear system. Existing code is a prototype foundation and may be changed only through the milestones in `implementation-roadmap.md`.
+This directory records the current product boundaries, accepted milestones and
+future architecture decisions for Papa Bear. The repository is developed
+incrementally: narrow vertical proofs of concept are accepted before broader
+perception, memory or support features are added.
 
-## Product definition
+## Current product definition
 
-Papa Bear is a persistent AI-operated HQ, operations and logistics officer connected to the player by radio. He supports ordinary conversation, answers questions from current Arma/ACE state, consults a complete local map knowledge base, computes deterministic firing solutions and can later plan and execute validated support requests.
+Papa Bear is a local AI radio assistant for Arma 3. The current application:
 
-The target system combines:
+- receives perspective-bound Arma telemetry through the SQF addon, native x64
+  extension and local Named Pipe;
+- maintains a privacy-minimized local world model;
+- supports typed and push-to-talk questions through one shared assistant path;
+- uses OpenAI audio transcription and OpenAI Responses;
+- uses ElevenLabs exclusively for Papa Bear speech output;
+- exposes only locally validated, read-only tools;
+- does not execute arbitrary game or operating-system commands.
 
-- general OpenAI reasoning and conversation;
-- a local, provenance-aware Arma world model;
-- a cached static map and equipment knowledge base;
-- an ACE3/CBA integration adapter;
-- deterministic services for ballistics, routes, landing zones and status aggregation;
-- a typed action gateway for transport, evacuation, resupply and other mission capabilities;
-- AssemblyAI streaming speech recognition and ElevenLabs speech output.
+The accepted 0.7 proof of concept answers a spoken question about the player’s
+current position using live Arma state and returns both visible text and spoken
+ElevenLabs audio.
 
-## Documents
+## Active architectural decisions
 
-1. `product-vision.md` — scope, goals and non-goals.
+- Arma remains authoritative for game state and perception.
+- Papa Bear must not receive unrestricted hidden enemy truth.
+- Raw telemetry is normalized locally; it is not forwarded wholesale.
+- Typed and spoken input share the same world snapshot, conversation and tool
+  loop.
+- Voice is an interface layer, not a separate reasoning system.
+- One encrypted OpenAI key is used for transcription and Responses.
+- ElevenLabs is the only speech-output provider in the active product.
+- Failed TTS or playback must never discard a completed transcript or answer.
+- Tools remain bounded, typed, locally validated and read-only until a later
+  milestone explicitly introduces an authorized action.
+- ACE, ballistics, persistent operational memory and full map indexing are
+  deferred and are not dependencies of the current POC.
+
+## Active documents
+
+1. `product-vision.md` — long-term product goals and non-goals.
 2. `persona-and-dialog.md` — Papa Bear role and radio behavior.
-3. `world-model.md` — dynamic state, provenance, freshness and confidence.
-4. `arma-data-contract.md` — telemetry and query contract.
-5. `map-knowledge-base.md` — full static map indexing and retrieval.
-6. `ace3-integration.md` — ACE capability detection and versioned adapter.
-7. `ballistics-service.md` — deterministic firing-solution requirements.
-8. `action-gateway.md` — support requests, validation and operation state machines.
-9. `voice-architecture.md` — AssemblyAI/OpenAI/ElevenLabs pipeline.
-10. `privacy-and-fair-play.md` — multiplayer, data and safety boundaries.
-11. `implementation-roadmap.md` — ordered milestones and exit criteria.
-12. `codex-milestone-1.md` — first bounded Codex task.
-13. `codex-milestone-2.md` — local provenance-aware world-model foundation.
+3. `world-model.md` — dynamic state, provenance, freshness and uncertainty.
+4. `arma-data-contract.md` — current telemetry and query contracts.
+5. `privacy-and-fair-play.md` — multiplayer and data boundaries.
+6. `voice-architecture.md` — active OpenAI transcription/Responses and
+   ElevenLabs output pipeline.
+7. `implementation-roadmap.md` — accepted milestones and next focused steps.
+8. `codex-milestone-1.md` — OpenAI tool-loop stabilization.
+9. `codex-milestone-2.md` — local world-model foundation.
+10. `codex-milestone-3.md` — friendly-force picture and read-only mission
+    capabilities.
+11. `codex-milestone-4a-voice-position-mvp.md` — the accepted push-to-talk
+    position-answer proof of concept.
 
-## Binding architectural decisions
+Other documents describe deferred designs or historical experiments. They are
+not automatically approved implementation scope. A later milestone must
+explicitly reactivate them.
 
-- The local application owns the world model and persistent knowledge base. OpenAI receives only relevant retrieved context.
-- Static map data is fully indexed and cached per map/mod fingerprint before Papa Bear reports full map readiness.
-- Dynamic telemetry is normalized into entities and deltas; raw 4 Hz JSON is not forwarded wholesale to OpenAI.
-- Enemy information is limited to knowledge available to the player's side.
-- Model output is advisory until a typed local tool validates and executes it.
-- Arbitrary SQF or operating-system command generation is prohibited.
-- Ballistic values are deterministic and ACE-aware. The language model may request and explain a solution but may not calculate or guess it.
-- Papa Bear can converse without using a tool. He uses tools whenever current game facts are required.
-- Voice is an interface layer, not the owner of reasoning or game state.
+## Current implementation stack
 
-## Primary technical references
+- Windows 10/11 x64;
+- C# / .NET 8 / WPF;
+- NAudio microphone capture and playback;
+- C++ x64 Arma extension;
+- SQF client addon;
+- duplex Windows Named Pipe;
+- OpenAI audio transcription;
+- OpenAI Responses API with strict function tools;
+- ElevenLabs text-to-speech.
 
-- OpenAI Responses API and function calling: https://platform.openai.com/docs/api-reference/responses
-- OpenAI stateless reasoning context: https://platform.openai.com/docs/api-reference/responses-streaming
-- ACE3 public frameworks: https://ace3.acemod.org/wiki/framework/
-- ACE3 Advanced Ballistics: https://ace3.acemod.org/wiki/feature/advanced-ballistics
-- ACE3 Advanced Ballistics Framework: https://ace3.acemod.org/wiki/framework/advanced-ballistics-framework.html
-- ACE3 ATragMX Framework: https://ace3.acemod.org/wiki/framework/atragmx
-- ACE3 Scopes Framework: https://ace3.acemod.org/wiki/framework/scopes-framework
-- ACE3 Weather Framework: https://ace3.acemod.org/wiki/framework/weather-framework
-- Arma `nearestLocations`: https://community.bohemia.net/wiki/nearestLocations
-- AssemblyAI voice-bot reference pipeline: https://www.assemblyai.com/blog/real-time-ai-voice-bot-python
+## Next product step
+
+The next intended milestone is a narrow **Arma Knowledge Mirror**: aggregate
+Arma’s existing own-side target knowledge across friendly groups and prove that
+a remote friendly unit’s recognized enemy contact reaches Papa Bear. It must
+not introduce a parallel visibility or perception simulation.

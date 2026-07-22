@@ -43,7 +43,7 @@ Mission authors expose a capability registry. Papa Bear may plan and request onl
 
 ### Voice
 
-Push-to-talk radio interaction uses AssemblyAI for streaming speech recognition and ElevenLabs for Papa Bear's voice. Voice services are clients of the same orchestrator used by typed conversation.
+Push-to-talk radio interaction uses OpenAI audio transcription for speech recognition and ElevenLabs exclusively for Papa Bear's voice. Voice services are clients of the same orchestrator used by typed conversation.
 
 ## Non-goals
 
