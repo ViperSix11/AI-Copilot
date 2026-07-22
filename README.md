@@ -12,7 +12,9 @@ Version 0.8 adds a local SQLite Unified State Mirror and deterministic
 contextual interpretation to the live-accepted voice proof of concept. A player can ask
 by microphone, for example, “Papa Bear, welche Position habe ich?”, and receive
 a grounded text answer plus spoken output using the configured ElevenLabs
-voice.
+voice. The desktop shell now uses the visible title **ArmA AI Bridge - Papa Bear**
+and a higher-contrast tactical terminal theme with larger conversation,
+diagnostics and log text for long-session readability.
 
 ## Product status
 
@@ -277,7 +279,8 @@ application, native DLL, `mod.cpp` and PBO.
 
 - **0.8** — bounded official named-location gazetteer, transactional SQLite
   current-state mirror, deterministic contextual interpretation, strict
-  `query_state`, bounded location lookup and local response profiles.
+  `query_state`, bounded location lookup, local response profiles and a
+  high-contrast Papa Bear tactical desktop theme.
 
 Detailed architectural records and milestone acceptance specifications are under
 [`docs/papa-bear-v1`](docs/papa-bear-v1/).

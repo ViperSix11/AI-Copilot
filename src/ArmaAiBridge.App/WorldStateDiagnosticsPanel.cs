@@ -3,7 +3,6 @@ using System.Text;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
 using System.Windows.Threading;
 using ArmaAiBridge.App.Models;
 using ArmaAiBridge.App.Services;
@@ -46,8 +45,11 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
 
     private UIElement BuildUi()
     {
+        _summary.Style = Resource<Style>("TerminalTextBoxStyle");
+        _snapshot.Style = Resource<Style>("TerminalTextBoxStyle");
+
         Grid grid = new() { Margin = new Thickness(16) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(420) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(450) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
@@ -55,7 +57,14 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
         summaryContent.Children.Add(_summary);
         if (_stateRepository is not null)
         {
-            Button reset = new() { Content = "Reset Local State Cache...", Margin = new Thickness(0, 10, 0, 0), MinWidth = 190, HorizontalAlignment = HorizontalAlignment.Left };
+            Button reset = new()
+            {
+                Content = "Reset Local State Cache...",
+                Margin = new Thickness(0, 12, 0, 0),
+                MinWidth = 210,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Style = Resource<Style>("DestructiveButtonStyle")
+            };
             reset.Click += ResetStateCache_Click;
             summaryContent.Children.Add(reset);
         }
@@ -75,17 +84,12 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
         grid.Children.Add(new TextBlock
         {
             Text = title,
-            FontSize = 18,
-            FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(0, 0, 0, 10)
+            Margin = new Thickness(0, 0, 0, 10),
+            Style = Resource<Style>("SectionHeaderTextStyle")
         });
         Border border = new()
         {
-            Background = new SolidColorBrush(Color.FromRgb(14, 18, 22)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(58, 70, 81)),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(6),
-            Padding = new Thickness(12),
+            Style = Resource<Style>("TacticalPanelStyle"),
             Child = content
         };
         Grid.SetRow(border, 1);
@@ -100,11 +104,11 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
         TextWrapping = wrap ? TextWrapping.Wrap : TextWrapping.NoWrap,
         VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
         HorizontalScrollBarVisibility = wrap ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto,
-        FontFamily = new FontFamily("Cascadia Mono, Consolas"),
-        FontSize = 12,
-        BorderThickness = new Thickness(0),
-        Background = Brushes.Transparent
+        FontSize = 13.5
     };
+
+    private static T Resource<T>(string key) where T : class
+        => (T)Application.Current.FindResource(key);
 
     private void OnStateChanged(WorldStateDelta delta)
     {

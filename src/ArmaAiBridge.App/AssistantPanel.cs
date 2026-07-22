@@ -74,17 +74,23 @@ public sealed class AssistantPanel : UserControl, IDisposable
 
     private UIElement BuildUi()
     {
+        _conversation.Style = Resource<Style>("TerminalTextBoxStyle");
+        _question.MinHeight = 90;
+        _voiceStage.Foreground = Resource<Brush>("AccentStrongBrush");
+        _status.Foreground = Resource<Brush>("MutedTextBrush");
+        _cancel.Style = Resource<Style>("DestructiveButtonStyle");
+
         Grid grid = new() { Margin = new Thickness(16) };
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        grid.Children.Add(new TextBlock
+        TextBlock heading = new()
         {
-            Text = "Papa Bear assistant · typed and push-to-talk · current Arma world state",
-            FontSize = 20,
-            FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(0, 0, 0, 12)
-        });
+            Text = "Papa Bear assistant  /  typed and push-to-talk  /  current Arma world state",
+            Margin = new Thickness(0, 0, 0, 12),
+            Style = Resource<Style>("SectionHeaderTextStyle")
+        };
+        grid.Children.Add(heading);
         Border transcript = Panel(_conversation);
         Grid.SetRow(transcript, 1);
         grid.Children.Add(transcript);
@@ -93,7 +99,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
         bottom.Children.Add(new TextBlock
         {
             Text = "Questions, answers, transcripts and audio are not written to the application log. Hold-to-talk records for at most 15 seconds.",
-            Foreground = Brushes.Gray,
+            Foreground = Resource<Brush>("MutedTextBrush"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 8)
         });
@@ -103,6 +109,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
         assistantActions.Children.Add(_ask);
         assistantActions.Children.Add(_cancel);
         Button clear = new() { Content = "Clear conversation", MinWidth = 140 };
+        clear.Style = Resource<Style>("DestructiveButtonStyle");
         clear.Click += (_, _) =>
         {
             if (_activeRequest is not null) return;
@@ -138,13 +145,12 @@ public sealed class AssistantPanel : UserControl, IDisposable
 
     private static Border Panel(UIElement child) => new()
     {
-        Background = new SolidColorBrush(Color.FromRgb(14, 18, 22)),
-        BorderBrush = new SolidColorBrush(Color.FromRgb(58, 70, 81)),
-        BorderThickness = new Thickness(1),
-        CornerRadius = new CornerRadius(6),
-        Padding = new Thickness(12),
+        Style = Resource<Style>("TerminalPanelStyle"),
         Child = child
     };
+
+    private static T Resource<T>(string key) where T : class
+        => (T)Application.Current.FindResource(key);
 
     private void AttachHoldAction(Button button, CapturePurpose purpose)
     {

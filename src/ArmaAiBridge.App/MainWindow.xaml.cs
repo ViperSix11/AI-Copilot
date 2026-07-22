@@ -112,7 +112,7 @@ public partial class MainWindow : Window
         StartButton.IsEnabled = false;
         StopButton.IsEnabled = true;
         SendQueryButton.IsEnabled = false;
-        SetConnectionStatus("Listening", "#E7B85A");
+        SetConnectionStatus("Listening", "WarningBrush");
         FooterText.Text = "Waiting for Arma 3 bridge";
     }
 
@@ -134,7 +134,7 @@ public partial class MainWindow : Window
         StartButton.IsEnabled = true;
         StopButton.IsEnabled = false;
         SendQueryButton.IsEnabled = false;
-        SetConnectionStatus("Stopped", "#D86A6A");
+        SetConnectionStatus("Stopped", "DangerBrush");
         FooterText.Text = "Bridge listener stopped";
     }
 
@@ -307,13 +307,13 @@ public partial class MainWindow : Window
             SendQueryButton.IsEnabled = connected;
             if (connected)
             {
-                SetConnectionStatus("Arma connected", "#70D6A3");
+                SetConnectionStatus("Arma connected", "AccentStrongBrush");
                 FooterText.Text = "Receiving telemetry and accepting map queries";
                 QueryStatusText.Text = "Ready to send a dynamic query.";
             }
             else if (_pipeServer.IsRunning)
             {
-                SetConnectionStatus("Listening", "#E7B85A");
+                SetConnectionStatus("Listening", "WarningBrush");
                 FooterText.Text = "Waiting for Arma 3 bridge";
                 QueryStatusText.Text = "Connect Arma 3 to enable queries.";
             }
@@ -566,9 +566,9 @@ public partial class MainWindow : Window
             ? value.GetInt32()
             : 0;
 
-    private void SetConnectionStatus(string text, string color)
+    private void SetConnectionStatus(string text, string brushResourceKey)
     {
         ConnectionStatusText.Text = text;
-        ConnectionIndicator.Fill = (Brush)new BrushConverter().ConvertFromString(color)!;
+        ConnectionIndicator.Fill = (Brush)FindResource(brushResourceKey);
     }
 }
