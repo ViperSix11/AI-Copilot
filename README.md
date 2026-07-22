@@ -6,7 +6,7 @@ privacy-minimized world state, and lets Papa Bear answer typed or push-to-talk
 questions through the OpenAI Responses API.
 
 Version `0.6.0` is the Milestone 4A voice-position MVP. It adds explicit,
-15-second push-to-talk capture, AssemblyAI transcription, and ElevenLabs
+15-second push-to-talk capture, OpenAI audio transcription, and ElevenLabs
 playback without changing Arma perception or introducing a separate voice
 reasoning path.
 
@@ -43,7 +43,7 @@ Arma SQF addon
 
 Typed question --------------------------┐
                                         ├-> shared assistant turn
-Hold-to-talk -> WAV -> AssemblyAI text --┘   -> optional local read tools
+Hold-to-talk -> WAV -> OpenAI transcript --┘ -> optional local read tools
                                              -> final answer
                                              -> ElevenLabs MP3
                                              -> default Windows audio device
@@ -72,10 +72,10 @@ arbitrary SQF, C++, PowerShell, or operating-system commands.
 Open the **API keys** tab. Settings are encrypted with Windows DPAPI for the
 current Windows user.
 
-1. Save an **OpenAI API key** for typed and spoken assistant reasoning. The
-   default model is `gpt-5-mini` and can be changed in the Assistant tab.
-2. Save an **AssemblyAI API key** for completed-utterance transcription.
-3. Save an **ElevenLabs API key** and **voice ID** for Papa Bear speech.
+1. Save one **OpenAI API key** for both completed-utterance transcription and
+   typed/spoken assistant reasoning. The default Responses model is
+   `gpt-5-mini` and can be changed in the Assistant tab.
+2. Save an **ElevenLabs API key** and **voice ID** for all Papa Bear speech.
 
 The application never writes credential values to its logs.
 
@@ -85,13 +85,13 @@ The application never writes credential values to its logs.
 2. Enable its `@Arma_AI_Bridge` mod in Arma 3.
 3. Start `ArmA AI Bridge.exe`, then start an Arma mission.
 4. Confirm **World State** shows a live session and current player position.
-5. Save all three provider credentials.
+5. Save the OpenAI key, ElevenLabs key, and ElevenLabs voice ID.
 6. In **Assistant**, type a position question and confirm a grounded text
    answer.
 7. Press and hold **Test Microphone**, speak briefly, release, and confirm local
    playback. This test uses no network provider.
 8. Press and hold **Test Transcription**, say “Papa Bear, welche Position habe
-   ich?”, release, and confirm one AssemblyAI transcript with no assistant
+   ich?”, release, and confirm one OpenAI transcript with no assistant
    answer.
 9. Select **Test Papa Bear Voice** and hear “Papa Bear online. Radio check
    complete.”
@@ -101,11 +101,11 @@ The application never writes credential values to its logs.
     must match the current map/grid/position.
 11. Move in Arma and repeat to prove the next voice turn uses a fresh snapshot.
 
-The final transcript appears as soon as AssemblyAI succeeds, and the text
+The final transcript appears as soon as OpenAI transcription succeeds, and the text
 answer appears as soon as OpenAI succeeds. A later speech failure leaves both
 visible and reports partial success. **Replay Last Answer** reuses retained
 audio after a playback failure or retries synthesis from the completed text
-answer without repeating AssemblyAI or OpenAI. **Cancel** stops recording,
+answer without repeating transcription or OpenAI Responses. **Cancel** stops recording,
 transcription, OpenAI/tool work, synthesis, or playback. Audio capture stops
 automatically at 15 seconds, and overlapping operations are rejected.
 
@@ -124,9 +124,10 @@ checks, is in
   player/group/current vehicle sensors. The bridge does not export hidden enemy
   state or an unrestricted server world.
 - Microphone audio leaves the PC only after explicit Test Transcription or
-  Hold-to-Talk capture, and only for AssemblyAI.
-- AssemblyAI's final transcript reaches OpenAI only for a real spoken assistant
-  turn. ElevenLabs receives only the final answer or fixed voice-test phrase.
+  Hold-to-Talk capture, and only for OpenAI audio transcription.
+- The final transcript reaches the separate OpenAI Responses request only for
+  a real spoken assistant turn. ElevenLabs receives only the final answer or
+  fixed voice-test phrase; OpenAI text-to-speech is not used.
 - Audio, transcripts, questions, answers, full prompts, snapshots, tool results,
   API keys, provider identifiers, and provider response bodies are not logged.
 - Microphone WAV files are bounded and deleted after every success, failure, or
@@ -177,6 +178,6 @@ development artifact on Windows.
 - `0.4.0`: local provenance-aware world model and minimized snapshots.
 - `0.5.0`: mission/session handshake, friendly-force picture, capability
   registry, diagnostics, and read-only force tools.
-- `0.6.0`: push-to-talk microphone capture, AssemblyAI completed transcription,
+- `0.6.0`: push-to-talk microphone capture, OpenAI completed transcription,
   shared typed/spoken turn path, ElevenLabs speech, replay, cancellation, and
   voice tests.

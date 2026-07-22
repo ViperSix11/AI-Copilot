@@ -26,7 +26,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private readonly TextBlock _voiceStage = new() { Text = "Voice: ready", TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold };
     private readonly Button _ask = new() { Content = "Ask", MinWidth = 100 };
     private readonly Button _testMicrophone = new() { Content = "Test Microphone", MinWidth = 130, ToolTip = "Press and hold to record; release to play locally." };
-    private readonly Button _testTranscription = new() { Content = "Test Transcription", MinWidth = 135, ToolTip = "Press and hold to record; release to send only to AssemblyAI." };
+    private readonly Button _testTranscription = new() { Content = "Test Transcription", MinWidth = 135, ToolTip = "Press and hold to record; release to send only to OpenAI transcription." };
     private readonly Button _voiceTest = new() { Content = "Test Papa Bear Voice", MinWidth = 160 };
     private readonly Button _holdToTalk = new() { Content = "Hold to Talk", MinWidth = 130, ToolTip = "Press and hold while speaking; release to submit." };
     private readonly Button _replay = new() { Content = "Replay Last Answer", MinWidth = 145, IsEnabled = false };
@@ -56,7 +56,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
             LoadOpenAiSettingsAsync,
             ExecuteToolAsync);
         _voice = new VoiceInteractionService(
-            new AssemblyAiSpeechToTextService(),
+            new OpenAiSpeechToTextService(),
             _turns,
             new ElevenLabsTextToSpeechService(),
             new WindowsAudioPlaybackService(),
@@ -209,7 +209,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
                     case CapturePurpose.TranscriptionTest:
                         string transcript = await _voice.RunTranscriptionTestAsync(recording, progress, request.Token);
                         Append("Transcription test", transcript);
-                        _status.Text = "AssemblyAI transcription completed. OpenAI and ElevenLabs were not contacted.";
+                        _status.Text = "OpenAI transcription completed. OpenAI Responses and ElevenLabs were not contacted.";
                         break;
                     case CapturePurpose.AssistantTurn:
                         VoiceTurnResult result = await _voice.RunVoiceTurnAsync(
@@ -380,7 +380,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
     {
         AppSettings settings = await _settings.LoadAsync(cancellationToken);
         return new VoiceProviderSettings(
-            DpapiService.Unprotect(settings.AssemblyAiApiKeyProtected),
+            DpapiService.Unprotect(settings.OpenAiApiKeyProtected),
             DpapiService.Unprotect(settings.ElevenLabsApiKeyProtected),
             settings.ElevenLabsVoiceId.Trim());
     }

@@ -187,8 +187,6 @@
                         <PasswordBox x:Name="ElevenLabsKeyBox" Width="700" Margin="0,0,0,16" />
                         <TextBlock Text="ElevenLabs voice ID" Margin="0,0,0,6" />
                         <TextBox x:Name="ElevenLabsVoiceIdBox" Width="700" Margin="0,0,0,16" />
-                        <TextBlock Text="AssemblyAI API key" Margin="0,0,0,6" />
-                        <PasswordBox x:Name="AssemblyAiKeyBox" Width="700" Margin="0,0,0,20" />
                         <StackPanel Orientation="Horizontal">
                             <Button Content="Save encrypted settings" Click="SaveSettingsButton_Click" />
                             <Button Content="Clear fields" Click="ClearSettingsButton_Click" />

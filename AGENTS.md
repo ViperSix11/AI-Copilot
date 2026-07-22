@@ -22,4 +22,4 @@ Before changing code, read `docs/papa-bear-v1/README.md` and the milestone docum
 - SQF client addon
 - Duplex Windows Named Pipe
 - OpenAI Responses API
-- Planned: ACE3/CBA adapter, SQLite knowledge base, AssemblyAI streaming STT and ElevenLabs TTS
+- OpenAI audio transcription and Responses API, with ElevenLabs TTS

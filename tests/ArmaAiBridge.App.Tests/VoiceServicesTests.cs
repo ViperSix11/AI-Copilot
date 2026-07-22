@@ -34,6 +34,22 @@ public sealed class VoiceServicesTests
     }
 
     [Fact]
+    public void SettingsCompatibility_IgnoresAndDoesNotResaveObsoleteProviderCredential()
+    {
+        string obsoleteProperty = "Assembly" + "AiApiKeyProtected";
+        string json = $"{{\"OpenAiApiKeyProtected\":\"openai-protected\",\"{obsoleteProperty}\":\"obsolete-protected\",\"ElevenLabsApiKeyProtected\":\"eleven-protected\",\"ElevenLabsVoiceId\":\"voice-id\"}}";
+
+        AppSettings settings = JsonSerializer.Deserialize<AppSettings>(json)!;
+        string saved = JsonSerializer.Serialize(settings);
+
+        Assert.Equal("openai-protected", settings.OpenAiApiKeyProtected);
+        Assert.Equal("eleven-protected", settings.ElevenLabsApiKeyProtected);
+        Assert.Equal("voice-id", settings.ElevenLabsVoiceId);
+        Assert.DoesNotContain(obsoleteProperty, saved, StringComparison.Ordinal);
+        Assert.DoesNotContain("obsolete-protected", saved, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task PushToTalk_StartReleaseAndOverlapLifecycleIsDeterministic()
     {
         FakeCaptureSession session = new();
@@ -75,124 +91,189 @@ public sealed class VoiceServicesTests
     }
 
     [Fact]
-    public async Task AssemblyAi_UploadsCreatesPollsAndReturnsOneFinalTranscript()
+    public async Task OpenAiTranscription_PostsMultipartAndReturnsOneFinalTranscript()
     {
-        int pollCount = 0;
         Recording recording = new(Encoding.ASCII.GetBytes("bounded-wave"));
         ScriptedHttpHandler handler = new(async request =>
         {
-            Assert.Equal("assembly-secret", request.Headers.GetValues("Authorization").Single());
-            if (request.RequestUri!.AbsolutePath.EndsWith("/upload", StringComparison.Ordinal))
-            {
-                Assert.Equal("application/octet-stream", request.Content!.Headers.ContentType!.MediaType);
-                Assert.Equal("bounded-wave", Encoding.ASCII.GetString(await request.Content.ReadAsByteArrayAsync()));
-                return Json(HttpStatusCode.OK, "{\"upload_url\":\"https://cdn.assemblyai.com/upload/private\"}");
-            }
-            if (request.Method == HttpMethod.Post)
-            {
-                using JsonDocument body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
-                Assert.True(body.RootElement.GetProperty("language_detection").GetBoolean());
-                Assert.Equal("https://cdn.assemblyai.com/upload/private", body.RootElement.GetProperty("audio_url").GetString());
-                return Json(HttpStatusCode.OK, "{\"id\":\"transcript-private\"}");
-            }
-
-            pollCount++;
-            return pollCount == 1
-                ? Json(HttpStatusCode.OK, "{\"status\":\"queued\"}")
-                : Json(HttpStatusCode.OK, "{\"status\":\"completed\",\"text\":\"Papa Bear, welche Position habe ich?\"}");
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.Equal("/v1/audio/transcriptions", request.RequestUri!.AbsolutePath);
+            Assert.Equal("Bearer", request.Headers.Authorization!.Scheme);
+            Assert.Equal("openai-secret", request.Headers.Authorization.Parameter);
+            Assert.Equal("multipart/form-data", request.Content!.Headers.ContentType!.MediaType);
+            MultipartFormDataContent multipart = Assert.IsType<MultipartFormDataContent>(request.Content);
+            HttpContent file = Assert.Single(multipart, part =>
+                part.Headers.ContentDisposition!.Name!.Trim('"') == "file");
+            Assert.Equal("capture.wav", file.Headers.ContentDisposition!.FileName!.Trim('"'));
+            Assert.Equal("audio/wav", file.Headers.ContentType!.MediaType);
+            Assert.Equal("bounded-wave", Encoding.ASCII.GetString(await file.ReadAsByteArrayAsync()));
+            Assert.Equal("gpt-4o-mini-transcribe", await ReadPartAsync(multipart, "model"));
+            Assert.Equal("de", await ReadPartAsync(multipart, "language"));
+            Assert.Equal("json", await ReadPartAsync(multipart, "response_format"));
+            return Json(HttpStatusCode.OK, "{\"text\":\"Papa Bear, welche Position habe ich?\"}");
         });
-        using HttpClient http = new(handler) { BaseAddress = new Uri("https://api.assemblyai.com/v2/") };
-        using AssemblyAiSpeechToTextService service = new(http, (_, _) => Task.CompletedTask);
+        using HttpClient http = new(handler) { BaseAddress = new Uri("https://api.openai.com/v1/") };
+        using OpenAiSpeechToTextService service = new(http);
 
-        string transcript = await service.TranscribeAsync(recording, "assembly-secret", TestContext.Current.CancellationToken);
+        string transcript = await service.TranscribeAsync(recording, "openai-secret", TestContext.Current.CancellationToken);
 
         Assert.Equal("Papa Bear, welche Position habe ich?", transcript);
-        Assert.Equal(2, pollCount);
-        Assert.Equal(4, handler.RequestCount);
+        Assert.Equal(1, handler.RequestCount);
     }
 
     [Fact]
-    public async Task AssemblyAi_InvalidCredentialIsActionableAndSecretFree()
+    public async Task OpenAiTranscription_InvalidCredentialIsActionableAndSecretFree()
     {
         Recording recording = new(Encoding.ASCII.GetBytes("audio-secret"));
         ScriptedHttpHandler handler = new(_ => Task.FromResult(Json(
             HttpStatusCode.Unauthorized,
-            "{\"error\":\"assembly-secret audio-secret\"}")));
-        using HttpClient http = new(handler) { BaseAddress = new Uri("https://api.assemblyai.com/v2/") };
-        using AssemblyAiSpeechToTextService service = new(http);
+            "{\"error\":\"openai-secret audio-secret transcript-secret\"}")));
+        using HttpClient http = new(handler) { BaseAddress = new Uri("https://api.openai.com/v1/") };
+        using OpenAiSpeechToTextService service = new(http);
 
         SpeechServiceException exception = await Assert.ThrowsAsync<SpeechServiceException>(() =>
-            service.TranscribeAsync(recording, "assembly-secret", TestContext.Current.CancellationToken));
+            service.TranscribeAsync(recording, "openai-secret", TestContext.Current.CancellationToken));
         string log = SpeechServiceException.FormatForLog(exception);
 
         Assert.Contains("valid key", exception.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("assembly-secret", exception.Message, StringComparison.Ordinal);
+        Assert.Equal("openai-transcription", exception.Provider);
+        Assert.DoesNotContain("openai-secret", exception.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("audio-secret", exception.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain("assembly-secret", log, StringComparison.Ordinal);
+        Assert.DoesNotContain("transcript-secret", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("openai-secret", log, StringComparison.Ordinal);
         Assert.DoesNotContain("audio-secret", log, StringComparison.Ordinal);
+        Assert.DoesNotContain("transcript-secret", log, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.TooManyRequests, "rate-limited")]
+    [InlineData(HttpStatusCode.ServiceUnavailable, "temporarily unavailable")]
+    public async Task OpenAiTranscription_ProviderFailuresAreSafe(HttpStatusCode status, string expected)
+    {
+        ScriptedHttpHandler handler = new(_ => Task.FromResult(Json(status, "{\"error\":\"private-body\"}")));
+        using HttpClient http = new(handler) { BaseAddress = new Uri("https://api.openai.com/v1/") };
+        using OpenAiSpeechToTextService service = new(http);
+
+        SpeechServiceException exception = await Assert.ThrowsAsync<SpeechServiceException>(() =>
+            service.TranscribeAsync(new Recording(new byte[] { 1 }), "private-key", TestContext.Current.CancellationToken));
+
+        Assert.Contains(expected, exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("private", SpeechServiceException.FormatForLog(exception), StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task AssemblyAi_CancellationDuringPollStopsBeforeAnotherRequest()
+    public async Task OpenAiTranscription_CancellationStopsInFlightRequest()
     {
-        Recording recording = new(Encoding.ASCII.GetBytes("wave"));
-        TaskCompletionSource delayEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        ScriptedHttpHandler handler = new(request => Task.FromResult(
-            request.RequestUri!.AbsolutePath.EndsWith("/upload", StringComparison.Ordinal)
-                ? Json(HttpStatusCode.OK, "{\"upload_url\":\"https://cdn.assemblyai.com/upload/x\"}")
-                : request.Method == HttpMethod.Post
-                    ? Json(HttpStatusCode.OK, "{\"id\":\"id\"}")
-                    : Json(HttpStatusCode.OK, "{\"status\":\"processing\"}")));
-        using HttpClient http = new(handler) { BaseAddress = new Uri("https://api.assemblyai.com/v2/") };
-        using AssemblyAiSpeechToTextService service = new(http, async (_, token) =>
+        TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        ScriptedHttpHandler handler = new(async (_, token) =>
         {
-            delayEntered.TrySetResult();
+            entered.TrySetResult();
             await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            return Json(HttpStatusCode.OK, "{}");
         });
+        using HttpClient http = new(handler) { BaseAddress = new Uri("https://api.openai.com/v1/") };
+        using OpenAiSpeechToTextService service = new(http);
         using CancellationTokenSource cancellation = new();
 
-        Task<string> task = service.TranscribeAsync(recording, "key", cancellation.Token);
-        await delayEntered.Task;
+        Task<string> task = service.TranscribeAsync(new Recording(new byte[] { 1 }), "key", cancellation.Token);
+        await entered.Task;
         cancellation.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task);
-        Assert.Equal(3, handler.RequestCount);
+        Assert.Equal(1, handler.RequestCount);
     }
 
     [Fact]
-    public async Task AssemblyAi_PollDeadlineReturnsTypedTimeout()
+    public async Task OpenAiTranscription_TimeoutReturnsTypedSafeFailure()
     {
-        Recording recording = new(Encoding.ASCII.GetBytes("wave"));
-        ScriptedHttpHandler handler = new(request => Task.FromResult(
-            request.RequestUri!.AbsolutePath.EndsWith("/upload", StringComparison.Ordinal)
-                ? Json(HttpStatusCode.OK, "{\"upload_url\":\"https://cdn.assemblyai.com/upload/x\"}")
-                : request.Method == HttpMethod.Post
-                    ? Json(HttpStatusCode.OK, "{\"id\":\"id\"}")
-                    : Json(HttpStatusCode.OK, "{\"status\":\"processing\"}")));
-        using HttpClient http = new(handler) { BaseAddress = new Uri("https://api.assemblyai.com/v2/") };
-        using AssemblyAiSpeechToTextService service = new(
-            http,
-            (_, token) => Task.Delay(Timeout.InfiniteTimeSpan, token),
-            TimeSpan.FromMilliseconds(20));
+        ScriptedHttpHandler handler = new(async (_, token) =>
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            return Json(HttpStatusCode.OK, "{}");
+        });
+        using HttpClient http = new(handler) { BaseAddress = new Uri("https://api.openai.com/v1/") };
+        using OpenAiSpeechToTextService service = new(http, TimeSpan.FromMilliseconds(20));
 
         SpeechServiceException exception = await Assert.ThrowsAsync<SpeechServiceException>(() =>
-            service.TranscribeAsync(recording, "key", TestContext.Current.CancellationToken));
+            service.TranscribeAsync(new Recording(new byte[] { 1 }), "private-key", TestContext.Current.CancellationToken));
 
-        Assert.Contains("timed out", exception.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal("poll_timeout", exception.Stage);
+        Assert.Equal("timeout", exception.Stage);
+        Assert.Contains("time", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("private", SpeechServiceException.FormatForLog(exception), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("not-json", "parse")]
+    [InlineData("[]", "empty")]
+    [InlineData("{}", "empty")]
+    [InlineData("{\"text\":\"   \"}", "empty")]
+    public async Task OpenAiTranscription_RejectsMalformedOrEmptyFinalResponse(string response, string expectedStage)
+    {
+        ScriptedHttpHandler handler = new(_ => Task.FromResult(Json(HttpStatusCode.OK, response)));
+        using HttpClient http = new(handler) { BaseAddress = new Uri("https://api.openai.com/v1/") };
+        using OpenAiSpeechToTextService service = new(http);
+
+        SpeechServiceException exception = await Assert.ThrowsAsync<SpeechServiceException>(() =>
+            service.TranscribeAsync(new Recording(new byte[] { 1 }), "key", TestContext.Current.CancellationToken));
+
+        Assert.Equal(expectedStage, exception.Stage);
+    }
+
+    [Fact]
+    public async Task OpenAiTranscription_RejectsOversizedAudioBeforeNetwork()
+    {
+        ScriptedHttpHandler handler = new(_ => Task.FromResult(Json(HttpStatusCode.OK, "{\"text\":\"unused\"}")));
+        using HttpClient http = new(handler) { BaseAddress = new Uri("https://api.openai.com/v1/") };
+        using OpenAiSpeechToTextService service = new(http);
+
+        SpeechServiceException exception = await Assert.ThrowsAsync<SpeechServiceException>(() =>
+            service.TranscribeAsync(new Recording(new byte[(600 * 1024) + 1]), "key", TestContext.Current.CancellationToken));
+
+        Assert.Equal("audio_limit", exception.Stage);
+        Assert.Equal(0, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task OpenAiTranscription_RejectsOversizedResponse()
+    {
+        ScriptedHttpHandler handler = new(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(new byte[(1024 * 1024) + 1])
+        }));
+        using HttpClient http = new(handler) { BaseAddress = new Uri("https://api.openai.com/v1/") };
+        using OpenAiSpeechToTextService service = new(http);
+
+        SpeechServiceException exception = await Assert.ThrowsAsync<SpeechServiceException>(() =>
+            service.TranscribeAsync(new Recording(new byte[] { 1 }), "key", TestContext.Current.CancellationToken));
+
+        Assert.Equal("response_limit", exception.Stage);
+    }
+
+    [Fact]
+    public async Task OpenAiTranscription_MissingKeyFailsBeforeOpeningAudioOrNetwork()
+    {
+        ScriptedHttpHandler handler = new(_ => Task.FromResult(Json(HttpStatusCode.OK, "{\"text\":\"unused\"}")));
+        using HttpClient http = new(handler) { BaseAddress = new Uri("https://api.openai.com/v1/") };
+        using OpenAiSpeechToTextService service = new(http);
+
+        SpeechServiceException exception = await Assert.ThrowsAsync<SpeechServiceException>(() =>
+            service.TranscribeAsync(new Recording(new byte[] { 1 }), " ", TestContext.Current.CancellationToken));
+
+        Assert.Equal("credentials", exception.Stage);
+        Assert.Equal(0, handler.RequestCount);
     }
 
     [Fact]
     public async Task ProviderNetworkFailuresUseSecretFreeTypedErrors()
     {
         ScriptedHttpHandler handler = new(_ => throw new HttpRequestException("provider leaked secret-key"));
-        using HttpClient assemblyHttp = new(handler) { BaseAddress = new Uri("https://api.assemblyai.com/v2/") };
-        using AssemblyAiSpeechToTextService assembly = new(assemblyHttp);
+        using HttpClient transcriptionHttp = new(handler) { BaseAddress = new Uri("https://api.openai.com/v1/") };
+        using OpenAiSpeechToTextService transcription = new(transcriptionHttp);
 
-        SpeechServiceException assemblyError = await Assert.ThrowsAsync<SpeechServiceException>(() =>
-            assembly.TranscribeAsync(new Recording(new byte[] { 1 }), "secret-key", TestContext.Current.CancellationToken));
-        Assert.DoesNotContain("secret-key", assemblyError.Message, StringComparison.Ordinal);
-        Assert.Equal("assemblyai", assemblyError.Provider);
+        SpeechServiceException transcriptionError = await Assert.ThrowsAsync<SpeechServiceException>(() =>
+            transcription.TranscribeAsync(new Recording(new byte[] { 1 }), "secret-key", TestContext.Current.CancellationToken));
+        Assert.DoesNotContain("secret-key", transcriptionError.Message, StringComparison.Ordinal);
+        Assert.Equal("openai-transcription", transcriptionError.Provider);
 
         using HttpClient elevenHttp = new(handler) { BaseAddress = new Uri("https://api.elevenlabs.io/v1/") };
         using ElevenLabsTextToSpeechService eleven = new(elevenHttp);
@@ -388,7 +469,7 @@ public sealed class VoiceServicesTests
     }
 
     [Fact]
-    public async Task RetryAfterTtsFailureDoesNotCallAssemblyAiOrOpenAiAgain()
+    public async Task RetryAfterTtsFailureDoesNotCallTranscriptionOrResponsesAgain()
     {
         FakeSpeechToText speech = new("visible transcript");
         FakeTurnService turns = new(new AssistantResponse("visible answer", "model", 0, 0, 0));
@@ -512,10 +593,17 @@ public sealed class VoiceServicesTests
             turns,
             synthesis,
             playback,
-            _ => Task.FromResult(new VoiceProviderSettings("assembly-key", "eleven-key", "voice-id")));
+            _ => Task.FromResult(new VoiceProviderSettings("openai-key", "eleven-key", "voice-id")));
 
     private static HttpResponseMessage Json(HttpStatusCode status, string json)
         => new(status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+
+    private static async Task<string> ReadPartAsync(MultipartFormDataContent multipart, string name)
+    {
+        HttpContent part = Assert.Single(multipart, value =>
+            value.Headers.ContentDisposition!.Name!.Trim('"') == name);
+        return await part.ReadAsStringAsync();
+    }
 
     private static Dictionary<string, string> ParseQuery(string query)
         => query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
@@ -572,15 +660,20 @@ public sealed class VoiceServicesTests
 
     private sealed class ScriptedHttpHandler : HttpMessageHandler
     {
-        private readonly Func<HttpRequestMessage, Task<HttpResponseMessage>> _handler;
+        private readonly Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> _handler;
         private int _requestCount;
-        public ScriptedHttpHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> handler) => _handler = handler;
+        public ScriptedHttpHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> handler)
+            : this((request, _) => handler(request))
+        {
+        }
+        public ScriptedHttpHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> handler)
+            => _handler = handler;
         public int RequestCount => Volatile.Read(ref _requestCount);
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref _requestCount);
             cancellationToken.ThrowIfCancellationRequested();
-            return _handler(request);
+            return _handler(request, cancellationToken);
         }
     }
 

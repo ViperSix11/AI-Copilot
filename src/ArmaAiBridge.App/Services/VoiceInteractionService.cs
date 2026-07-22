@@ -58,7 +58,7 @@ public sealed class VoiceInteractionService : IDisposable
             progress?.Report(VoiceStage.Transcribing);
             string transcript = await _speechToText.TranscribeAsync(
                 recording,
-                settings.AssemblyAiApiKey,
+                settings.OpenAiApiKey,
                 cancellationToken).ConfigureAwait(false);
             progress?.Report(VoiceStage.Ready);
             return transcript;
@@ -86,7 +86,7 @@ public sealed class VoiceInteractionService : IDisposable
             progress?.Report(VoiceStage.Transcribing);
             string transcript = await _speechToText.TranscribeAsync(
                 recording,
-                settings.AssemblyAiApiKey,
+                settings.OpenAiApiKey,
                 cancellationToken).ConfigureAwait(false);
             transcriptReady(transcript);
             cancellationToken.ThrowIfCancellationRequested();

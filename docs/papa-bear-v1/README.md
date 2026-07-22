@@ -16,7 +16,7 @@ The target system combines:
 - an ACE3/CBA integration adapter;
 - deterministic services for ballistics, routes, landing zones and status aggregation;
 - a typed action gateway for transport, evacuation, resupply and other mission capabilities;
-- AssemblyAI streaming speech recognition and ElevenLabs speech output.
+- OpenAI audio transcription and ElevenLabs speech output.
 
 ## Documents
 
@@ -28,7 +28,7 @@ The target system combines:
 6. `ace3-integration.md` — ACE capability detection and versioned adapter.
 7. `ballistics-service.md` — deterministic firing-solution requirements.
 8. `action-gateway.md` — support requests, validation and operation state machines.
-9. `voice-architecture.md` — AssemblyAI/OpenAI/ElevenLabs pipeline.
+9. `voice-architecture.md` — OpenAI transcription/Responses and ElevenLabs pipeline.
 10. `privacy-and-fair-play.md` — multiplayer, data and safety boundaries.
 11. `implementation-roadmap.md` — ordered milestones and exit criteria.
 12. `codex-milestone-1.md` — first bounded Codex task.
@@ -59,4 +59,4 @@ The target system combines:
 - ACE3 Scopes Framework: https://ace3.acemod.org/wiki/framework/scopes-framework
 - ACE3 Weather Framework: https://ace3.acemod.org/wiki/framework/weather-framework
 - Arma `nearestLocations`: https://community.bohemia.net/wiki/nearestLocations
-- AssemblyAI voice-bot reference pipeline: https://www.assemblyai.com/blog/real-time-ai-voice-bot-python
+- OpenAI audio transcription: https://platform.openai.com/docs/api-reference/audio/createTranscription

@@ -19,7 +19,7 @@ In scope:
 
 - press-and-hold microphone capture in the Assistant tab;
 - a local microphone test with local playback;
-- completed-utterance AssemblyAI transcription;
+- completed-utterance OpenAI audio transcription;
 - one shared typed/spoken assistant-turn pipeline;
 - complete-response ElevenLabs synthesis and default-device playback;
 - replay and cancellation controls;
@@ -95,43 +95,48 @@ Lifecycle:
    the temporary file.
 
 There is no background capture. **Test Microphone** uses the same bounded
-capture object and immediately plays it locally without contacting AssemblyAI,
-OpenAI, or ElevenLabs.
+capture object and immediately plays it locally without contacting OpenAI or
+ElevenLabs.
 
-## AssemblyAI completed-utterance contract
+## OpenAI completed-utterance transcription contract
 
 `ISpeechToTextService.TranscribeAsync(recording, apiKey, cancellationToken)`
-returns one trimmed final transcript or a typed, actionable error. The MVP uses
-AssemblyAI's asynchronous prerecorded-audio REST flow:
+returns one trimmed final transcript or a typed, actionable error. Production
+uses one completed-utterance request:
 
-1. `POST https://api.assemblyai.com/v2/upload` with the DPAPI-decrypted key in
-   `Authorization`, `Content-Type: application/octet-stream`, and the bounded
-   WAV body. Read `upload_url`.
-2. `POST https://api.assemblyai.com/v2/transcript` with the same authorization
-   header and JSON `{ "audio_url": "...", "language_detection": true }`.
-   Read the transcript `id`.
-3. Poll `GET /v2/transcript/{id}` at a fixed one-second cadence until status is
-   `completed` or `error`. Accept only the one final `text` value.
+```text
+POST https://api.openai.com/v1/audio/transcriptions
+Authorization: Bearer <DPAPI-decrypted OpenAI key>
+Content-Type: multipart/form-data
 
-The HTTP client has a per-request timeout and the whole poll operation has a
-60-second deadline independent of the caller token. `queued` and `processing`
-continue polling. `error`, an empty final transcript, malformed JSON, 401/403,
-429, provider 5xx, network failure, and poll timeout produce distinct
-user-facing guidance without including the key, audio URL, transcript ID,
-audio bytes, response body, or transcript. Cancellation is honored during
-upload, creation, polling delay, and polling request.
+file=<bounded WAV>
+model=gpt-4o-mini-transcribe
+language=de
+response_format=json
+```
 
-The AssemblyAI key remains encrypted by Windows DPAPI in the existing settings
-file and is decrypted only for an active call. Neither audio nor transcript is
-written to application logs. **Test Transcription** records one bounded sample,
-uses only this service, and displays its final transcript in the Assistant
-conversation; it does not call OpenAI or TTS.
+`gpt-4o-mini-transcribe` is one explicit internal constant. The service accepts
+only the final JSON `text` property. It does not use Realtime, streaming, VAD,
+partial transcripts, polling, or persistent provider audio. The WAV request is
+capped at 600 KiB, the JSON response at 1 MiB, and the HTTP client at 60
+seconds. Empty audio, oversized audio or response, empty final text, malformed
+JSON, 401/403, 429, provider 5xx, network failure, timeout, and caller
+cancellation are handled without including the key, audio bytes, transcript,
+response body, authorization header, question, snapshot, or tool result in an
+exception or application log.
+
+The same OpenAI key used by the Responses service remains encrypted once with
+Windows DPAPI and is decrypted only for an active request. The transcription
+and Responses calls remain separate network requests. An older settings JSON
+property for the removed provider is ignored during load and is never
+decrypted, copied, logged, or emitted on the next save. **Test Transcription**
+records one bounded sample, uses only the transcription service, and displays
+its final transcript in the Assistant conversation; it does not call OpenAI
+Responses or ElevenLabs.
 
 Official contract references:
 
-- [AssemblyAI upload endpoint](https://www.assemblyai.com/docs/api-reference/files/upload)
-- [AssemblyAI transcript retrieval and statuses](https://www.assemblyai.com/docs/api-reference/transcripts/get)
-- [AssemblyAI authentication and errors](https://www.assemblyai.com/docs/api-reference/overview/)
+- [OpenAI create-transcription endpoint](https://platform.openai.com/docs/api-reference/audio/createTranscription)
 
 ## ElevenLabs complete-response contract
 
@@ -160,7 +165,7 @@ in the in-memory Assistant panel for explicit speech retry. A successfully
 synthesized payload is also kept in memory, including when its first playback
 fails, so **Replay Last Answer** can retry playback without another provider
 call. If synthesis failed, Replay retries synthesis from the already completed
-text answer without invoking AssemblyAI or OpenAI. Both values are replaced
+text answer without invoking OpenAI transcription or Responses. Both values are replaced
 atomically by the next completed answer and cleared on panel disposal.
 
 Missing/invalid key, missing/invalid voice ID, 401/403, 404, 422, 429, provider
@@ -193,7 +198,7 @@ Actions:
 
 - **Test Microphone**: hold to record a bounded local sample, then local
   playback only;
-- **Test Transcription**: hold to record, then AssemblyAI only;
+- **Test Transcription**: hold to record, then OpenAI transcription only;
 - **Test Papa Bear Voice**: synthesize and play the fixed phrase only;
 - **Hold to Talk**: press/start and release/stop, then STT → shared assistant
   turn → TTS → playback;
@@ -203,7 +208,7 @@ Actions:
   or playback is active.
 
 The final transcript is appended once as the user's conversation turn
-immediately after AssemblyAI succeeds. The final answer is appended once as
+immediately after OpenAI transcription succeeds. The final answer is appended once as
 Papa Bear's turn immediately after OpenAI succeeds and before speech output is
 attempted. Partial STT or OpenAI text is never shown. If synthesis or playback
 fails, both completed text entries remain visible, assistant history remains
@@ -215,7 +220,7 @@ resets the shared OpenAI history and last-answer speech retry state.
 ## Cancellation, timeouts, and overlap policy
 
 - microphone: hard stop at 15 seconds;
-- AssemblyAI HTTP request: 30 seconds per request, 60 seconds total polling;
+- OpenAI transcription request: 60 seconds;
 - existing OpenAI/tool deadlines remain unchanged;
 - ElevenLabs request: 60 seconds;
 - playback: duration-controlled by the decoded stream and caller cancellation;
@@ -226,15 +231,16 @@ resets the shared OpenAI history and last-answer speech retry state.
 
 No retry is automatic because upload, transcription, and synthesis may incur
 provider cost. The user may explicitly retry speech for a completed answer;
-that retry never repeats AssemblyAI or OpenAI.
+that retry never repeats OpenAI transcription or Responses.
 
 ## Privacy, logging, and prompt boundary
 
 - Microphone data leaves the computer only during explicit **Test
-  Transcription** or **Hold to Talk**, and only for AssemblyAI.
-- A final transcript reaches OpenAI only during a real spoken assistant turn.
+  Transcription** or **Hold to Talk**, and only for OpenAI transcription.
+- A final transcript reaches OpenAI Responses only during a real spoken assistant turn.
   It is subject to the same prompt/history handling as typed text.
 - ElevenLabs receives only the final answer or the fixed voice-test phrase.
+  It is the exclusive speech-output provider; OpenAI text-to-speech is not used.
 - Audio, transcripts, questions, answers, complete prompts, world snapshots,
   tool results, keys, authorization headers, provider response bodies, upload
   URLs, transcript IDs, and voice IDs are absent from application logs.
@@ -252,9 +258,12 @@ The Windows test suite must prove:
    15-second limit;
 2. cancellation and disposal stop capture and delete every temporary WAV;
 3. microphone test calls only capture and local playback;
-4. transcription test calls AssemblyAI once and does not call OpenAI or TTS;
-5. AssemblyAI upload/create/poll handles completed, error, malformed,
-   credential, network, timeout, and cancellation responses deterministically;
+4. transcription test calls OpenAI transcription once and does not call
+   Responses or ElevenLabs;
+5. OpenAI transcription verifies the POST path, bearer authentication, bounded
+   WAV part, model, language, response format, single final result, and safe
+   credential/rate/server/network/timeout/cancellation/malformed/empty/oversized
+   response behavior deterministically;
 6. one final transcript is submitted and appended exactly once immediately
    after STT, and one final answer is appended exactly once immediately after
    OpenAI;
@@ -270,11 +279,10 @@ The Windows test suite must prove:
 12. TTS failure and playback failure preserve the visible transcript, visible
     answer, and committed assistant history while reporting partial success;
 13. Replay reuses retained audio after playback failure or retries synthesis
-    after TTS failure, without calling AssemblyAI or OpenAI again; Cancel works
+    after TTS failure, without calling transcription or Responses again; Cancel works
     in recording, transcribing, thinking, generating-voice, and speaking stages;
 14. test logs contain none of the seeded keys, audio markers, transcript,
-    question, answer, snapshot, tool result, upload URL, transcript ID, or voice
-    ID;
+    question, answer, snapshot, tool result, provider body, or voice ID;
 15. all Milestones 1–3 ingestion, world-model, strict-tool, stateless-context,
     cancellation, and privacy tests remain green;
 16. repository verification, Release tests, WPF win-x64 publish, native x64
@@ -288,7 +296,7 @@ only by the live gate below.
 First build version 0.6.0 with `scripts/build.ps1` and confirm the development
 artifact contains the matching WPF application, `arma_ai_bridge_x64.dll`,
 `mod.cpp`, and `addons/arma_ai_bridge_client.pbo`. Configure valid DPAPI-stored
-OpenAI, AssemblyAI, and ElevenLabs keys plus a valid ElevenLabs voice ID. Then
+one OpenAI key, one ElevenLabs key, and a valid ElevenLabs voice ID. Then
 perform exactly these eleven live checks:
 
 1. Start any Arma mission with the existing mod and desktop app.

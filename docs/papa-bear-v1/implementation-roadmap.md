@@ -87,7 +87,7 @@ Exit: one support request runs end-to-end in a controlled mission.
 
 ## M10 — Voice interface
 
-- AssemblyAI streaming STT and push-to-talk;
+- OpenAI audio transcription and push-to-talk;
 - terminology/callsign customization;
 - ElevenLabs streaming TTS and radio effects;
 - interruption, cancellation and priority event queue.

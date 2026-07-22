@@ -108,7 +108,7 @@ public interface IAssistantTurnService
 }
 
 public sealed record VoiceProviderSettings(
-    string AssemblyAiApiKey,
+    string OpenAiApiKey,
     string ElevenLabsApiKey,
     string ElevenLabsVoiceId);
 

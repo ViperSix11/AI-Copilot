@@ -81,7 +81,6 @@ public partial class MainWindow : Window
         {
             OpenAiKeyBox.Password = DpapiService.Unprotect(settings.OpenAiApiKeyProtected);
             ElevenLabsKeyBox.Password = DpapiService.Unprotect(settings.ElevenLabsApiKeyProtected);
-            AssemblyAiKeyBox.Password = DpapiService.Unprotect(settings.AssemblyAiApiKeyProtected);
             ElevenLabsVoiceIdBox.Text = settings.ElevenLabsVoiceId;
             _log.Info("Encrypted settings loaded.");
         }
@@ -195,7 +194,6 @@ public partial class MainWindow : Window
             {
                 OpenAiApiKeyProtected = DpapiService.Protect(OpenAiKeyBox.Password.Trim()),
                 ElevenLabsApiKeyProtected = DpapiService.Protect(ElevenLabsKeyBox.Password.Trim()),
-                AssemblyAiApiKeyProtected = DpapiService.Protect(AssemblyAiKeyBox.Password.Trim()),
                 ElevenLabsVoiceId = ElevenLabsVoiceIdBox.Text.Trim()
             };
             await _settingsService.SaveAsync(settings);
@@ -213,7 +211,6 @@ public partial class MainWindow : Window
     {
         OpenAiKeyBox.Clear();
         ElevenLabsKeyBox.Clear();
-        AssemblyAiKeyBox.Clear();
         ElevenLabsVoiceIdBox.Clear();
         SettingsStatusText.Text = "Fields cleared locally. Click Save to overwrite stored values.";
     }
