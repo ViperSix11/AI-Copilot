@@ -19,7 +19,7 @@
             </Grid.ColumnDefinitions>
             <StackPanel>
                 <TextBlock Text="ArmA AI Bridge" FontSize="28" FontWeight="SemiBold" />
-                <TextBlock Text="Papa Bear telemetry, world state and push-to-talk · v0.6.0"
+                <TextBlock Text="Papa Bear telemetry, world state and push-to-talk · v0.7"
                            Foreground="{StaticResource MutedTextBrush}" Margin="0,4,0,0" />
             </StackPanel>
             <Border Grid.Column="1" Background="{StaticResource PanelBrush}"
