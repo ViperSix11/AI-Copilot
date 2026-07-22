@@ -23,7 +23,6 @@ class CfgFunctions
             class collectContacts {};
             class collectSensorContacts {};
             class normalizeKnownContact {};
-            class calculateAceFiringSolution {};
             class getStableEntityId {};
             class initialiseSession {};
             class publishWorldEvent {};

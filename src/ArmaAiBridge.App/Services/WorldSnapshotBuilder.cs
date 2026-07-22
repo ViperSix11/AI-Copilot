@@ -246,18 +246,6 @@ public sealed class WorldSnapshotBuilder
     public string GetCurrentGroupCallsign()
         => _stateRepository?.GetPlayer()?.GroupCallsign ?? string.Empty;
 
-    public StateBallisticProfile? GetCurrentBallisticProfile()
-        => _stateRepository?.GetLoadout()?.BallisticProfile;
-
-    public StateEnvironment? GetCurrentEnvironment()
-        => _stateRepository?.GetEnvironment();
-
-    public void SetBallisticCapabilityFactory(Func<StateBallisticProfile?, object> factory)
-    {
-        if (_operationalSnapshotBuilder is not null)
-            _operationalSnapshotBuilder.BallisticCapabilityFactory = factory ?? throw new ArgumentNullException(nameof(factory));
-    }
-
     private string BuildMirroredFriendlyForces(JsonElement arguments)
     {
         string entityType = ReadEnum(arguments, "entityType", "group", "unit", "vehicle", "all");

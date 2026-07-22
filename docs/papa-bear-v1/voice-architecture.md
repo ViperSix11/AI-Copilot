@@ -21,9 +21,8 @@ hold local button or background Raw Input push-to-talk (maximum 15 seconds)
 ```
 
 An ordinary operational question has no tool round because all fixed compact
-domains are in the initial snapshot. Arbitrary terrain-object enumeration is
-not model-facing; explicit firing-solution intent adds only strict
-`calculate_firing_solution`. Transcription is a separate OpenAI request. One
+domains are in the initial snapshot. Arbitrary terrain-object enumeration and
+firing-solution calculations are not model-facing. Transcription is a separate OpenAI request. One
 bounded max-token retry may repeat the frozen Responses input without creating
 a second turn, history entry or acknowledgement.
 

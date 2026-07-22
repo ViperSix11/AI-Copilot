@@ -49,6 +49,7 @@ public sealed class GlobalPushToTalkController : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         binding.Validate();
+        if (binding.Enabled) DetectionOnly = false;
         _suspended = false;
         if (IsRecording)
         {

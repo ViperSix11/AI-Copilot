@@ -12,8 +12,6 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
     private readonly Func<CancellationToken, Task<(string ApiKey, string Model, ResponseProfileSettings Profile)>> _settingsFactory;
     private readonly Func<string, JsonElement, CancellationToken, Task<string>> _executeTool;
     private readonly Func<string> _currentGroupCallsignFactory;
-    private readonly Func<StateBallisticProfile?> _ballisticProfileFactory;
-    private readonly Func<string, JsonElement, AssistantToolContext, CancellationToken, Task<string>>? _contextualExecuteTool;
     private readonly RadioAcknowledgementService _acknowledgements;
     private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _acknowledgementDelay;
@@ -28,8 +26,6 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
         Func<string, JsonElement, CancellationToken, Task<string>> executeTool,
         Func<string>? currentGroupCallsignFactory = null,
         RadioAcknowledgementService? acknowledgements = null,
-        Func<StateBallisticProfile?>? ballisticProfileFactory = null,
-        Func<string, JsonElement, AssistantToolContext, CancellationToken, Task<string>>? contextualExecuteTool = null,
         TimeProvider? timeProvider = null,
         TimeSpan? acknowledgementDelay = null,
         Func<TimeSpan, CancellationToken, Task>? acknowledgementWait = null)
@@ -40,8 +36,6 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
         _settingsFactory = settingsFactory ?? throw new ArgumentNullException(nameof(settingsFactory));
         _executeTool = executeTool ?? throw new ArgumentNullException(nameof(executeTool));
         _currentGroupCallsignFactory = currentGroupCallsignFactory ?? (() => string.Empty);
-        _ballisticProfileFactory = ballisticProfileFactory ?? (() => null);
-        _contextualExecuteTool = contextualExecuteTool;
         _acknowledgements = acknowledgements ?? new RadioAcknowledgementService();
         _timeProvider = timeProvider ?? TimeProvider.System;
         _acknowledgementDelay = acknowledgementDelay ?? AcknowledgementDelay;
@@ -55,8 +49,6 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
         Func<string, JsonElement, CancellationToken, Task<string>> executeTool,
         Func<string>? currentGroupCallsignFactory = null,
         RadioAcknowledgementService? acknowledgements = null,
-        Func<StateBallisticProfile?>? ballisticProfileFactory = null,
-        Func<string, JsonElement, AssistantToolContext, CancellationToken, Task<string>>? contextualExecuteTool = null,
         TimeProvider? timeProvider = null,
         TimeSpan? acknowledgementDelay = null,
         Func<TimeSpan, CancellationToken, Task>? acknowledgementWait = null)
@@ -66,8 +58,6 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
         _settingsFactory = settingsFactory ?? throw new ArgumentNullException(nameof(settingsFactory));
         _executeTool = executeTool ?? throw new ArgumentNullException(nameof(executeTool));
         _currentGroupCallsignFactory = currentGroupCallsignFactory ?? (() => string.Empty);
-        _ballisticProfileFactory = ballisticProfileFactory ?? (() => null);
-        _contextualExecuteTool = contextualExecuteTool;
         _acknowledgements = acknowledgements ?? new RadioAcknowledgementService();
         _timeProvider = timeProvider ?? TimeProvider.System;
         _acknowledgementDelay = acknowledgementDelay ?? AcknowledgementDelay;
@@ -115,10 +105,8 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
 
             string groupCallsign = ReadSnapshotCallsign(snapshot);
             if (groupCallsign.Length == 0) groupCallsign = _currentGroupCallsignFactory();
-            StateBallisticProfile? ballisticProfile = _ballisticProfileFactory();
             (string apiKey, string model, ResponseProfileSettings profile) = await _settingsFactory(cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
-            AssistantToolContext toolContext = new(snapshot, ballisticProfile);
             Stopwatch answerLatency = Stopwatch.StartNew();
             Task<AssistantResponse> responseTask = _assistant.AskAsync(
                 apiKey,
@@ -126,9 +114,7 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
                 text.Trim(),
                 snapshot,
                 profile,
-                (name, arguments, token) => _contextualExecuteTool is null
-                    ? _executeTool(name, arguments, token)
-                    : _contextualExecuteTool(name, arguments, toolContext, token),
+                _executeTool,
                 cancellationToken);
             using CancellationTokenSource acknowledgementCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             Task delay = _acknowledgementWait(_acknowledgementDelay, cancellationToken);
@@ -220,5 +206,3 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
         _turnGate.Dispose();
     }
 }
-
-public sealed record AssistantToolContext(string FrozenSnapshot, StateBallisticProfile? BallisticProfile);

@@ -25,10 +25,8 @@ never sent. Position context contains the measured position plus no more than
 three deterministic named references.
 
 Player profile names, UIDs, raw engine IDs and source mission/session identifiers
-stay out of model context. A selected local ballistic profile may expose only
-its user-assigned display name and compact capability/calculated result. Notes,
-coefficient arrays, velocity/temperature/barrel tables and full configuration
-stay local. Map configuration text and custom style text are untrusted data and
+stay out of model context. No trajectory profile, coefficient array or external
+mod state is collected or sent to OpenAI. Map configuration text and custom style text are untrusted data and
 cannot redefine factual, fair-play or tool policy.
 
 Known contacts contain only eligible perceived actors and operational
@@ -52,7 +50,6 @@ from a closed `CfgWorlds/<world>/Names` type allowlist.
 ## Retention and logging
 
 - API keys are DPAPI-encrypted; response profiles are ordinary local settings;
-- ballistic profiles are independent versioned local JSON written atomically;
 - world state, conversation and the named-location gazetteer are memory-only for
   their current scopes;
 - no SQLite map index, map fingerprint cache or operational-memory database is

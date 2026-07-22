@@ -65,9 +65,7 @@ active dependencies:
 - player-report or persistent operational memory;
 - empty vehicles and tactical-object perception;
 - full static map indexing or a spatial database;
-- broader ACE/CBA integration; release 0.8 contains only the explicitly
-  authorized, version-gated ACE3 Advanced Ballistics firing adapter alongside
-  its bounded Vanilla-config solver;
+- ACE/CBA integration and firing-solution calculations;
 - routes, landing-zone evaluation and support execution;
 - always-on/streaming voice and audio effects; release 0.8 includes only its
   registered configurable global press-and-hold hotkey.

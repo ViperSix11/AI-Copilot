@@ -249,30 +249,13 @@ public sealed class SqliteStateRepository : IStateRepository, IDisposable
             StateMagazineTotal[] totals = Array(root, "magazineTotals").Take(64).Select(item => new StateMagazineTotal(
                 Text(item, "class"), Text(item, "displayName"), Integer(item, "magazineCount"),
                 Integer(item, "rounds"))).ToArray();
-            JsonElement ballistic = root.GetProperty("ballisticProfile");
-            StateBallisticProfile ballisticProfile = new(
-                Boolean(ballistic, "available"), Text(ballistic, "reason"), Text(ballistic, "model"),
-                Text(ballistic, "supportedProjectileType"), Text(ballistic, "weaponClass"),
-                Text(ballistic, "weaponDisplayName"), Text(ballistic, "muzzleClass"), Text(ballistic, "fireMode"),
-                Text(ballistic, "magazineClass"), Text(ballistic, "magazineDisplayName"),
-                Text(ballistic, "ammunitionClass"), Text(ballistic, "ammunitionDisplayName"),
-                Text(ballistic, "simulation"), Integer(ballistic, "loadedRounds"),
-                Number(ballistic, "currentZeroingMeters"), Integer(ballistic, "currentZeroingIndex"),
-                Number(ballistic, "initialSpeedMetersPerSecond"), Number(ballistic, "airFriction"),
-                Number(ballistic, "gravityCoefficient"), Number(ballistic, "typicalSpeedMetersPerSecond"),
-                Vector(ballistic, "shooterPositionASL"), Boolean(ballistic, "advancedBallisticsDetected"),
-                Boolean(ballistic, "aceAdvancedBallisticsEnabled"), Boolean(ballistic, "aceAdapterAvailable"),
-                Text(ballistic, "aceVersion"), Text(ballistic, "aceSupportedBaseline"),
-                Boolean(ballistic, "aceProfileSupported"), Boolean(ballistic, "aceMuzzleVelocityVariationEnabled"),
-                Number(ballistic, "aceMuzzleVelocityVariationStandardDeviationPercent"), Text(ballistic, "profileFingerprint"),
-                Boolean(ballistic, "aceTemperatureCorrectionEnabled"), Boolean(ballistic, "aceBarrelLengthCorrectionEnabled"));
             return new StateLoadout(Text(root, "primaryWeapon"), Text(root, "launcher"), Text(root, "handgun"),
                 Text(root, "selectedWeapon"), Text(root, "selectedWeaponDisplayName"), Text(root, "muzzle"),
                 Text(root, "fireMode"), Text(root, "currentMagazine"), Integer(root, "loadedRounds"),
                 Strings(root, "opticsAndAttachments"), Text(root, "binocular"), magazines, totals,
                 Integer(root, "grenadeCount"), Integer(root, "throwableCount"), Integer(root, "mineCount"),
                 Integer(root, "explosiveCount"), Strings(root, "assignedItems"), Text(root, "uniformClass"),
-                Text(root, "vestClass"), Text(root, "backpackClass"), Text(root, "loadoutHash"), ballisticProfile, metadata);
+                Text(root, "vestClass"), Text(root, "backpackClass"), Text(root, "loadoutHash"), metadata);
         }
     }
 

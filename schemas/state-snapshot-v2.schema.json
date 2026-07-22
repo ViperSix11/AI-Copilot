@@ -95,40 +95,10 @@
       "additionalProperties": false
     },
     "stringArray64": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/text" } },
-    "ballisticProfile": {
-      "type": "object",
-      "required": ["available", "reason", "model", "supportedProjectileType", "weaponClass", "weaponDisplayName", "muzzleClass", "fireMode", "magazineClass", "magazineDisplayName", "ammunitionClass", "ammunitionDisplayName", "simulation", "loadedRounds", "currentZeroingMeters", "currentZeroingIndex", "initialSpeedMetersPerSecond", "airFriction", "gravityCoefficient", "typicalSpeedMetersPerSecond", "shooterPositionASL", "advancedBallisticsDetected"],
-      "properties": {
-        "available": { "type": "boolean" },
-        "reason": { "enum": ["", "unsupported_projectile", "missing_ballistic_config", "advanced_ballistics_mod_detected", "no_current_weapon", "ace_advanced_ballistics_interface_unsupported", "ace_advanced_ballistics_version_unsupported", "ace_ballistic_profile_incomplete"] },
-        "model": { "enum": ["arma-vanilla-config", "ace3-advanced-ballistics"] },
-        "mode": { "enum": ["vanilla", "ace3-advanced", "unavailable"] },
-        "supportedProjectileType": { "enum": ["", "bullet", "shell"] },
-        "weaponClass": { "$ref": "#/$defs/text" }, "weaponDisplayName": { "$ref": "#/$defs/text" },
-        "muzzleClass": { "$ref": "#/$defs/text" }, "fireMode": { "$ref": "#/$defs/text" },
-        "magazineClass": { "$ref": "#/$defs/text" }, "magazineDisplayName": { "$ref": "#/$defs/text" },
-        "ammunitionClass": { "$ref": "#/$defs/text" }, "ammunitionDisplayName": { "$ref": "#/$defs/text" },
-        "simulation": { "$ref": "#/$defs/text" }, "loadedRounds": { "type": "integer", "minimum": 0, "maximum": 100000 },
-        "currentZeroingMeters": { "type": "number", "minimum": 0, "maximum": 10000 },
-        "currentZeroingIndex": { "type": "integer", "minimum": -1, "maximum": 10000 },
-        "initialSpeedMetersPerSecond": { "type": "number", "minimum": 0, "maximum": 10000 },
-        "airFriction": { "type": "number", "minimum": -10, "maximum": 10 },
-        "gravityCoefficient": { "type": "number", "minimum": 0, "maximum": 100 },
-        "typicalSpeedMetersPerSecond": { "type": "number", "minimum": 0, "maximum": 10000 },
-        "shooterPositionASL": { "$ref": "#/$defs/vector" }, "advancedBallisticsDetected": { "type": "boolean" },
-        "aceAdvancedBallisticsEnabled": { "type": "boolean" }, "aceAdapterAvailable": { "type": "boolean" },
-        "aceVersion": { "$ref": "#/$defs/text" }, "aceSupportedBaseline": { "$ref": "#/$defs/text" },
-        "aceProfileSupported": { "type": "boolean" }, "aceMuzzleVelocityVariationEnabled": { "type": "boolean" },
-        "aceTemperatureCorrectionEnabled": { "type": "boolean" }, "aceBarrelLengthCorrectionEnabled": { "type": "boolean" },
-        "aceMuzzleVelocityVariationStandardDeviationPercent": { "type": "number", "minimum": 0, "maximum": 10 },
-        "profileFingerprint": { "type": "string", "maxLength": 128 }
-      },
-      "additionalProperties": false
-    },
     "loadout": {
       "type": "object",
       "required": ["sampledAt", "readiness"],
-      "allOf": [{ "if": { "properties": { "readiness": { "enum": ["ready", "stale"] } } }, "then": { "required": ["primaryWeapon", "launcher", "handgun", "selectedWeapon", "selectedWeaponDisplayName", "muzzle", "fireMode", "currentMagazine", "loadedRounds", "opticsAndAttachments", "binocular", "magazines", "magazineTotals", "grenadeCount", "throwableCount", "mineCount", "explosiveCount", "assignedItems", "uniformClass", "vestClass", "backpackClass", "containerContents", "loadoutHash", "ballisticProfile"] } }],
+      "allOf": [{ "if": { "properties": { "readiness": { "enum": ["ready", "stale"] } } }, "then": { "required": ["primaryWeapon", "launcher", "handgun", "selectedWeapon", "selectedWeaponDisplayName", "muzzle", "fireMode", "currentMagazine", "loadedRounds", "opticsAndAttachments", "binocular", "magazines", "magazineTotals", "grenadeCount", "throwableCount", "mineCount", "explosiveCount", "assignedItems", "uniformClass", "vestClass", "backpackClass", "containerContents", "loadoutHash"] } }],
       "properties": {
         "sampledAt": { "type": "number", "minimum": 0 }, "readiness": { "$ref": "#/$defs/readiness" },
         "primaryWeapon": { "$ref": "#/$defs/text" }, "launcher": { "$ref": "#/$defs/text" }, "handgun": { "$ref": "#/$defs/text" },
@@ -140,7 +110,7 @@
         "grenadeCount": { "$ref": "#/$defs/count" }, "throwableCount": { "$ref": "#/$defs/count" }, "mineCount": { "$ref": "#/$defs/count" }, "explosiveCount": { "$ref": "#/$defs/count" },
         "assignedItems": { "$ref": "#/$defs/stringArray64" }, "uniformClass": { "$ref": "#/$defs/text" }, "vestClass": { "$ref": "#/$defs/text" },
         "backpackClass": { "$ref": "#/$defs/text" }, "containerContents": { "type": "array", "maxItems": 3, "items": { "$ref": "#/$defs/container" } },
-        "loadoutHash": { "type": "string", "maxLength": 128 }, "ballisticProfile": { "$ref": "#/$defs/ballisticProfile" }
+        "loadoutHash": { "type": "string", "maxLength": 128 }
       },
       "additionalProperties": false
     },

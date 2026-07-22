@@ -20,7 +20,6 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private readonly AssistantTurnService _turns;
     private readonly VoiceInteractionService _voice;
     private readonly IGlobalPushToTalkInputService _globalPttInput;
-    private readonly BallisticProfileManager _ballisticProfiles;
     private readonly TextBox _conversation = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly TextBox _question = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 76 };
     private readonly TextBox _model = new() { Text = "gpt-5-mini", Width = 220 };
@@ -33,7 +32,6 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private readonly Button _holdToTalk = new() { Content = "Hold to Talk", MinWidth = 130, ToolTip = "Press and hold while speaking; release to submit." };
     private readonly Button _replay = new() { Content = "Replay Last Answer", MinWidth = 145, IsEnabled = false };
     private readonly Button _cancel = new() { Content = "Cancel", MinWidth = 100, IsEnabled = false };
-    private readonly Button _manageBallisticProfiles = new() { Content = "Manage Ballistic Profiles", MinWidth = 190 };
     private readonly CheckBox _globalPttEnabled = new() { Content = "Enable global push-to-talk" };
     private readonly TextBlock _globalPttHotkey = new() { Text = "Hotkey: Shift + Space" };
     private readonly TextBlock _globalPttStatus = new() { Text = "Status: Initializing", TextWrapping = TextWrapping.Wrap };
@@ -66,8 +64,6 @@ public sealed class AssistantPanel : UserControl, IDisposable
         _log = log;
         _snapshots = snapshots;
         _globalPttInput = globalPttInput;
-        _ballisticProfiles = new BallisticProfileManager();
-        _snapshots.SetBallisticCapabilityFactory(_ballisticProfiles.CompactCapability);
         _queries = new ArmaQueryCoordinator(pipe);
         _capture = new PushToTalkCaptureCoordinator(new WindowsMicrophoneCaptureService());
 
@@ -77,9 +73,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
             BuildSnapshot,
             LoadOpenAiSettingsAsync,
             ExecuteToolAsync,
-            _snapshots.GetCurrentGroupCallsign,
-            ballisticProfileFactory: _snapshots.GetCurrentBallisticProfile,
-            contextualExecuteTool: ExecuteToolAsync);
+            _snapshots.GetCurrentGroupCallsign);
         _voice = new VoiceInteractionService(
             new OpenAiSpeechToTextService(),
             _turns,
@@ -101,14 +95,15 @@ public sealed class AssistantPanel : UserControl, IDisposable
         _globalPttEnabled.Unchecked += GlobalPttEnabled_Changed;
         _changeGlobalPtt.Click += ChangeGlobalPtt_Click;
         _resetGlobalPtt.Click += ResetGlobalPtt_Click;
-        _manageBallisticProfiles.Click += (_, _) =>
+        _globalPttTestOnly.Checked += (_, _) =>
         {
-            BallisticProfilesWindow editor = new(_ballisticProfiles, _snapshots.GetCurrentBallisticProfile, _snapshots.GetCurrentEnvironment)
-            { Owner = Window.GetWindow(this) };
-            editor.ShowDialog();
+            if (_globalPtt is not null) _globalPtt.DetectionOnly = true;
+            _globalPttStatus.Text = "Status: Test mode active; chord detection only, recording is disabled.";
         };
-        _globalPttTestOnly.Checked += (_, _) => { if (_globalPtt is not null) _globalPtt.DetectionOnly = true; };
-        _globalPttTestOnly.Unchecked += (_, _) => { if (_globalPtt is not null) _globalPtt.DetectionOnly = false; };
+        _globalPttTestOnly.Unchecked += (_, _) =>
+        {
+            if (_globalPtt is not null) _globalPtt.DetectionOnly = false;
+        };
     }
 
     private UIElement BuildUi()
@@ -164,7 +159,6 @@ public sealed class AssistantPanel : UserControl, IDisposable
         assistantActions.Children.Add(clear);
         assistantActions.Children.Add(new TextBlock { Text = "Model", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(18, 0, 8, 0) });
         assistantActions.Children.Add(_model);
-        assistantActions.Children.Add(_manageBallisticProfiles);
         bottom.Children.Add(assistantActions);
 
         WrapPanel voiceActions = new() { Margin = new Thickness(0, 8, 0, 0) };
@@ -489,31 +483,6 @@ public sealed class AssistantPanel : UserControl, IDisposable
             _ => Task.FromException<string>(new InvalidOperationException("Unsupported local tool."))
         };
 
-    private Task<string> ExecuteToolAsync(
-        string name,
-        JsonElement arguments,
-        AssistantToolContext context,
-        CancellationToken cancellationToken)
-        => name switch
-        {
-            "calculate_firing_solution" => new BallisticToolService(
-                    _queries.QueryTerrainHeightAslAsync,
-                    aceAdapter: new ArmaAceBallisticAdapter(_queries),
-                    profiles: _ballisticProfiles,
-                    environment: FreezeBallisticEnvironment)
-                .CalculateAsync(arguments, context.BallisticProfile, cancellationToken),
-            _ => ExecuteToolAsync(name, arguments, cancellationToken)
-        };
-
-    private FrozenBallisticEnvironment? FreezeBallisticEnvironment()
-    {
-        StateEnvironment? environment = _snapshots.GetCurrentEnvironment();
-        StateBallisticProfile? profile = _snapshots.GetCurrentBallisticProfile();
-        if (environment is null || profile is null) return null;
-        return new(environment.WindX, environment.WindY, environment.TemperatureCelsius ?? 15,
-            environment.Humidity, profile.ShooterPositionAsl.Z);
-    }
-
     private void Append(string speaker, string text)
     {
         if (_conversation.Text.Length > 0) _conversation.AppendText(Environment.NewLine + Environment.NewLine);
@@ -658,6 +627,11 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private async void GlobalPttEnabled_Changed(object sender, RoutedEventArgs e)
     {
         if (_updatingGlobalPttUi || !_globalPttLoaded || _globalPtt is null) return;
+        if (_globalPttEnabled.IsChecked == true)
+        {
+            _globalPttTestOnly.IsChecked = false;
+            _globalPtt.DetectionOnly = false;
+        }
         await SaveAndApplyGlobalPttAsync(
             _globalPttBinding with { Enabled = _globalPttEnabled.IsChecked == true });
     }

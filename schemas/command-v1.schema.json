@@ -47,50 +47,6 @@
         "command": { "const": "request_map_gazetteer" },
         "parameters": { "type": "object", "maxProperties": 0 }
       }
-    },
-    {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["schema", "requestId", "command", "parameters"],
-      "properties": {
-        "schema": { "const": "arma-ai-bridge/command-v1" },
-        "requestId": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "command": { "const": "query_terrain_height" },
-        "parameters": {
-          "type": "object",
-          "required": ["position"],
-          "properties": {
-            "position": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number", "minimum": -10000000, "maximum": 10000000 } }
-          },
-          "additionalProperties": false
-        }
-      }
-    },
-    {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["schema", "requestId", "command", "parameters"],
-      "properties": {
-        "schema": { "const": "arma-ai-bridge/command-v1" },
-        "requestId": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "command": { "const": "calculate_ace_firing_solution" },
-        "parameters": {
-          "type": "object",
-          "required": ["rangeMeters", "bearingDegrees", "profileFingerprint"],
-          "properties": {
-            "rangeMeters": { "type": "number", "minimum": 25, "maximum": 5000 },
-            "bearingDegrees": { "type": "number", "minimum": 0, "exclusiveMaximum": 360 },
-            "targetElevationAslMeters": { "type": "number", "minimum": -1000, "maximum": 10000 },
-            "targetHeightAboveTerrainMeters": { "type": "number", "minimum": -100, "maximum": 1000 },
-            "profileFingerprint": { "type": "string", "minLength": 1, "maxLength": 128 }
-          },
-          "oneOf": [
-            { "required": ["targetElevationAslMeters"], "not": { "required": ["targetHeightAboveTerrainMeters"] } },
-            { "required": ["targetHeightAboveTerrainMeters"], "not": { "required": ["targetElevationAslMeters"] } }
-          ],
-          "additionalProperties": false
-        }
-      }
     }
   ]
 }

@@ -9,9 +9,7 @@ namespace ArmaAiBridge.App.Tests;
 
 public sealed class OpenAiAssistantServiceTests
 {
-    private const string ValidToolArguments = """
-        {"rangeMeters":300,"bearingDegrees":90,"targetElevationAslMeters":null,"targetHeightAboveTerrainMeters":null}
-        """;
+    private const string ValidToolArguments = "{}";
     private const string WorldSnapshot = """
         {"schema":"arma-ai-bridge/world-snapshot-v1","purpose":"current-situation","map":{"name":"Altis","sizeMeters":30720},"player":{"entityId":"player:self","side":"WEST","viewHeading":42}}
         """;
@@ -379,7 +377,7 @@ public sealed class OpenAiAssistantServiceTests
             Assert.Contains("complete current game picture", instructions, StringComparison.Ordinal);
             Assert.Contains("player.groupCallsign", instructions, StringComparison.Ordinal);
             Assert.Contains("last-known", instructions, StringComparison.Ordinal);
-            Assert.Contains("calculate_firing_solution", instructions, StringComparison.Ordinal);
+            Assert.Contains("Firing-solution calculations are unavailable", instructions, StringComparison.Ordinal);
             Assert.Contains("style-only", instructions, StringComparison.OrdinalIgnoreCase);
             string content = request.GetProperty("input")[0].GetProperty("content").GetString()!;
             int facts = content.IndexOf("COMPACT OPERATIONAL SNAPSHOT", StringComparison.Ordinal);
@@ -498,7 +496,7 @@ public sealed class OpenAiAssistantServiceTests
 
         Assert.Equal("There are buildings nearby.", response.Text);
         Assert.Equal(1, response.ToolCalls);
-        Assert.Equal(1, queryCount);
+        Assert.Equal(0, queryCount);
         Assert.Equal(2, handler.RequestCount);
     }
 
@@ -535,19 +533,13 @@ public sealed class OpenAiAssistantServiceTests
     }
 
     [Fact]
-    public async Task ExplicitFiringQuestionOffersAndExecutesOnlyStrictBallisticTool()
+    public async Task ExplicitFiringQuestionOffersNoCalculationTool()
     {
-        const string arguments = """{"rangeMeters":660,"bearingDegrees":190,"targetElevationAslMeters":null,"targetHeightAboveTerrainMeters":null}""";
         ScriptedHandler handler = new((requestNumber, request) =>
         {
-            JsonElement tool = Assert.Single(request.GetProperty("tools").EnumerateArray());
-            Assert.Equal("calculate_firing_solution", tool.GetProperty("name").GetString());
-            Assert.True(tool.GetProperty("strict").GetBoolean());
-            if (requestNumber == 1)
-                return ToolResponse("rs_ballistic", "call_ballistic", arguments, "calculate_firing_solution");
-            string output = FindFunctionOutput(request, "call_ballistic");
-            Assert.Contains("elevationCorrectionMilliradians", output, StringComparison.Ordinal);
-            return FinalResponse("This is an in-game Arma firing solution.");
+            Assert.Equal(1, requestNumber);
+            Assert.False(request.TryGetProperty("tools", out _));
+            return FinalResponse("Firing-solution calculations are unavailable.");
         });
         using HttpClient httpClient = Client(handler);
         using OpenAiAssistantService service = new(httpClient);
@@ -558,18 +550,17 @@ public sealed class OpenAiAssistantServiceTests
             "I need a firing solution. Range 660 metres, bearing 190.",
             WorldSnapshot,
             new ResponseProfileSettings(),
-            (name, _, _) =>
+            (_, _, _) =>
             {
-                Assert.Equal("calculate_firing_solution", name);
                 calculations++;
-                return Task.FromResult("""{"firingSolution":{"elevationCorrectionMilliradians":4.2}}""");
+                return Task.FromResult("unused");
             },
             TestContext.Current.CancellationToken);
 
-        Assert.Equal(1, calculations);
-        Assert.Equal(1, response.ToolCalls);
-        Assert.Equal(1, response.RequestMetrics!.SelectedToolCount);
-        Assert.Equal(2, handler.RequestCount);
+        Assert.Equal(0, calculations);
+        Assert.Equal(0, response.ToolCalls);
+        Assert.Equal(0, response.RequestMetrics!.SelectedToolCount);
+        Assert.Equal(1, handler.RequestCount);
     }
 
     [Fact]
@@ -594,7 +585,7 @@ public sealed class OpenAiAssistantServiceTests
 
         Assert.Equal("Two checks complete.", response.Text);
         Assert.Equal(2, response.ToolCalls);
-        Assert.Equal(2, queryCount);
+        Assert.Equal(0, queryCount);
         Assert.Equal(3, handler.RequestCount);
     }
 
@@ -644,7 +635,7 @@ public sealed class OpenAiAssistantServiceTests
         }, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, queryCount);
-        AssertToolError(toolOutput, "invalid_tool_arguments", "The tool arguments were invalid.");
+        AssertToolError(toolOutput, "unsupported_tool", "The requested tool is not available.");
         Assert.DoesNotContain("not valid json", toolOutput, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -666,7 +657,7 @@ public sealed class OpenAiAssistantServiceTests
             (_, _) => Task.FromException<string>(new TimeoutException("SECRET TOOL DETAIL")),
             TestContext.Current.CancellationToken);
 
-        AssertToolError(toolOutput, "tool_timeout", "The local Arma query timed out.");
+        AssertToolError(toolOutput, "unsupported_tool", "The requested tool is not available.");
         Assert.DoesNotContain("SECRET TOOL DETAIL", toolOutput, StringComparison.Ordinal);
     }
 
@@ -718,28 +709,25 @@ public sealed class OpenAiAssistantServiceTests
     }
 
     [Fact]
-    public async Task CancellationDuringArmaQuery_IsPropagatedWithoutAnotherApiRequest()
+    public async Task UnexpectedToolCall_IsRejectedWithoutInvokingLocalExecutor()
     {
-        ScriptedHandler handler = new((requestNumber, _) =>
+        ScriptedHandler handler = new((requestNumber, request) =>
             requestNumber == 1
                 ? ToolResponse("rs_cancel", "call_cancel", ValidToolArguments)
-                : throw new Xunit.Sdk.XunitException("Cancellation must prevent a continuation request."));
+                : FinalResponse(FindFunctionOutput(request, "call_cancel")));
         using HttpClient httpClient = Client(handler);
         using OpenAiAssistantService service = new(httpClient);
-        using CancellationTokenSource cancellation = new();
-        TaskCompletionSource queryStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        int executions = 0;
 
-        Task<AssistantResponse> request = AskAsync(service, async (_, token) =>
+        AssistantResponse response = await AskAsync(service, (_, _) =>
         {
-            queryStarted.SetResult();
-            await Task.Delay(Timeout.InfiniteTimeSpan, token);
-            return "unreachable";
-        }, cancellation.Token);
-        await queryStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
-        cancellation.Cancel();
+            executions++;
+            return Task.FromResult("unused");
+        }, TestContext.Current.CancellationToken);
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => request);
-        Assert.Equal(1, handler.RequestCount);
+        Assert.Equal(0, executions);
+        Assert.Contains("unsupported_tool", response.Text, StringComparison.Ordinal);
+        Assert.Equal(2, handler.RequestCount);
     }
 
     [Fact]
@@ -748,7 +736,6 @@ public sealed class OpenAiAssistantServiceTests
         const string apiKey = "sk-super-secret-key";
         const string question = "Give me a firing solution at range three hundred, bearing zero-nine-zero. SECRET QUESTION";
         const string secretMap = "SECRET MAP";
-        const string toolResult = "SECRET TOOL RESULT";
         const string customStyle = "SECRET CUSTOM STYLE";
         const string worldSnapshot = """
             {"schema":"arma-ai-bridge/world-snapshot-v1","purpose":"current-situation","map":{"name":"SECRET MAP"},"player":{"side":"WEST"}}
@@ -758,7 +745,7 @@ public sealed class OpenAiAssistantServiceTests
             : Json(HttpStatusCode.Unauthorized, $$"""
             {
               "error": {
-                "message": "Rejected {{apiKey}} while processing {{question}} on {{secretMap}} with {{toolResult}} and {{customStyle}}.",
+                "message": "Rejected {{apiKey}} while processing {{question}} on {{secretMap}} with {{customStyle}}.",
                 "type": "authentication_error",
                 "code": "invalid_api_key"
               }
@@ -773,7 +760,7 @@ public sealed class OpenAiAssistantServiceTests
             question,
             worldSnapshot,
             new ResponseProfileSettings { Preset = "custom", CustomStyle = customStyle },
-            (_, _, _) => Task.FromResult($"{{\"ok\":true,\"detail\":\"{toolResult}\"}}"),
+            (_, _, _) => Task.FromResult("unused"),
             CancellationToken.None));
         string log = OpenAiAssistantService.FormatFailureForLog(exception);
 
@@ -784,7 +771,6 @@ public sealed class OpenAiAssistantServiceTests
         Assert.DoesNotContain(apiKey, log, StringComparison.Ordinal);
         Assert.DoesNotContain(question, log, StringComparison.Ordinal);
         Assert.DoesNotContain(secretMap, log, StringComparison.Ordinal);
-        Assert.DoesNotContain(toolResult, log, StringComparison.Ordinal);
         Assert.DoesNotContain(customStyle, log, StringComparison.Ordinal);
         Assert.DoesNotContain("SECRET UNHANDLED MESSAGE", OpenAiAssistantService.FormatFailureForLog(
             new InvalidOperationException("SECRET UNHANDLED MESSAGE")), StringComparison.Ordinal);
@@ -822,7 +808,7 @@ public sealed class OpenAiAssistantServiceTests
         Assert.Contains(input, item =>
             ReadString(item, "type") == "function_call" &&
             ReadString(item, "call_id") == callId &&
-            ReadString(item, "name") == "calculate_firing_solution" &&
+            ReadString(item, "name") == "unavailable_tool" &&
             ReadString(item, "arguments") == ValidToolArguments);
         Assert.Contains(input, item =>
             ReadString(item, "type") == "function_call_output" &&
@@ -861,7 +847,7 @@ public sealed class OpenAiAssistantServiceTests
     }
 
     private static HttpResponseMessage ToolResponse(
-        string reasoningId, string callId, string arguments, string name = "calculate_firing_solution") => Json(
+        string reasoningId, string callId, string arguments, string name = "unavailable_tool") => Json(
         HttpStatusCode.OK,
         JsonSerializer.Serialize(new
         {

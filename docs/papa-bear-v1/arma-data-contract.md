@@ -57,29 +57,11 @@ come only from the loadout section. There is no release 0.8 vehicle subsystem.
 Camera position, free-look direction, cursor target and unrestricted object
 state are intentionally excluded.
 
-## Current-shot ballistic profile
+## Firing-solution boundary
 
-The four-second loadout section includes one closed `ballisticProfile` for the
-current weapon/muzzle/mode/magazine/ammunition only. It carries local raw class
-names and bounded display names, loaded rounds, `currentZeroing` distance/index,
-`eyePos player`, effective magazine/weapon/muzzle initial speed, air friction,
-gravity coefficient, typical speed, simulation type and advanced-ballistics
-detection. Raw classes remain local and are not copied into the compact model
-snapshot. Availability fails closed for missing config, non-bullet/shell,
-powered/guided/submunition/artillery or overriding advanced-ballistics cases.
-
-The desktop may resolve that current-shot identity against a local
-`arma-ai-bridge/ballistic-profiles-v1` document. This is not a Named Pipe or SQF
-command schema: it remains local application state and never replaces current
-weapon, muzzle, magazine, ammunition, zero, position or environmental facts.
-The model-facing capability is limited to availability, solver model, profile
-display name, current-match boolean and wind-correction availability. A tool
-result contains only the compact calculated correction, time and velocity.
-
-`query_terrain_height` is a closed read-only command accepting exactly one
-bounded two-dimensional position and returning `getTerrainHeightASL`. It exists
-only to resolve optional terrain elevation for `calculate_firing_solution`;
-the query cannot accept a target entity, cursor, script or arbitrary SQF.
+Release 0.8 exports ordinary loadout identity and ammunition counts only. It
+does not export trajectory coefficients, zeroing profiles or external-mod
+state, and it defines no firing-solution or terrain-height command.
 
 ## Friendly force data
 

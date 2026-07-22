@@ -279,9 +279,7 @@ public sealed class Milestone5UnifiedStateMirrorTests
         })
             Assert.True(root.TryGetProperty(domain, out _), domain);
         Assert.Equal("Alpha 1-1", root.GetProperty("player").GetProperty("groupCallsign").GetString());
-        JsonElement ballistics = root.GetProperty("capabilities").GetProperty("ballistics");
-        Assert.True(ballistics.GetProperty("available").GetBoolean());
-        Assert.Equal("arma-vanilla-config", ballistics.GetProperty("model").GetString());
+        Assert.False(root.GetProperty("capabilities").TryGetProperty("ballistics", out _));
         Assert.DoesNotContain("sourceId", json, StringComparison.Ordinal);
         Assert.DoesNotContain("Alias", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("readiness", json, StringComparison.OrdinalIgnoreCase);

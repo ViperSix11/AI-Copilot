@@ -17,12 +17,6 @@ public static class AssistantRequestPolicy
         "what is ahead", "what's ahead", "what is nearby", "what's nearby"
     };
 
-    private static readonly string[] BallisticTerms =
-    {
-        "firing solution", "fire solution", "elevation solution", "ballistic solution",
-        "holdover", "impact correction"
-    };
-
     public static bool IsOperational(string question)
     {
         string normalized = Normalize(question);
@@ -33,12 +27,6 @@ public static class AssistantRequestPolicy
     {
         string normalized = Normalize(question);
         return TerrainQueryTerms.Any(term => normalized.Contains(term, StringComparison.Ordinal));
-    }
-
-    public static bool RequiresBallisticTool(string question)
-    {
-        string normalized = Normalize(question);
-        return BallisticTerms.Any(term => normalized.Contains(term, StringComparison.Ordinal));
     }
 
     private static string Normalize(string value)

@@ -52,22 +52,8 @@ For requests:
 5. provide asset, ETA, location and player instructions;
 6. continue status updates during execution.
 
-For firing solutions:
-
-Release 0.8 dispatches supported inactive-ACE shots to the deterministic
-Vanilla-config solver and supported active-ACE shots to the version-gated ACE3
-3.21.x runtime adapter. It is available only after an explicit firing request
-invokes `calculate_firing_solution`; Papa Bear must never estimate the
-trajectory itself or use it as real-world advice. Active but unsupported ACE
-profiles fail closed and never fall back to Vanilla.
-
-1. read back range and bearing;
-2. identify weapon, ammunition and optic when ambiguity exists;
-3. state any assumed target elevation or atmospheric fallback;
-4. give signed elevation correction in degrees/milliradians and plain hold
-   direction; ACE results may include deterministic horizontal correction, but
-   neither path gives optic clicks;
-5. optionally give time of flight, impact velocity and terrain-point assumption;
+Firing-solution calculations are unavailable. Papa Bear must say so plainly
+and must not estimate trajectory, hold, lead, impact point or optic correction.
 6. never guess missing deterministic values.
 
 ## Conversation memory

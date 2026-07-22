@@ -10,9 +10,9 @@ operational assistant turn receives one frozen, fixed, bounded compact snapshot
 and a conditional local English radio acknowledgement after 5,000 milliseconds.
 The acknowledgement and final answer use the current Arma player-group
 callsign, never a configured or hardcoded substitute. The release patch also
-adds one deterministic firing-solution tool with Vanilla and version-gated ACE3
-3.21.x runtime paths, speech-safe English normalization and a configurable
-system-wide press-and-hold hotkey.
+adds speech-safe English normalization and a configurable system-wide
+press-and-hold hotkey. Firing-solution calculations and external-mod
+integrations are not release capabilities.
 
 The release is user-initiated only. State changes never invoke OpenAI,
 ElevenLabs or playback. This is not the abandoned static-map index or
@@ -46,7 +46,7 @@ it does not call setters or execute mission actions.
 | player | [`getPosATL`](https://community.bohemia.net/wiki/getPosATL), [`getPosASL`](https://community.bohemia.net/wiki/getPosASL), [`mapGridPosition`](https://community.bohemia.net/wiki/mapGridPosition), [`side`](https://community.bohemia.net/wiki/side), [`group`](https://community.bohemia.net/wiki/group), [`groupId`](https://community.bohemia.net/wiki/groupId) | local player only; `groupId (group player)` returns the current group name string |
 | weather | [`overcast`](https://community.bohemia.net/wiki/overcast), [`overcastForecast`](https://community.bohemia.net/wiki/overcastForecast), [`rain`](https://community.bohemia.net/wiki/rain), [`fog`](https://community.bohemia.net/wiki/fog), [`fogParams`](https://community.bohemia.net/wiki/fogParams), [`fogForecast`](https://community.bohemia.net/wiki/fogForecast), [`wind`](https://community.bohemia.net/wiki/wind), [`windDir`](https://community.bohemia.net/wiki/windDir), [`windStr`](https://community.bohemia.net/wiki/windStr), [`gusts`](https://community.bohemia.net/wiki/gusts), [`waves`](https://community.bohemia.net/wiki/waves), [`lightnings`](https://community.bohemia.net/wiki/lightnings), [`humidity`](https://community.bohemia.net/wiki/humidity), [`ambientTemperature`](https://community.bohemia.net/wiki/ambientTemperature), [`nextWeatherChange`](https://community.bohemia.net/wiki/nextWeatherChange) | client weather; forecast fog may differ by machine; temperature is unavailable before Arma 3 2.06 |
 | time/astronomy | [`date`](https://community.bohemia.net/wiki/date), [`daytime`](https://community.bohemia.net/wiki/daytime), [`time`](https://community.bohemia.net/wiki/time), [`timeMultiplier`](https://community.bohemia.net/wiki/timeMultiplier), [`moonPhase`](https://community.bohemia.net/wiki/moonPhase), [`sunOrMoon`](https://community.bohemia.net/wiki/sunOrMoon) | mission time plus the minimal moon phase and sun-or-moon scalar used for deterministic daylight classification; no lighting-incidence or star-visibility collector |
-| loadout | [`primaryWeapon`](https://community.bohemia.net/wiki/primaryWeapon), [`secondaryWeapon`](https://community.bohemia.net/wiki/secondaryWeapon), [`handgunWeapon`](https://community.bohemia.net/wiki/handgunWeapon), [`currentWeapon`](https://community.bohemia.net/wiki/currentWeapon), [`currentMuzzle`](https://community.bohemia.net/wiki/currentMuzzle), [`currentWeaponMode`](https://community.bohemia.net/wiki/currentWeaponMode), [`currentMagazine`](https://community.bohemia.net/wiki/currentMagazine), [`currentZeroing`](https://community.bohemia.net/wiki/currentZeroing), [`eyePos`](https://community.bohemia.net/wiki/eyePos), [`ammo`](https://community.bohemia.net/wiki/ammo), weapon-item getters, [`magazinesAmmoFull`](https://community.bohemia.net/wiki/magazinesAmmoFull), [`assignedItems`](https://community.bohemia.net/wiki/assignedItems), container getters and [`hashValue`](https://community.bohemia.net/wiki/hashValue); `CfgMagazines` ammo/initSpeed, `CfgAmmo` simulation/airFriction/coefGravity/typicalSpeed and active muzzle-device coefficients | local player and its current shot only; arrays are capped and normalized; unsupported, powered, guided, submunition, artillery-computer and advanced-ballistics profiles fail closed |
+| loadout | [`primaryWeapon`](https://community.bohemia.net/wiki/primaryWeapon), [`secondaryWeapon`](https://community.bohemia.net/wiki/secondaryWeapon), [`handgunWeapon`](https://community.bohemia.net/wiki/handgunWeapon), [`currentWeapon`](https://community.bohemia.net/wiki/currentWeapon), [`currentMuzzle`](https://community.bohemia.net/wiki/currentMuzzle), [`currentWeaponMode`](https://community.bohemia.net/wiki/currentWeaponMode), [`currentMagazine`](https://community.bohemia.net/wiki/currentMagazine), [`ammo`](https://community.bohemia.net/wiki/ammo), weapon-item getters, [`magazinesAmmoFull`](https://community.bohemia.net/wiki/magazinesAmmoFull), [`assignedItems`](https://community.bohemia.net/wiki/assignedItems), container getters and [`hashValue`](https://community.bohemia.net/wiki/hashValue) | local player loadout only; arrays are capped and normalized; no trajectory coefficients or external-mod state are collected |
 | groups/units | [`units`](https://community.bohemia.net/wiki/units), [`leader`](https://community.bohemia.net/wiki/leader), [`groupID`](https://community.bohemia.net/wiki/groupID), [`behaviour`](https://community.bohemia.net/wiki/behaviour), [`combatMode`](https://community.bohemia.net/wiki/combatMode), [`formation`](https://community.bohemia.net/wiki/formation), [`currentWaypoint`](https://community.bohemia.net/wiki/currentWaypoint), [`waypointPosition`](https://community.bohemia.net/wiki/waypointPosition), [`waypointType`](https://community.bohemia.net/wiki/waypointType), [`expectedDestination`](https://community.bohemia.net/wiki/expectedDestination), [`assignedTarget`](https://community.bohemia.net/wiki/assignedTarget), [`currentCommand`](https://community.bohemia.net/wiki/currentCommand), `alive`, `lifeState`, `canMove`, `damage` | own side or configured own group only; no opposing-unit enumeration |
 | contacts | [`targets`](https://community.bohemia.net/wiki/targets), [`targetKnowledge`](https://community.bohemia.net/wiki/targetKnowledge), [`getSensorTargets`](https://community.bohemia.net/wiki/getSensorTargets), [`local`](https://community.bohemia.net/wiki/local) | an eligible local unit represents each own-side group; groups with no local representative are omitted; the local player's vehicle sensors contribute only targets whose estimated state can be read through `targetKnowledge`; estimated position/error are exported, never hostile `getPos` |
 | tasks | [`simpleTasks`](https://community.bohemia.net/wiki/simpleTasks), [`currentTask`](https://community.bohemia.net/wiki/currentTask), `taskName`, `taskDescription`, `taskDestination`, `taskType`, `taskState`, `taskParent` | tasks visible/assigned to the local player only; text is bounded and never logged |
@@ -235,15 +235,7 @@ summary plus at most eight groups, contact summary plus at most eight contacts,
 the active task plus at most two additional tasks, at most five relevant
 markers and explicit local capability flags. Individual friendly units are
 omitted by default. Attachments and magazine summary rows are each capped at
-eight. `capabilities.ballistics` is typed and becomes available only when the
-current shot is a supported unpowered trajectory with valid config. ACE
-Advanced Ballistics absent or installed-but-disabled selects Vanilla. Supported
-active ACE3 3.21.x selects the bounded Arma runtime adapter; active unsupported
-versions, interfaces or profiles fail closed and never select Vanilla. Reasons
-include `unsupported_projectile`, `missing_ballistic_config`,
-`ace_advanced_ballistics_version_unsupported`,
-`ace_advanced_ballistics_interface_unsupported`,
-`ace_ballistic_profile_incomplete` and `no_current_weapon`.
+eight. Capabilities contain no firing-solution or external-mod integration.
 
 Missing optional strings and objects are omitted; meaningful zero counts,
 ammunition, rain/fog and false capability flags remain. Normal ready/live
@@ -281,18 +273,8 @@ compact eligible shape.
 
 Standard turns attach no tool definitions. Arbitrary runtime/static environment
 objects are not model-facing; official named locations are the only static
-geography. A question explicitly asking for a firing, fire, elevation or
-ballistic solution, holdover or impact correction attaches only strict
-`calculate_firing_solution`. It accepts a range from 25 through 5,000 metres,
-a normalized bearing and mutually exclusive optional target ASL or height above
-terrain. Missing target elevation is resolved by one bounded
-`getTerrainHeightASL` query at the range/bearing point derived from frozen
-`eyePos player`. In Vanilla mode the deterministic C# low-angle solver
-integrates Arma drag and gravity. In supported ACE mode the version-gated SQF
-adapter freezes the current profile/environment and invokes the loaded ACE
-runtime calculation without firing a projectile or mutating ATragMX working
-memory. Both compare against current zero and return signed vertical correction,
-time of flight and impact velocity; ACE also returns horizontal correction.
+geography. Firing-solution requests attach no tool and Papa Bear must not
+estimate a solution.
 Neither calculates optic clicks. Only the compact result enters model context.
 
 ## One-request, privacy and diagnostics
@@ -428,9 +410,8 @@ The Windows suite must prove:
 17. raw IDs, aliases, paths, complete database/collections, normal readiness,
     current ages, duplicate legacy facts and empty placeholders never enter the
     fixed operational context.
-18. standard and terrain-object requests attach zero tools; explicit firing
-    requests attach only strict `calculate_firing_solution`; snapshot/profile
-    state stays frozen and no arbitrary static-object result reaches OpenAI.
+18. all requests attach zero calculation or terrain-object tools; no arbitrary
+    static-object result reaches OpenAI.
 19. repository verifier, WPF win-x64, native x64, PBO and matching ZIP pass.
 20. active runtime/schema/payload fixtures contain no `sunDirection`,
     `getLighting`, `lightDirection`, `starsVisibility` or `moonIntensity`;
@@ -452,10 +433,8 @@ The Windows suite must prove:
     no hardcoded callsign remains in active runtime or templates.
 26. profiles, terminators, partial-success text/TTS/replay behavior and every
     accepted 0.7 regression remain green.
-27. rifle, modded .338, gravity, zeroing, above/below target, rocket and missing
-    config fixtures preserve Vanilla behavior; ACE inactive/active/unsupported,
-    profile-array, version, nominal-variation, adapter/result and no-fallback
-    fixtures prove deterministic bounded dispatch.
+27. runtime, SQF and schemas contain no firing-solution calculation or
+    external-mod integration path.
 28. TTS input expands numeric/unit/acronym forms while visible callsign identity
     stays exact and spoken callsign identity stays deterministic.
 29. Raw Input registration/verification flags and HWND, foreground/background
@@ -472,10 +451,7 @@ The Windows suite must prove:
     migration 3.
 32. only non-empty official `CfgWorlds/<world>/Names` records with allowlisted
     types enter the gazetteer; vegetation/flat/rock/unknown mod types fail closed.
-33. versioned ballistic-profile persistence/import, exact matching, specificity,
-    forced/ambiguous selection, validation, field provenance, compact context,
-    deterministic `.338 LM` calculation, range bounds and frozen wind behavior
-    remain local and deterministic.
+33. no trajectory profile is persisted, imported or exposed in compact context.
 
 ## Exact live acceptance
 
@@ -495,9 +471,8 @@ Use the extended Stratis mission and matching 0.8 app/DLL/PBO:
    confirm one English acknowledgement and non-overlapping final speech.
 5. Ask explicit buildings/roads/lights questions; confirm no terrain-object tool
    is advertised and no unnamed static-object class or coordinate enters the
-   request. Ask `I need a firing solution. Bearing one hundred ninety, range six
-   hundred sixty metres.` With a Vanilla rifle and the modded Vector .338 LM
-   profile, confirm only `calculate_firing_solution` and no wind correction.
+   request. Ask for a firing solution and confirm no calculation tool is
+   advertised and no estimated correction is supplied.
 6. With two WEST groups, confirm friendly counts/status/current waypoint.
 7. Let only the remote group know an EAST target. Confirm estimated
    position/error/source alias, never hostile actual position. If locality
@@ -522,11 +497,8 @@ Use the extended Stratis mission and matching 0.8 app/DLL/PBO:
     `friendlyForces`, positions are engine-estimated and empty/dead objects stay
     absent. Verify villages, cities, airports, NameLocal bases and peaks work,
     while unknown modded location types remain absent.
-18. Run the full ACE gate in `ace-advanced-ballistics-integration.md`: ACE 3.21.x
-    disabled selects Vanilla; enabled supported profiles select the ACE model;
-    unsupported profiles fail closed. Record Arma/CBA/ACE versions and compare
-    vertical/horizontal correction, time of flight and impact velocity to the
-    matching ACE Range Card or ATragMX tolerances before removing draft status.
+18. Start with common third-party mods present and confirm Papa Bear neither
+    probes nor reports their trajectory state.
 19. Without administrator rights, record Windows version, Arma display mode and
     elevation state, then verify Shift plus Space with Bridge focused, Arma
     focused and Bridge minimized in windowed, borderless and fullscreen modes.
@@ -537,12 +509,8 @@ Use the extended Stratis mission and matching 0.8 app/DLL/PBO:
     independent. Reset restores Shift plus Space. Verify ordinary typing and
     Alt+Tab remain unaffected, a short tap calls no provider and a deferred
     setting change takes effect after release.
-21. Open Ballistic Profiles, create from the current modded `.338 Lapua Magnum`
-    weapon, enter the actual missing values, validate and confirm automatic
-    exact-class match. Ask bearing 45/range 800 and verify compact vertical/wind
-    corrections, time of flight and impact velocity without unsupported-projectile
-    or alternate-weapon advice. Compare against the installed ACE 3.21.x Range
-    Card/ATragMX and record versions and differences before removing draft status.
+21. Confirm the desktop exposes no trajectory-profile editor or calculation
+    capability.
 
 Live regression for the release-blocking astronomy fault and its final cleanup:
 

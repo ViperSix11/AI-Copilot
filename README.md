@@ -84,14 +84,10 @@ separate conversation model.
 - deterministic position containment, distance, bearing, cardinal direction,
   salience ranking and current/last-known interpretation;
 - local response profiles with deterministic final-text terminators.
-- deterministic Vanilla-config firing solutions when ACE Advanced Ballistics is
-  inactive, plus a version-gated ACE3 3.21.x runtime adapter when it is active;
 - conditional five-second English radio acknowledgements and deterministic
   speech-safe number/unit normalization;
 - configurable background press-and-hold push-to-talk, default Shift + Space,
   using verified Windows Raw Input without hooks, injection or key suppression;
-- versioned local ballistic profiles with strict class matching, validation and
-  compact deterministic firing-solution results.
 
 ### Local read tools
 
@@ -103,7 +99,6 @@ query_assets(kind, availableOnly, maxDistanceMeters, includeStale, limit)
 query_mission_capabilities(enabledOnly, includeStale)
 find_named_locations(query, maxDistanceMeters, limit)
 query_state(section, includeStale, limit)
-calculate_firing_solution(rangeMeters, bearingDegrees, targetElevationAslMeters, targetHeightAboveTerrainMeters)
 ```
 
 No tool can execute arbitrary SQF, C++, PowerShell or operating-system commands.
@@ -247,7 +242,7 @@ does not already provide the required information.
 
 ### Later backlog
 
-ACE ballistic integration, validated support actions, route planning and
+ACE integration, firing-solution calculations, validated support actions, route planning and
 multiplayer packaging remain deferred until the narrow tactical POC is stable.
 
 ## Build and test on Windows
@@ -289,7 +284,7 @@ application, native DLL, `mod.cpp` and PBO.
 - **0.8** — bounded official named-location gazetteer, transactional SQLite
   current-state mirror, deterministic contextual interpretation, strict
   `query_state`, bounded location lookup, local response profiles,
-  Vanilla-config firing solutions, conditional acknowledgements, speech-safe
+  conditional acknowledgements, speech-safe
   English, global PTT and a high-contrast Papa Bear tactical desktop theme.
 
 Detailed architectural records and milestone acceptance specifications are under

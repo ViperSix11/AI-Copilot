@@ -29,8 +29,8 @@ current-state mirror, one fixed compact multi-domain operational prompt,
 official named-place interpretation, dynamic Arma player-group callsigns,
 local two-stage radio acknowledgement and response profiles. Complete
 collections stay local. The release patch adds conditional delayed
-acknowledgements, deterministic Vanilla-config firing solutions, speech-safe
-English, one bounded max-token retry and configurable global press-and-hold PTT.
+acknowledgements, speech-safe English, one bounded max-token retry and
+configurable global press-and-hold PTT.
 
 ## Active architectural decisions
 
@@ -49,10 +49,9 @@ English, one bounded max-token retry and configurable global press-and-hold PTT.
   units and the current Arma callsign permitted to differ.
 - Tools remain bounded, typed, locally validated and read-only until a later
   milestone explicitly introduces an authorized action.
-- Broader ACE integration, routes, support execution, observation-fusion
-  memory, full map indexing and proactive notifications are deferred. Release
-  0.8 supports only the bounded Vanilla solver and explicitly authorized,
-  version-gated ACE3 Advanced Ballistics 3.21.x runtime adapter.
+- ACE integration, firing-solution calculations, routes, support execution,
+  observation-fusion memory, full map indexing and proactive notifications are
+  not active product capabilities.
 
 ## Active documents
 
@@ -76,9 +75,6 @@ English, one bounded max-token retry and configurable global press-and-hold PTT.
     contract.
 13. `codex-milestone-5-contextual-interpreter.md` — subordinate Phase A
     named-location, spatial-language and response-profile design.
-14. `release-0.8-raw-input-and-ballistic-profiles.md` — background Raw Input,
-    local ballistic profiles and the five-second acknowledgement patch.
-
 Other documents describe deferred designs or historical experiments. They are
 not automatically approved implementation scope. A later milestone must
 explicitly reactivate them.

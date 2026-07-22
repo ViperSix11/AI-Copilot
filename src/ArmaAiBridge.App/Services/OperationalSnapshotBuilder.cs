@@ -10,8 +10,6 @@ public sealed class OperationalSnapshotBuilder
     private readonly LoadoutSummaryService _loadout = new();
     private readonly ForceSummaryService _force = new();
     private readonly ContactSummaryService _contacts = new();
-    public Func<StateBallisticProfile?, object>? BallisticCapabilityFactory { get; set; }
-
     public OperationalSnapshotBuilder(IStateRepository repository)
         => _repository = repository ?? throw new ArgumentNullException(nameof(repository));
 
@@ -33,49 +31,18 @@ public sealed class OperationalSnapshotBuilder
             ["knownContacts"] = KnownContacts(),
             ["tasks"] = Tasks(player.PositionAtl),
             ["markers"] = Markers(player.PositionAtl),
-            ["capabilities"] = Capabilities(gazetteer, _repository.GetLoadout()?.BallisticProfile)
+            ["capabilities"] = Capabilities(gazetteer)
         };
     }
 
-    private object Capabilities(MapGazetteerSnapshot gazetteer, StateBallisticProfile? profile)
-    {
-        if (BallisticCapabilityFactory is not null)
-            return new
-            {
-                terrainObjectQuery = false,
-                officialNamedLocations = gazetteer.Readiness is MapGazetteerReadiness.Ready or MapGazetteerReadiness.Empty,
-                friendlyForcePicture = true,
-                ballistics = BallisticCapabilityFactory(profile),
-                supportExecution = false
-            };
-        Dictionary<string, object?> ballistics = new(StringComparer.Ordinal)
-        {
-            ["available"] = profile?.Available == true,
-            ["model"] = profile?.Model ?? "unavailable",
-            ["mode"] = profile?.AceAdvancedBallisticsEnabled == true ? "ace3-advanced" : "vanilla",
-            ["windCorrectionAvailable"] = profile?.AceAdvancedBallisticsEnabled == true && profile.Available
-        };
-        if (profile is null) ballistics["reason"] = "missing_ballistic_config";
-        else
-        {
-            if (!profile.Available) ballistics["reason"] = string.IsNullOrWhiteSpace(profile.Reason) ? "missing_ballistic_config" : profile.Reason;
-            if (!string.IsNullOrWhiteSpace(profile.SupportedProjectileType))
-                ballistics["supportedProjectileType"] = profile.SupportedProjectileType;
-            if (profile.AceMuzzleVelocityVariationEnabled)
-            {
-                ballistics["nominalSolution"] = true;
-                ballistics["muzzleVelocityVariationStandardDeviationPercent"] = profile.AceMuzzleVelocityVariationStandardDeviationPercent;
-            }
-        }
-        return new
+    private static object Capabilities(MapGazetteerSnapshot gazetteer)
+        => new
         {
             terrainObjectQuery = false,
             officialNamedLocations = gazetteer.Readiness is MapGazetteerReadiness.Ready or MapGazetteerReadiness.Empty,
             friendlyForcePicture = true,
-            ballistics,
             supportExecution = false
         };
-    }
 
     private static object Player(StatePlayer player)
     {
