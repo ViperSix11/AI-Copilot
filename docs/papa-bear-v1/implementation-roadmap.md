@@ -1,103 +1,121 @@
 # Implementation roadmap
 
-Each milestone is implemented on a separate branch/PR and must meet automated Windows CI plus its manual Arma acceptance test. Later milestones must not be pulled forward without an explicit architecture decision.
+Each milestone is developed on a focused branch/PR and must pass automated
+Windows CI plus its explicit live Arma acceptance gate. Scope is intentionally
+narrow: a functioning vertical product slice takes priority over speculative
+breadth.
 
-## M1 — Stabilize the OpenAI text tool loop
+## M1 — OpenAI text tool loop
 
-- preserve stateless reasoning context correctly across function-call rounds;
+Status: **accepted**.
+
+- repair multi-round stateless Responses tool handling;
 - expose safe, useful API errors;
-- add mocked tests for direct and tool-assisted responses;
-- keep existing PBO/DLL protocol unchanged.
+- add deterministic mocked tests;
+- preserve the existing PBO/DLL protocol.
 
-Exit: direct questions and `query_environment` questions complete reliably.
+Exit achieved: direct and tool-assisted text questions complete reliably.
 
-## M2 — World-model foundation
+## M2 — Local world-model foundation
 
-- entity store, provenance, freshness and confidence;
-- telemetry ingestion and delta processing;
-- purpose-built context retrieval;
-- session lifecycle and diagnostics.
+Status: **accepted**.
 
-Exit: current player/group/known-contact state can be queried locally without OpenAI.
+- local entity state with provenance, freshness and uncertainty;
+- telemetry ingestion and session reset handling;
+- purpose-built privacy-minimized snapshots;
+- read-only diagnostics.
 
-## M3 — Friendly force picture and mission capabilities
+Exit achieved: current player, group and known-contact state can be inspected
+locally without OpenAI.
 
-- own-side unit, group, vehicle and support-asset collectors;
-- mission capability registry;
-- event-driven updates plus reconciliation;
-- stale-position handling.
+## M3 — Friendly-force picture
 
-Exit: Papa Bear can accurately report friendly positions/status and available read-only assets.
+Status: **accepted for the current read-only scope**.
 
-## M4 — Static map knowledge base
+- own-side groups, units and crewed vehicles;
+- event-driven deltas and periodic full reconciliation;
+- stale-position handling;
+- read-only mission-declared asset and capability registry.
 
-- fingerprinted SQLite store;
-- full tiled index for named locations, terrain, structures, roads and vegetation;
-- nearest-location and area retrieval;
-- indexing status and cache invalidation.
+Exit achieved: Papa Bear can report current friendly positions and status from
+the local world model. No support execution is available.
 
-Exit: “Is there a settlement nearby?” is answered from named location data, including distance and bearing.
+## M4A — Voice Position MVP
 
-## M5 — Papa Bear orchestrator and persona
+Status: **accepted live in version 0.7**.
 
-- normal conversation and tool selection;
-- context planner/retriever;
-- persona/radio rendering separated from factual content;
-- mission and short dialogue memory;
-- evaluation suite for unsupported claims and stale information.
+- bounded 15-second push-to-talk microphone capture;
+- OpenAI completed-utterance transcription;
+- shared typed/spoken `AssistantTurnService`;
+- fresh Arma world snapshot for every turn;
+- ElevenLabs-only Papa Bear speech output;
+- isolated microphone, transcription and voice tests;
+- cancellation, replay and partial-success preservation;
+- matching app, DLL and PBO artifact.
 
-Exit: coherent normal conversation plus correct game-grounded answers in Papa Bear style.
+Exit achieved: the player asks by microphone for the current position and
+receives a correct grounded text answer plus spoken ElevenLabs output.
 
-## M6 — ACE3 capability adapter
+## M4B — Arma Knowledge Mirror
 
-- source/documentation audit of public ACE/CBA APIs;
-- capability detection;
-- medical, weather, weapon, ammunition and scope DTOs;
-- versioned fallbacks and compatibility diagnostics.
+Status: **next**.
 
-Exit: current ACE configuration and relevant states are displayed and testable locally.
+Goal: read what Arma’s own-side AI already knows rather than constructing a
+parallel perception simulation.
 
-## M7 — Deterministic ballistics
+- aggregate `targets`, `targetKnowledge`, `knowsAbout` and documented sensor
+  knowledge across eligible friendly groups;
+- preserve source group, Arma estimated position, position error and age;
+- deduplicate the same target across observers;
+- exclude actual hidden enemy position and unrestricted world truth;
+- add a bounded `query_known_contacts` local tool;
+- prove that a remote WEST unit’s recognized EAST contact reaches Papa Bear.
 
-- provider abstraction;
-- ACE profile extraction;
-- firing-solution calculation and click conversion;
-- terrain-elevation projection from range/bearing;
-- validation matrix against ACE Range Card/ATragMX.
+Exit: a remote friendly unit recognizes an enemy and Papa Bear can accurately
+report the same engine-provided contact knowledge.
 
-Exit: agreed test profiles match ACE reference results within documented tolerances.
+## M4C — Named locations and proactive contact report
 
-## M8 — Read-only operational reasoning
+Status: planned after M4B.
 
-- routes, landing zones, cover and risk tools;
-- available-asset evaluation;
-- plan generation without game mutation;
-- explicit assumptions and alternatives.
+- load only official high-level named locations;
+- resolve the nearest named place to an already-known contact position;
+- detect a first-known hostile contact transition;
+- emit one deduplicated military contact message;
+- speak the alert through the accepted ElevenLabs path.
 
-Exit: Papa Bear proposes feasible, evidence-backed plans but cannot yet execute them.
+Exit: Papa Bear announces one grounded military contact report with source
+unit and location, without repeated radio spam.
 
-## M9 — Validated support requests
+## M5 — Player reports and selected physical objects
 
-- action gateway and authorization policy;
-- first mission capability, recommended: rotary transport/extraction;
-- operation state machine, idempotency, cancellation and monitoring;
-- proactive status messages.
+Status: deferred until M4B/M4C are stable.
 
-Exit: one support request runs end-to-end in a controlled mission.
+- accept explicit spoken player observations;
+- support correction and retraction;
+- evaluate whether empty vehicles and tactical objects are represented by
+  Arma’s knowledge model;
+- add only narrowly scoped supplementary collection where a demonstrated gap
+  exists;
+- introduce mission memory only when required by accepted use cases.
 
-## M10 — Voice interface
+## M6 — Voice and product hardening
 
-- OpenAI audio transcription and push-to-talk;
-- terminology/callsign customization;
-- ElevenLabs streaming TTS and radio effects;
-- interruption, cancellation and priority event queue.
+- microphone and output-device selection;
+- configurable global push-to-talk hotkey;
+- latency and provider-failure measurement;
+- streaming only when it produces a demonstrated UX benefit;
+- installer, updater and release packaging;
+- longer soak and regression tests.
 
-Exit: stable typed and spoken parity with acceptable latency.
+## Later backlog
 
-## M11 — Hardening and multiplayer packaging
+These are not active dependencies and require a new architecture decision:
 
-- performance and soak tests;
-- signatures/server guidance;
-- permission profiles;
-- installer/updater and compatibility matrix;
-- privacy and data-control review.
+- ACE/CBA integration;
+- deterministic ballistics;
+- routes and landing-zone evaluation;
+- persistent operational memory;
+- full static map indexing;
+- validated transport, evacuation or support actions;
+- multiplayer permissions, signatures and server packaging.
