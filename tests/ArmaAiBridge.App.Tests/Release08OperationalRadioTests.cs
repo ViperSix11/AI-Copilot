@@ -135,7 +135,7 @@ public sealed class Release08OperationalRadioTests
         using HttpClient client = new(handler) { BaseAddress = new Uri("https://api.openai.test/v1/") };
         using AssistantTurnService turns = new(
             new OpenAiAssistantService(client),
-            _ => (true, """{"schema":"arma-ai-bridge/operational-snapshot-v1","player":{"groupCallsign":"Alpha 1-1"}}"""),
+            _ => (true, """{"schema":"arma-ai-bridge/tactical-snapshot-v2","player":{"groupCallsign":"Alpha 1-1"}}"""),
             _ => Task.FromResult(("test-key", "gpt-5-mini", new ResponseProfileSettings())),
             (_, _, _) => Task.FromResult("unused"),
             acknowledgementDelay: TimeSpan.Zero);
@@ -166,7 +166,7 @@ public sealed class Release08OperationalRadioTests
         using HttpClient client = new(handler) { BaseAddress = new Uri("https://api.openai.test/v1/") };
         using AssistantTurnService turns = new(
             new OpenAiAssistantService(client),
-            _ => (true, """{"schema":"arma-ai-bridge/operational-snapshot-v1","player":{"groupCallsign":"Alpha 1-1"}}"""),
+            _ => (true, """{"schema":"arma-ai-bridge/tactical-snapshot-v2","player":{"groupCallsign":"Alpha 1-1"}}"""),
             _ => Task.FromResult(("test-key", "gpt-5-mini", new ResponseProfileSettings())),
             (_, _, _) => Task.FromResult("unused"),
             acknowledgementWait: (duration, token) =>
@@ -199,7 +199,7 @@ public sealed class Release08OperationalRadioTests
         using HttpClient client = new(handler) { BaseAddress = new Uri("https://api.openai.test/v1/") };
         using AssistantTurnService turns = new(
             new OpenAiAssistantService(client),
-            _ => (true, """{"schema":"arma-ai-bridge/operational-snapshot-v1","player":{"groupCallsign":"Alpha 1-1"}}"""),
+            _ => (true, """{"schema":"arma-ai-bridge/tactical-snapshot-v2","player":{"groupCallsign":"Alpha 1-1"}}"""),
             _ => Task.FromResult(("test-key", "gpt-5-mini", new ResponseProfileSettings())),
             (_, _, _) => Task.FromResult("unused"));
         int acknowledgements = 0;
@@ -223,7 +223,7 @@ public sealed class Release08OperationalRadioTests
         using HttpClient client = new(handler) { BaseAddress = new Uri("https://api.openai.test/v1/") };
         using AssistantTurnService turns = new(
             new OpenAiAssistantService(client),
-            _ => (true, """{"schema":"arma-ai-bridge/operational-snapshot-v1","player":{"groupCallsign":"Alpha 1-1"}}"""),
+            _ => (true, """{"schema":"arma-ai-bridge/tactical-snapshot-v2","player":{"groupCallsign":"Alpha 1-1"}}"""),
             _ => Task.FromResult(("test-key", "gpt-5-mini", new ResponseProfileSettings())),
             (_, _, _) => Task.FromResult("unused"),
             acknowledgementDelay: TimeSpan.Zero);
@@ -259,7 +259,7 @@ public sealed class Release08OperationalRadioTests
         using HttpClient client = new(handler) { BaseAddress = new Uri("https://api.openai.test/v1/") };
         using AssistantTurnService turns = new(
             new OpenAiAssistantService(client),
-            _ => (true, """{"schema":"arma-ai-bridge/operational-snapshot-v1","player":{"groupCallsign":"Alpha 1-1"}}"""),
+            _ => (true, """{"schema":"arma-ai-bridge/tactical-snapshot-v2","player":{"groupCallsign":"Alpha 1-1"}}"""),
             _ => Task.FromResult(("test-key", "gpt-5-mini", new ResponseProfileSettings())),
             (_, _, _) => Task.FromResult("unused"),
             acknowledgementDelay: TimeSpan.Zero);
@@ -285,7 +285,7 @@ public sealed class Release08OperationalRadioTests
     [Fact]
     public async Task TurnFreezesSnapshotAndCallsignBeforeTheProviderRequestCompletes()
     {
-        string snapshot = """{"schema":"arma-ai-bridge/operational-snapshot-v1","player":{"groupCallsign":"Alpha 1-1"}}""";
+        string snapshot = """{"schema":"arma-ai-bridge/tactical-snapshot-v2","player":{"groupCallsign":"Alpha 1-1"}}""";
         TaskCompletionSource<HttpResponseMessage> responseGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
         CapturingHandler handler = new((_, request) =>
         {
@@ -307,7 +307,7 @@ public sealed class Release08OperationalRadioTests
             "Situation?", UserTurnSource.Typed, value => acknowledgement = value,
             TestContext.Current.CancellationToken);
         await handler.Started.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
-        snapshot = """{"schema":"arma-ai-bridge/operational-snapshot-v1","player":{"groupCallsign":"Bravo 2-3"}}""";
+        snapshot = """{"schema":"arma-ai-bridge/tactical-snapshot-v2","player":{"groupCallsign":"Bravo 2-3"}}""";
         responseGate.SetResult(FinalResponse("Alpha 1-1, current picture follows."));
         AssistantResponse answer = await turn;
 
@@ -341,7 +341,7 @@ public sealed class Release08OperationalRadioTests
         {
             await service.AskAsync(
                 "test-key", "gpt-5-mini", $"Operational question {index}: {new string('Q', 850)}",
-                """{"schema":"arma-ai-bridge/operational-snapshot-v1","player":{"groupCallsign":"Alpha 1-1"}}""",
+                """{"schema":"arma-ai-bridge/tactical-snapshot-v2","player":{"groupCallsign":"Alpha 1-1"}}""",
                 (_, _, _) => Task.FromResult("unused"), TestContext.Current.CancellationToken);
         }
         Assert.Equal(5, handler.RequestCount);

@@ -11,7 +11,7 @@ public sealed class OpenAiAssistantServiceTests
 {
     private const string ValidToolArguments = "{}";
     private const string WorldSnapshot = """
-        {"schema":"arma-ai-bridge/world-snapshot-v1","purpose":"current-situation","map":{"name":"Altis","sizeMeters":30720},"player":{"entityId":"player:self","side":"WEST","viewHeading":42}}
+        {"schema":"arma-ai-bridge/tactical-snapshot-v2","player":{"side":"WEST","groupCallsign":"Alpha 1-1"},"environment":{},"time":{},"friendlyForces":{"summary":{},"groups":[]},"enemyContacts":{"summary":{},"groups":[],"records":[]},"markers":{"count":0,"records":[]},"retrievedMemory":{"count":0,"records":[],"dialogueFocus":{}},"lore":{"count":0,"sections":[],"untrustedContext":true},"modelPayloadTruncated":false,"includedCounts":{}}
         """;
 
     [Fact]
@@ -380,7 +380,7 @@ public sealed class OpenAiAssistantServiceTests
             Assert.Contains("Firing-solution calculations are unavailable", instructions, StringComparison.Ordinal);
             Assert.Contains("style-only", instructions, StringComparison.OrdinalIgnoreCase);
             string content = request.GetProperty("input")[0].GetProperty("content").GetString()!;
-            int facts = content.IndexOf("COMPACT OPERATIONAL SNAPSHOT", StringComparison.Ordinal);
+            int facts = content.IndexOf("TACTICAL SNAPSHOT", StringComparison.Ordinal);
             int profile = content.IndexOf("RESPONSE PROFILE (STYLE ONLY)", StringComparison.Ordinal);
             int question = content.IndexOf("QUESTION:", StringComparison.Ordinal);
             Assert.True(facts >= 0 && facts < profile && profile < question);
@@ -437,7 +437,7 @@ public sealed class OpenAiAssistantServiceTests
         ScriptedHandler handler = new((_, request) =>
         {
             string content = request.GetProperty("input")[0].GetProperty("content").GetString() ?? string.Empty;
-            Assert.Contains("COMPACT OPERATIONAL SNAPSHOT", content, StringComparison.Ordinal);
+            Assert.Contains("TACTICAL SNAPSHOT", content, StringComparison.Ordinal);
             Assert.Contains(WorldSnapshot, content, StringComparison.Ordinal);
             Assert.DoesNotContain("ARMA TELEMETRY", content, StringComparison.Ordinal);
             return FinalResponse("Snapshot received.");
@@ -738,7 +738,7 @@ public sealed class OpenAiAssistantServiceTests
         const string secretMap = "SECRET MAP";
         const string customStyle = "SECRET CUSTOM STYLE";
         const string worldSnapshot = """
-            {"schema":"arma-ai-bridge/world-snapshot-v1","purpose":"current-situation","map":{"name":"SECRET MAP"},"player":{"side":"WEST"}}
+            {"schema":"arma-ai-bridge/tactical-snapshot-v2","player":{"side":"WEST"},"environment":{},"time":{},"friendlyForces":{},"enemyContacts":{},"markers":{"count":0,"records":[]},"retrievedMemory":{"count":0,"records":[]},"lore":{"count":0,"sections":[]},"modelPayloadTruncated":false,"includedCounts":{"secret":"SECRET MAP"}}
             """;
         ScriptedHandler handler = new((requestNumber, _) => requestNumber == 1
             ? ToolResponse("rs_secret", "call_secret", ValidToolArguments)

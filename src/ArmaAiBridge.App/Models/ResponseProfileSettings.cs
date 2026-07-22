@@ -8,4 +8,5 @@ public sealed class ResponseProfileSettings
     public string Terminator { get; set; } = "none";
     public string CustomTerminator { get; set; } = string.Empty;
     public string CustomStyle { get; set; } = string.Empty;
+    public string Banter { get; set; } = "dry";
 }

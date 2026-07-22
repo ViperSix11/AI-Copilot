@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://viper-six.github.io/arma-ai-bridge/schemas/tactical-snapshot-v2.schema.json",
+  "title": "Papa Bear tactical snapshot v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "player", "environment", "time", "friendlyForces", "enemyContacts", "markers", "retrievedMemory", "lore", "modelPayloadTruncated", "includedCounts"],
+  "properties": {
+    "schema": { "const": "arma-ai-bridge/tactical-snapshot-v2" },
+    "player": { "$ref": "#/$defs/player" },
+    "environment": { "$ref": "#/$defs/environment" },
+    "time": { "$ref": "#/$defs/time" },
+    "friendlyForces": { "$ref": "#/$defs/friendlyForces" },
+    "enemyContacts": { "$ref": "#/$defs/enemyContacts" },
+    "markers": { "$ref": "#/$defs/markers" },
+    "retrievedMemory": { "$ref": "#/$defs/memory" },
+    "lore": { "$ref": "#/$defs/lore" },
+    "modelPayloadTruncated": { "type": "boolean" },
+    "includedCounts": { "$ref": "#/$defs/includedCounts" }
+  },
+  "$defs": {
+    "player": { "type": "object", "additionalProperties": false, "required": ["side"], "properties": { "side": { "type": "string", "maxLength": 16 }, "groupCallsign": { "type": "string", "minLength": 1, "maxLength": 80 } } },
+    "environment": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "unavailable": { "type": "boolean" }, "overcast": { "type": "number" }, "rain": { "type": "number" }, "rainDescription": { "type": "string" },
+        "fog": { "type": "number" }, "fogDescription": { "type": "string" }, "wind": { "$ref": "#/$defs/wind" }, "temperatureCelsius": { "type": ["number", "null"] }
+      }
+    },
+    "wind": { "type": "object", "additionalProperties": false, "required": ["speedMetersPerSecond", "fromBearingDegrees", "fromDirection"], "properties": { "speedMetersPerSecond": { "type": "number" }, "fromBearingDegrees": { "type": "integer", "minimum": 0, "maximum": 359 }, "fromDirection": { "type": "string" } } },
+    "time": { "type": "object", "additionalProperties": false, "properties": { "unavailable": { "type": "boolean" }, "missionDate": { "type": "array", "maxItems": 5, "items": { "type": "integer" } }, "daytime": { "type": "number" }, "daylight": { "enum": ["dawn", "daylight", "dusk", "dark"] } } },
+    "friendlyForces": { "type": "object", "additionalProperties": false, "required": ["summary", "groups"], "properties": { "summary": { "$ref": "#/$defs/friendlySummary" }, "groups": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/friendlyGroup" } } } },
+    "friendlySummary": { "type": "object", "additionalProperties": false, "required": ["groupCount", "unitCount", "woundedCount", "incapacitatedCount", "deadCount"], "properties": { "groupCount": { "type": "integer" }, "unitCount": { "type": "integer" }, "woundedCount": { "type": "integer" }, "incapacitatedCount": { "type": "integer" }, "deadCount": { "type": "integer" } } },
+    "friendlyGroup": { "type": "object", "additionalProperties": false, "required": ["memberCount", "elementType", "compositionSummary", "approximatePosition", "bearingFromPlayerDegrees", "rangeFromPlayerMeters", "stale"], "properties": { "callsign": { "type": ["string", "null"] }, "memberCount": { "type": "integer" }, "elementType": { "type": "string" }, "compositionSummary": { "type": "string" }, "approximatePosition": { "$ref": "#/$defs/approximatePosition" }, "bearingFromPlayerDegrees": { "type": "integer" }, "rangeFromPlayerMeters": { "type": "number" }, "stale": { "type": "boolean" } } },
+    "enemyContacts": { "type": "object", "additionalProperties": false, "required": ["summary", "groups", "records"], "properties": { "summary": { "$ref": "#/$defs/enemySummary" }, "groups": { "type": "array", "items": { "$ref": "#/$defs/contactGroup" } }, "records": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/contact" } } } },
+    "enemySummary": { "type": "object", "additionalProperties": false, "required": ["currentEnemyContactCount", "lastKnownEnemyContactCount", "confirmedDeadEnemyContactCount", "byPerceivedSide", "byContactType"], "properties": { "currentEnemyContactCount": { "type": "integer" }, "lastKnownEnemyContactCount": { "type": "integer" }, "confirmedDeadEnemyContactCount": { "type": "integer" }, "byPerceivedSide": { "$ref": "#/$defs/countMap" }, "byContactType": { "$ref": "#/$defs/countMap" } } },
+    "countMap": { "type": "object", "additionalProperties": false, "patternProperties": { "^[A-Za-z0-9_-]{1,40}$": { "type": "integer", "minimum": 0 } } },
+    "contact": { "type": "object", "additionalProperties": false, "required": ["contactTrackReference", "contactType", "perceivedSide", "description", "status", "estimatedPosition", "positionUncertaintyMeters", "rangeFromPlayerMeters", "bearingFromPlayerDegrees", "direction", "lastSeenSecondsAgo", "lastThreatSecondsAgo", "stale", "movementTrend", "estimatedRelativeSpeedMetersPerSecond", "movementConfidence", "corroborated", "observationCount"], "properties": { "contactTrackReference": { "type": "string" }, "contactType": { "type": "string" }, "perceivedSide": { "type": "string" }, "description": { "type": "string" }, "status": { "enum": ["current", "last-known", "dead"] }, "estimatedPosition": { "$ref": "#/$defs/position3" }, "positionUncertaintyMeters": { "type": "number" }, "rangeFromPlayerMeters": { "type": "number" }, "bearingFromPlayerDegrees": { "type": "integer" }, "direction": { "type": "string" }, "lastSeenSecondsAgo": { "type": "number" }, "lastThreatSecondsAgo": { "type": "number" }, "stale": { "type": "boolean" }, "movementTrend": { "type": "string" }, "estimatedRelativeSpeedMetersPerSecond": { "type": ["number", "null"] }, "movementConfidence": { "enum": ["low", "medium", "high"] }, "corroborated": { "type": "boolean" }, "observationCount": { "type": "integer" } } },
+    "contactGroup": { "type": "object", "additionalProperties": false, "required": ["groupReference", "memberCount", "description", "grid", "estimatedCentroid", "positionUncertaintyMeters", "rangeFromPlayerMeters", "bearingFromPlayerDegrees", "direction", "status", "lastSeenSecondsAgo"], "properties": { "groupReference": { "type": "string" }, "memberCount": { "type": "integer" }, "description": { "type": "string" }, "grid": { "type": "string" }, "estimatedCentroid": { "$ref": "#/$defs/position2" }, "positionUncertaintyMeters": { "type": "number" }, "rangeFromPlayerMeters": { "type": "number" }, "bearingFromPlayerDegrees": { "type": "integer" }, "direction": { "type": "string" }, "status": { "enum": ["current", "last-known"] }, "lastSeenSecondsAgo": { "type": "number" } } },
+    "markers": { "type": "object", "additionalProperties": false, "required": ["count", "records"], "properties": { "count": { "type": "integer" }, "records": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/marker" } } } },
+    "marker": { "type": "object", "additionalProperties": false, "required": ["type", "color", "shape", "direction", "approximatePosition", "rangeMeters", "bearingDegrees", "stale"], "properties": { "text": { "type": ["string", "null"] }, "type": { "type": "string" }, "color": { "type": "string" }, "shape": { "type": "string" }, "direction": { "type": "number" }, "approximatePosition": { "$ref": "#/$defs/approximatePosition" }, "rangeMeters": { "type": "number" }, "bearingDegrees": { "type": "integer" }, "stale": { "type": "boolean" } } },
+    "memory": { "type": "object", "additionalProperties": false, "required": ["count", "records", "dialogueFocus"], "properties": { "count": { "type": "integer" }, "records": { "type": "array", "maxItems": 12, "items": { "$ref": "#/$defs/memoryEntry" } }, "dialogueFocus": { "$ref": "#/$defs/dialogueFocus" } } },
+    "memoryEntry": { "type": "object", "additionalProperties": false, "required": ["id", "text", "provenance", "updatedAtUtc", "tags"], "properties": { "id": { "type": "integer" }, "text": { "type": "string" }, "provenance": { "enum": ["user-reported", "game-observed", "derived", "lore"] }, "updatedAtUtc": { "type": "string", "format": "date-time" }, "tags": { "type": "array", "items": { "type": "string" } }, "approximatePosition": { "oneOf": [{ "$ref": "#/$defs/position2" }, { "type": "null" }] } } },
+    "dialogueFocus": { "type": "object", "additionalProperties": false, "properties": { "resolvedQuestion": { "type": ["string", "null"] }, "friendlyGroupCallsign": { "type": ["string", "null"] }, "hostileContactReference": { "type": ["string", "null"] } } },
+    "lore": { "type": "object", "additionalProperties": false, "required": ["count", "sections", "untrustedContext"], "properties": { "count": { "type": "integer" }, "sections": { "type": "array", "maxItems": 5, "items": { "$ref": "#/$defs/loreSection" } }, "untrustedContext": { "const": true } } },
+    "loreSection": { "type": "object", "additionalProperties": false, "required": ["scope", "content", "untrustedContext"], "properties": { "scope": { "enum": ["Mission", "Map", "Player", "Target", "Common"] }, "content": { "type": "string", "maxLength": 2000 }, "untrustedContext": { "const": true } } },
+    "includedCounts": { "type": "object", "additionalProperties": false, "required": ["friendlyGroups", "friendlyUnits", "enemyContacts", "markers", "memoryEntries", "loreSections"], "properties": { "friendlyGroups": { "$ref": "#/$defs/countPair" }, "friendlyUnits": { "$ref": "#/$defs/countPair" }, "enemyContacts": { "$ref": "#/$defs/countPair" }, "markers": { "$ref": "#/$defs/countPair" }, "memoryEntries": { "$ref": "#/$defs/countPair" }, "loreSections": { "$ref": "#/$defs/countPair" } } },
+    "countPair": { "type": "object", "additionalProperties": false, "required": ["original", "included"], "properties": { "original": { "type": "integer" }, "included": { "type": "integer" } } },
+    "approximatePosition": { "type": "object", "additionalProperties": false, "required": ["x", "y", "precisionMeters"], "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "precisionMeters": { "type": "number" } } },
+    "position2": { "type": "object", "additionalProperties": false, "required": ["x", "y"], "properties": { "x": { "type": "number" }, "y": { "type": "number" } } },
+    "position3": { "type": "object", "additionalProperties": false, "required": ["x", "y", "z"], "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" } } }
+  }
+}

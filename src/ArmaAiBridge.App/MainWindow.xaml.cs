@@ -246,7 +246,8 @@ public partial class MainWindow : Window
             Length = ReadSelectedTag(ResponseLengthBox, "short"),
             Terminator = ReadSelectedTag(ResponseTerminatorBox, "none"),
             CustomStyle = ResponseCustomStyleBox.Text,
-            CustomTerminator = ResponseCustomTerminatorBox.Text
+            CustomTerminator = ResponseCustomTerminatorBox.Text,
+            Banter = ReadSelectedTag(ResponseBanterBox, "dry")
         });
 
     private void ApplyResponseProfile(ResponseProfileSettings? profile)
@@ -258,6 +259,7 @@ public partial class MainWindow : Window
         SelectTag(ResponseTerminatorBox, value.Terminator);
         ResponseCustomStyleBox.Text = value.CustomStyle;
         ResponseCustomTerminatorBox.Text = value.CustomTerminator;
+        SelectTag(ResponseBanterBox, value.Banter);
     }
 
     private static void SelectTag(ComboBox box, string tag)

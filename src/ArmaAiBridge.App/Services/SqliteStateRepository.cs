@@ -8,9 +8,9 @@ using Microsoft.Data.Sqlite;
 
 namespace ArmaAiBridge.App.Services;
 
-public sealed class SqliteStateRepository : IStateRepository, IDisposable
+public sealed class SqliteStateRepository : IStateRepository, IMissionMemoryRepository, IDisposable
 {
-    public const int SchemaVersion = 3;
+    public const int SchemaVersion = 4;
     public const int ProtocolVersion = 2;
     private static readonly string[] DynamicTables =
     {
@@ -44,6 +44,7 @@ public sealed class SqliteStateRepository : IStateRepository, IDisposable
     public event Action? StateChanged;
 
     public string DatabasePath => _databasePath;
+    public string ActiveMissionKey { get { lock (_gate) return _activeMissionHash; } }
 
     public StateIngestResult ApplyHandshake(
         string missionId,
@@ -86,6 +87,12 @@ public sealed class SqliteStateRepository : IStateRepository, IDisposable
                     ("$world", worldName), ("$size", worldSize), ("$sequence", _lastSequence),
                     ("$received", receivedAtUtc.ToString("O", CultureInfo.InvariantCulture)));
                 Execute(transaction, """
+                    INSERT INTO missions(mission_hash, world_key, first_seen_utc, last_seen_utc)
+                    VALUES($mission,$world,$received,$received)
+                    ON CONFLICT(mission_hash) DO UPDATE SET last_seen_utc=excluded.last_seen_utc;
+                    """, ("$mission", missionHash), ("$world", WorldKey(worldName, worldSize)),
+                    ("$received", receivedAtUtc.ToString("O", CultureInfo.InvariantCulture)));
+                Execute(transaction, """
                     INSERT INTO state_worlds(world_key, world_name, world_size, baseline_ready)
                     VALUES($key, $name, $size, COALESCE((SELECT baseline_ready FROM state_worlds WHERE world_key=$key), 0))
                     ON CONFLICT(world_key) DO UPDATE SET world_name=excluded.world_name, world_size=excluded.world_size;
@@ -122,9 +129,11 @@ public sealed class SqliteStateRepository : IStateRepository, IDisposable
             try
             {
                 using SqliteTransaction transaction = _connection!.BeginTransaction();
+                WorldPosition? playerPosition = snapshot.Sections.TryGetValue("player", out StateSnapshotSection? playerSection)
+                    ? OptionalVector(playerSection.Payload, "positionATL") : null;
                 foreach (StateSnapshotSection section in snapshot.Sections.Values.OrderBy(item => item.Name, StringComparer.Ordinal))
                 {
-                    ApplySection(transaction, section, snapshot.PublishedAtGameTime, snapshot.ReceivedAtUtc);
+                    ApplySection(transaction, section, snapshot.PublishedAtGameTime, snapshot.ReceivedAtUtc, playerPosition);
                 }
                 Execute(transaction, """
                     UPDATE state_sessions SET last_sequence=$sequence, last_received_utc=$received
@@ -410,7 +419,8 @@ public sealed class SqliteStateRepository : IStateRepository, IDisposable
         SqliteTransaction transaction,
         StateSnapshotSection section,
         double publishedAtGameTime,
-        DateTimeOffset receivedAtUtc)
+        DateTimeOffset receivedAtUtc,
+        WorldPosition? playerPosition)
     {
         bool preserve = section.Readiness is StateSectionReadiness.Failed or StateSectionReadiness.Unavailable;
         if (!preserve)
@@ -422,7 +432,7 @@ public sealed class SqliteStateRepository : IStateRepository, IDisposable
                 case "timeAstronomy": ReplaceScalar(transaction, "current_time_astronomy", StripMetadata(section.Payload)); break;
                 case "loadout": ReplaceScalar(transaction, "current_loadout", StripMetadata(section.Payload)); break;
                 case "friendlyForces": ReplaceFriendlyForces(transaction, section.Payload); break;
-                case "knownContacts": ReplaceContacts(transaction, section.Payload); break;
+                case "knownContacts": ReplaceContacts(transaction, section.Payload, receivedAtUtc, playerPosition); break;
                 case "tasks": ReplaceTasks(transaction, section.Payload); break;
                 case "markers": ReplaceMarkers(transaction, section.Payload); break;
                 default: throw new InvalidDataException("Unknown state section.");
@@ -493,9 +503,11 @@ public sealed class SqliteStateRepository : IStateRepository, IDisposable
         }
     }
 
-    private void ReplaceContacts(SqliteTransaction tx, JsonElement section)
+    private void ReplaceContacts(SqliteTransaction tx, JsonElement section, DateTimeOffset receivedAtUtc, WorldPosition? playerPosition)
     {
         Execute(tx, "DELETE FROM known_contact_sources; DELETE FROM known_contacts;");
+        Execute(tx, "UPDATE contact_tracks SET status='last-known' WHERE mission_hash=$mission AND status='current';",
+            ("$mission", _activeMissionHash));
         foreach (JsonElement item in Array(section, "contacts").Take(256))
         {
             string raw = RequiredText(item, "sourceId");
@@ -516,12 +528,50 @@ public sealed class SqliteStateRepository : IStateRepository, IDisposable
                 Number(item, "positionErrorMeters"), Number(item, "lastSeenAgeSeconds"),
                 Number(item, "lastThreatAgeSeconds"), groupAliases,
                 new StateSectionMetadata("knownContacts", StateSectionReadiness.Ready, 0, DateTimeOffset.UnixEpoch, 0, false));
-            if (!ContactEligibilityPolicy.IsEligible(candidate)) continue;
+            if (!ContactEligibilityPolicy.IsEligible(candidate) ||
+                !string.Equals(candidate.Relationship, "hostile", StringComparison.Ordinal) ||
+                candidate.PerceivedSide is "WEST" or "CIV") continue;
             InsertEntity(tx, "known_contacts", alias, HashId("contact", raw), value);
+            UpsertContactTrack(tx, raw, candidate, receivedAtUtc, playerPosition);
             foreach (string groupAlias in groupAliases)
                 Execute(tx, "INSERT INTO known_contact_sources(contact_alias,group_alias) VALUES($contact,$group);",
                     ("$contact", alias), ("$group", groupAlias));
         }
+    }
+
+    private void UpsertContactTrack(SqliteTransaction tx, string raw, StateKnownContact contact,
+        DateTimeOffset receivedAtUtc, WorldPosition? playerPosition)
+    {
+        string trackId = "contact-" + Hash(_activeMissionHash + "\0contact\0" + raw)[..12].ToLowerInvariant();
+        DateTimeOffset observed = receivedAtUtc.Subtract(TimeSpan.FromSeconds(Math.Max(0, contact.LastSeenAgeSeconds)));
+        DateTimeOffset threatened = receivedAtUtc.Subtract(TimeSpan.FromSeconds(Math.Max(0, contact.LastThreatAgeSeconds)));
+        string description = ContactEligibilityPolicy.Description(contact);
+        Execute(tx, """
+            INSERT INTO contact_tracks(track_id,mission_hash,source_hash,contact_type,description,perceived_side,
+                relationship,status,first_observed_utc,last_observed_utc,last_threat_utc,x,y,z,uncertainty_m,observation_count,corroborated)
+            VALUES($id,$mission,$hash,$type,$description,$side,$relationship,'current',$observed,$observed,$threat,
+                $x,$y,$z,$uncertainty,1,0)
+            ON CONFLICT(track_id) DO UPDATE SET contact_type=excluded.contact_type,description=excluded.description,
+                perceived_side=excluded.perceived_side,relationship=excluded.relationship,status='current',
+                last_observed_utc=excluded.last_observed_utc,last_threat_utc=excluded.last_threat_utc,
+                x=excluded.x,y=excluded.y,z=excluded.z,uncertainty_m=excluded.uncertainty_m,
+                observation_count=contact_tracks.observation_count+1,
+                corroborated=CASE WHEN contact_tracks.observation_count>=1 THEN 1 ELSE contact_tracks.corroborated END;
+            """, ("$id", trackId), ("$mission", _activeMissionHash),
+            ("$hash", Hash(_activeMissionHash + "\0contact\0" + raw)), ("$type", contact.ContactType),
+            ("$description", description), ("$side", contact.PerceivedSide), ("$relationship", contact.Relationship),
+            ("$observed", observed.ToString("O", CultureInfo.InvariantCulture)),
+            ("$threat", threatened.ToString("O", CultureInfo.InvariantCulture)),
+            ("$x", contact.EstimatedPosition.X), ("$y", contact.EstimatedPosition.Y), ("$z", contact.EstimatedPosition.Z),
+            ("$uncertainty", Math.Max(0, contact.PositionErrorMeters)));
+        Execute(tx, """
+            INSERT INTO contact_observations(track_id,observed_utc,received_utc,x,y,z,uncertainty_m,player_x,player_y,player_z)
+            VALUES($id,$observed,$received,$x,$y,$z,$uncertainty,$px,$py,$pz);
+            """, ("$id", trackId), ("$observed", observed.ToString("O", CultureInfo.InvariantCulture)),
+            ("$received", receivedAtUtc.ToString("O", CultureInfo.InvariantCulture)),
+            ("$x", contact.EstimatedPosition.X), ("$y", contact.EstimatedPosition.Y), ("$z", contact.EstimatedPosition.Z),
+            ("$uncertainty", Math.Max(0, contact.PositionErrorMeters)),
+            ("$px", playerPosition?.X), ("$py", playerPosition?.Y), ("$pz", playerPosition?.Z));
     }
 
     private void ReplaceTasks(SqliteTransaction tx, JsonElement section)
@@ -605,7 +655,7 @@ public sealed class SqliteStateRepository : IStateRepository, IDisposable
         using SqliteCommand command = _connection!.CreateCommand();
         command.CommandText = $"SELECT payload_json FROM {table} WHERE session_hash=$session ORDER BY alias LIMIT $limit;";
         command.Parameters.AddWithValue("$session", _activeSessionHash);
-        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 100));
+        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 512));
         using SqliteDataReader reader = command.ExecuteReader();
         while (reader.Read()) yield return JsonDocument.Parse(reader.GetString(0)).RootElement.Clone();
     }
@@ -707,6 +757,16 @@ public sealed class SqliteStateRepository : IStateRepository, IDisposable
         return result is null or DBNull ? 0 : Convert.ToInt64(result, CultureInfo.InvariantCulture);
     }
 
+    private long ScalarLong(SqliteTransaction transaction, string sql, params (string Name, object? Value)[] parameters)
+    {
+        using SqliteCommand command = _connection!.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = sql;
+        foreach ((string name, object? value) in parameters) command.Parameters.AddWithValue(name, value ?? DBNull.Value);
+        object? result = command.ExecuteScalar();
+        return result is null or DBNull ? 0 : Convert.ToInt64(result, CultureInfo.InvariantCulture);
+    }
+
     private int Count(string table) => (int)ScalarLong($"SELECT COUNT(*) FROM {table};");
     private bool EnsureReady() => !_disposed && _connection is not null && _readiness != StateRepositoryReadiness.Failed;
     private StateIngestResult Failed() => new(TelemetryIngestStatus.Rejected, _diagnosticCode.Length == 0 ? "state_database_unavailable" : _diagnosticCode);
@@ -752,6 +812,8 @@ public sealed class SqliteStateRepository : IStateRepository, IDisposable
     }
 
     private const string SchemaSql = """
+        CREATE TABLE IF NOT EXISTS missions(mission_hash TEXT PRIMARY KEY, world_key TEXT NOT NULL,
+            first_seen_utc TEXT NOT NULL, last_seen_utc TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS state_sessions(session_hash TEXT PRIMARY KEY, mission_hash TEXT NOT NULL,
             alias TEXT NOT NULL, world_name TEXT NOT NULL, world_size REAL NOT NULL, active INTEGER NOT NULL,
             last_sequence INTEGER NOT NULL DEFAULT 0, last_received_utc TEXT);
@@ -784,7 +846,297 @@ public sealed class SqliteStateRepository : IStateRepository, IDisposable
             readiness TEXT NOT NULL, sampled_at REAL NOT NULL, sampled_utc TEXT NOT NULL,
             received_utc TEXT NOT NULL, is_stale INTEGER NOT NULL,
             PRIMARY KEY(session_hash,section));
+        CREATE TABLE IF NOT EXISTS contact_tracks(track_id TEXT PRIMARY KEY, mission_hash TEXT NOT NULL,
+            source_hash TEXT NOT NULL, contact_type TEXT NOT NULL, description TEXT NOT NULL,
+            perceived_side TEXT NOT NULL, relationship TEXT NOT NULL, status TEXT NOT NULL,
+            first_observed_utc TEXT NOT NULL, last_observed_utc TEXT NOT NULL, last_threat_utc TEXT NOT NULL,
+            x REAL NOT NULL, y REAL NOT NULL, z REAL NOT NULL, uncertainty_m REAL NOT NULL,
+            observation_count INTEGER NOT NULL, corroborated INTEGER NOT NULL DEFAULT 0);
+        CREATE INDEX IF NOT EXISTS ix_contact_tracks_mission ON contact_tracks(mission_hash,status,last_observed_utc);
+        CREATE TABLE IF NOT EXISTS contact_observations(observation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            track_id TEXT NOT NULL REFERENCES contact_tracks(track_id) ON DELETE CASCADE,
+            observed_utc TEXT NOT NULL, received_utc TEXT NOT NULL, x REAL NOT NULL, y REAL NOT NULL,
+            z REAL NOT NULL, uncertainty_m REAL NOT NULL, player_x REAL, player_y REAL, player_z REAL);
+        CREATE INDEX IF NOT EXISTS ix_contact_observations_track ON contact_observations(track_id,observed_utc);
+        CREATE TABLE IF NOT EXISTS contact_groups(group_id TEXT PRIMARY KEY, mission_hash TEXT NOT NULL,
+            member_track_ids_json TEXT NOT NULL, x REAL NOT NULL, y REAL NOT NULL, updated_utc TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS memory_entries(entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            mission_hash TEXT NOT NULL, content TEXT NOT NULL, provenance TEXT NOT NULL,
+            created_utc TEXT NOT NULL, updated_utc TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0);
+        CREATE INDEX IF NOT EXISTS ix_memory_entries_mission ON memory_entries(mission_hash,deleted,updated_utc);
+        CREATE TABLE IF NOT EXISTS memory_entry_tags(entry_id INTEGER NOT NULL REFERENCES memory_entries(entry_id) ON DELETE CASCADE,
+            tag TEXT NOT NULL, PRIMARY KEY(entry_id,tag));
+        CREATE TABLE IF NOT EXISTS memory_entry_positions(entry_id INTEGER PRIMARY KEY REFERENCES memory_entries(entry_id) ON DELETE CASCADE,
+            x REAL NOT NULL, y REAL NOT NULL, z REAL NOT NULL, uncertainty_m REAL NOT NULL DEFAULT 0);
+        CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(content, content='memory_entries', content_rowid='entry_id');
+        CREATE TRIGGER IF NOT EXISTS memory_ai AFTER INSERT ON memory_entries BEGIN
+            INSERT INTO memory_fts(rowid,content) VALUES(new.entry_id,new.content);
+        END;
+        CREATE TRIGGER IF NOT EXISTS memory_ad AFTER DELETE ON memory_entries BEGIN
+            INSERT INTO memory_fts(memory_fts,rowid,content) VALUES('delete',old.entry_id,old.content);
+        END;
+        CREATE TRIGGER IF NOT EXISTS memory_au AFTER UPDATE OF content ON memory_entries BEGIN
+            INSERT INTO memory_fts(memory_fts,rowid,content) VALUES('delete',old.entry_id,old.content);
+            INSERT INTO memory_fts(rowid,content) VALUES(new.entry_id,new.content);
+        END;
+        CREATE TABLE IF NOT EXISTS lore_sections(mission_hash TEXT NOT NULL, scope TEXT NOT NULL,
+            content TEXT NOT NULL, enabled INTEGER NOT NULL, always_include INTEGER NOT NULL,
+            updated_utc TEXT NOT NULL, PRIMARY KEY(mission_hash,scope));
         """;
+
+    public IReadOnlyList<MissionContactTrack> GetContactTracks(int limit = 256, bool includeForgotten = false)
+    {
+        lock (_gate)
+        {
+            if (!EnsureReady() || _activeMissionHash.Length == 0) return System.Array.Empty<MissionContactTrack>();
+            using SqliteCommand command = _connection!.CreateCommand();
+            command.CommandText = """
+                SELECT track_id,contact_type,description,perceived_side,relationship,status,
+                    first_observed_utc,last_observed_utc,last_threat_utc,x,y,z,uncertainty_m,observation_count,corroborated
+                FROM contact_tracks WHERE mission_hash=$mission AND ($forgotten=1 OR status<>'forgotten')
+                ORDER BY CASE status WHEN 'current' THEN 0 WHEN 'last-known' THEN 1 WHEN 'dead' THEN 2 ELSE 3 END,
+                    last_observed_utc DESC,track_id LIMIT $limit;
+                """;
+            command.Parameters.AddWithValue("$mission", _activeMissionHash);
+            command.Parameters.AddWithValue("$forgotten", includeForgotten ? 1 : 0);
+            command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 256));
+            using SqliteDataReader reader = command.ExecuteReader();
+            List<MissionContactTrack> result = new();
+            while (reader.Read()) result.Add(new MissionContactTrack(
+                reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetString(4), reader.GetString(5),
+                ParseDate(reader.GetString(6)), ParseDate(reader.GetString(7)), ParseDate(reader.GetString(8)),
+                new WorldPosition(reader.GetDouble(9), reader.GetDouble(10), reader.GetDouble(11)), reader.GetDouble(12),
+                reader.GetInt32(13), reader.GetInt64(14) != 0));
+            return result;
+        }
+    }
+
+    public IReadOnlyList<MissionContactObservation> GetContactObservations(string trackId, int limit = 20)
+    {
+        lock (_gate)
+        {
+            if (!EnsureReady() || string.IsNullOrWhiteSpace(trackId)) return System.Array.Empty<MissionContactObservation>();
+            using SqliteCommand command = _connection!.CreateCommand();
+            command.CommandText = """
+                SELECT o.observation_id,o.track_id,o.observed_utc,o.received_utc,o.x,o.y,o.z,o.uncertainty_m,
+                    o.player_x,o.player_y,o.player_z FROM contact_observations o
+                JOIN contact_tracks t ON t.track_id=o.track_id
+                WHERE o.track_id=$id AND t.mission_hash=$mission ORDER BY o.observed_utc DESC LIMIT $limit;
+                """;
+            command.Parameters.AddWithValue("$id", trackId.Trim());
+            command.Parameters.AddWithValue("$mission", _activeMissionHash);
+            command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 50));
+            using SqliteDataReader reader = command.ExecuteReader();
+            List<MissionContactObservation> result = new();
+            while (reader.Read()) result.Add(new MissionContactObservation(reader.GetInt64(0), reader.GetString(1),
+                ParseDate(reader.GetString(2)), ParseDate(reader.GetString(3)),
+                new WorldPosition(reader.GetDouble(4), reader.GetDouble(5), reader.GetDouble(6)), reader.GetDouble(7),
+                reader.IsDBNull(8) ? null : new WorldPosition(reader.GetDouble(8), reader.GetDouble(9), reader.GetDouble(10))));
+            return result;
+        }
+    }
+
+    public bool MarkContactDead(string trackId)
+    {
+        lock (_gate)
+        {
+            RequireActiveMission();
+            Execute(null, "UPDATE contact_tracks SET status='dead' WHERE track_id=$id AND mission_hash=$mission AND status<>'forgotten';",
+                ("$id", trackId.Trim()), ("$mission", _activeMissionHash));
+            return ScalarLong("SELECT changes();") > 0;
+        }
+    }
+
+    public bool ForgetContact(string trackId)
+    {
+        lock (_gate)
+        {
+            RequireActiveMission();
+            Execute(null, "DELETE FROM contact_tracks WHERE track_id=$id AND mission_hash=$mission;",
+                ("$id", trackId.Trim()), ("$mission", _activeMissionHash));
+            return ScalarLong("SELECT changes();") > 0;
+        }
+    }
+
+    public long Remember(string text, string provenance, IReadOnlyList<string>? tags = null, WorldPosition? position = null)
+    {
+        string content = RequireBoundedText(text, 2000, "Memory text");
+        string source = NormalizeProvenance(provenance);
+        lock (_gate)
+        {
+            RequireActiveMission();
+            using SqliteTransaction tx = _connection!.BeginTransaction();
+            string now = _timeProvider.GetUtcNow().ToString("O", CultureInfo.InvariantCulture);
+            Execute(tx, "INSERT INTO memory_entries(mission_hash,content,provenance,created_utc,updated_utc) VALUES($mission,$content,$source,$now,$now);",
+                ("$mission", _activeMissionHash), ("$content", content), ("$source", source), ("$now", now));
+            long id = ScalarLong(tx, "SELECT last_insert_rowid();");
+            ReplaceMemoryDetails(tx, id, tags, position);
+            tx.Commit();
+            return id;
+        }
+    }
+
+    public IReadOnlyList<MissionMemoryEntry> SearchMemory(string query, int limit = 12, int maximumCharacters = 6000)
+    {
+        lock (_gate)
+        {
+            if (!EnsureReady() || _activeMissionHash.Length == 0) return System.Array.Empty<MissionMemoryEntry>();
+            string normalized = (query ?? string.Empty).Trim();
+            using SqliteCommand command = _connection!.CreateCommand();
+            command.CommandText = normalized.Length == 0
+                ? "SELECT entry_id,content,provenance,created_utc,updated_utc FROM memory_entries WHERE mission_hash=$mission AND deleted=0 ORDER BY updated_utc DESC LIMIT $limit;"
+                : "SELECT e.entry_id,e.content,e.provenance,e.created_utc,e.updated_utc FROM memory_fts f JOIN memory_entries e ON e.entry_id=f.rowid WHERE e.mission_hash=$mission AND e.deleted=0 AND memory_fts MATCH $query ORDER BY bm25(memory_fts),e.updated_utc DESC LIMIT $limit;";
+            command.Parameters.AddWithValue("$mission", _activeMissionHash);
+            if (normalized.Length > 0) command.Parameters.AddWithValue("$query", FtsQuery(normalized));
+            command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 12));
+            using SqliteDataReader reader = command.ExecuteReader();
+            List<(long Id, string Content, string Provenance, DateTimeOffset Created, DateTimeOffset Updated)> rows = new();
+            int characters = 0;
+            while (reader.Read())
+            {
+                string content = reader.GetString(1);
+                if (characters + content.Length > Math.Clamp(maximumCharacters, 1, 6000)) break;
+                rows.Add((reader.GetInt64(0), content, reader.GetString(2), ParseDate(reader.GetString(3)), ParseDate(reader.GetString(4))));
+                characters += content.Length;
+            }
+            reader.Close();
+            return rows.Select(row => new MissionMemoryEntry(row.Id, row.Content, row.Provenance, row.Created,
+                row.Updated, ReadTags(row.Id), ReadMemoryPosition(row.Id))).ToArray();
+        }
+    }
+
+    public bool UpdateMemory(long id, string text, IReadOnlyList<string>? tags = null, WorldPosition? position = null)
+    {
+        string content = RequireBoundedText(text, 2000, "Memory text");
+        lock (_gate)
+        {
+            RequireActiveMission();
+            using SqliteTransaction tx = _connection!.BeginTransaction();
+            Execute(tx, "UPDATE memory_entries SET content=$content,updated_utc=$now WHERE entry_id=$id AND mission_hash=$mission AND deleted=0;",
+                ("$content", content), ("$now", _timeProvider.GetUtcNow().ToString("O", CultureInfo.InvariantCulture)),
+                ("$id", id), ("$mission", _activeMissionHash));
+            bool changed = ScalarLong(tx, "SELECT changes();") > 0;
+            if (changed) ReplaceMemoryDetails(tx, id, tags, position);
+            tx.Commit();
+            return changed;
+        }
+    }
+
+    public bool ForgetMemory(long id)
+    {
+        lock (_gate)
+        {
+            RequireActiveMission();
+            Execute(null, "DELETE FROM memory_entries WHERE entry_id=$id AND mission_hash=$mission;",
+                ("$id", id), ("$mission", _activeMissionHash));
+            return ScalarLong("SELECT changes();") > 0;
+        }
+    }
+
+    public IReadOnlyList<LoreSection> GetLoreSections()
+    {
+        lock (_gate)
+        {
+            if (!EnsureReady()) return System.Array.Empty<LoreSection>();
+            using SqliteCommand command = _connection!.CreateCommand();
+            command.CommandText = "SELECT scope,content,enabled,always_include,updated_utc FROM lore_sections WHERE mission_hash IN ('common','player',$map,$mission) ORDER BY CASE scope WHEN 'Mission' THEN 0 WHEN 'Map' THEN 1 WHEN 'Player' THEN 2 WHEN 'Target' THEN 3 ELSE 4 END;";
+            command.Parameters.AddWithValue("$mission", _activeMissionHash);
+            command.Parameters.AddWithValue("$map", "map:" + WorldKey(_worldName, _worldSize));
+            using SqliteDataReader reader = command.ExecuteReader();
+            List<LoreSection> result = new();
+            while (reader.Read()) result.Add(new LoreSection(reader.GetString(0), reader.GetString(1), reader.GetInt64(2) != 0, reader.GetInt64(3) != 0, ParseDate(reader.GetString(4))));
+            return result;
+        }
+    }
+
+    public void SaveLoreSection(string scope, string content, bool enabled, bool alwaysInclude)
+    {
+        string normalizedScope = NormalizeLoreScope(scope);
+        string value = content?.Trim() ?? string.Empty;
+        if (value.Length > 2000) throw new InvalidOperationException("A lore section is limited to 2000 characters.");
+        lock (_gate)
+        {
+            RequireActiveMission();
+            string mission = LoreScopeKey(normalizedScope);
+            Execute(null, """
+                INSERT INTO lore_sections(mission_hash,scope,content,enabled,always_include,updated_utc)
+                VALUES($mission,$scope,$content,$enabled,$always,$now)
+                ON CONFLICT(mission_hash,scope) DO UPDATE SET content=excluded.content,enabled=excluded.enabled,
+                    always_include=excluded.always_include,updated_utc=excluded.updated_utc;
+                """, ("$mission", mission), ("$scope", normalizedScope), ("$content", value),
+                ("$enabled", enabled ? 1 : 0), ("$always", alwaysInclude ? 1 : 0),
+                ("$now", _timeProvider.GetUtcNow().ToString("O", CultureInfo.InvariantCulture)));
+        }
+    }
+
+    public void ClearLoreSection(string scope)
+    {
+        string normalizedScope = NormalizeLoreScope(scope);
+        lock (_gate)
+        {
+            RequireActiveMission();
+            Execute(null, "DELETE FROM lore_sections WHERE mission_hash=$mission AND scope=$scope;",
+                ("$mission", LoreScopeKey(normalizedScope)), ("$scope", normalizedScope));
+        }
+    }
+
+    private void ReplaceMemoryDetails(SqliteTransaction tx, long id, IReadOnlyList<string>? tags, WorldPosition? position)
+    {
+        Execute(tx, "DELETE FROM memory_entry_tags WHERE entry_id=$id; DELETE FROM memory_entry_positions WHERE entry_id=$id;", ("$id", id));
+        foreach (string tag in (tags ?? System.Array.Empty<string>()).Select(x => x.Trim().ToLowerInvariant()).Where(x => x.Length is > 0 and <= 40).Distinct().Take(16))
+            Execute(tx, "INSERT INTO memory_entry_tags(entry_id,tag) VALUES($id,$tag);", ("$id", id), ("$tag", tag));
+        if (position is not null) Execute(tx, "INSERT INTO memory_entry_positions(entry_id,x,y,z) VALUES($id,$x,$y,$z);",
+            ("$id", id), ("$x", position.X), ("$y", position.Y), ("$z", position.Z));
+    }
+
+    private string[] ReadTags(long id)
+    {
+        using SqliteCommand command = _connection!.CreateCommand();
+        command.CommandText = "SELECT tag FROM memory_entry_tags WHERE entry_id=$id ORDER BY tag;";
+        command.Parameters.AddWithValue("$id", id);
+        using SqliteDataReader reader = command.ExecuteReader();
+        List<string> result = new(); while (reader.Read()) result.Add(reader.GetString(0)); return result.ToArray();
+    }
+
+    private WorldPosition? ReadMemoryPosition(long id)
+    {
+        using SqliteCommand command = _connection!.CreateCommand();
+        command.CommandText = "SELECT x,y,z FROM memory_entry_positions WHERE entry_id=$id;";
+        command.Parameters.AddWithValue("$id", id);
+        using SqliteDataReader reader = command.ExecuteReader();
+        return reader.Read() ? new WorldPosition(reader.GetDouble(0), reader.GetDouble(1), reader.GetDouble(2)) : null;
+    }
+
+    private void RequireActiveMission()
+    {
+        if (!EnsureReady() || _activeMissionHash.Length == 0) throw new InvalidOperationException("No active Arma mission is available.");
+    }
+    private static string RequireBoundedText(string value, int maximum, string name)
+    {
+        string result = value?.Trim() ?? string.Empty;
+        if (result.Length is 0 || result.Length > maximum) throw new InvalidOperationException($"{name} must contain 1 to {maximum} characters.");
+        return result;
+    }
+    private static string NormalizeProvenance(string value) => value.Trim().ToLowerInvariant() switch
+    {
+        "game-observed" => "game-observed", "derived" => "derived", "lore" => "lore", _ => "user-reported"
+    };
+    private static string NormalizeLoreScope(string value) => value.Trim().ToLowerInvariant() switch
+    {
+        "mission" => "Mission", "map" => "Map", "player" => "Player", "target" => "Target", "common" => "Common",
+        _ => throw new InvalidOperationException("Unknown lore scope.")
+    };
+    private string LoreScopeKey(string scope) => scope switch
+    {
+        "Common" => "common", "Player" => "player", "Map" => "map:" + WorldKey(_worldName, _worldSize), _ => _activeMissionHash
+    };
+    private static string FtsQuery(string value)
+    {
+        string[] terms = value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+            .Select(x => new string(x.Where(char.IsLetterOrDigit).ToArray())).Where(x => x.Length > 0).Take(12).ToArray();
+        return terms.Length == 0 ? "\"\"" : string.Join(" OR ", terms.Select(x => $"\"{x}\""));
+    }
+    private static DateTimeOffset ParseDate(string value) => DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
 
     public void Dispose()
     {

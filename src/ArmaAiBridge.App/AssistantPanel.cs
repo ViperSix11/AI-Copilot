@@ -19,6 +19,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private readonly PushToTalkCaptureCoordinator _capture;
     private readonly AssistantTurnService _turns;
     private readonly VoiceInteractionService _voice;
+    private readonly MissionMemoryToolService? _memoryTools;
     private readonly IGlobalPushToTalkInputService _globalPttInput;
     private readonly TextBox _conversation = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly TextBox _question = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 76 };
@@ -65,6 +66,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
         _snapshots = snapshots;
         _globalPttInput = globalPttInput;
         _queries = new ArmaQueryCoordinator(pipe);
+        _memoryTools = snapshots.MissionMemory is null ? null : new MissionMemoryToolService(snapshots.MissionMemory);
         _capture = new PushToTalkCaptureCoordinator(new WindowsMicrophoneCaptureService());
 
         OpenAiAssistantService openAi = new();
@@ -74,6 +76,12 @@ public sealed class AssistantPanel : UserControl, IDisposable
             LoadOpenAiSettingsAsync,
             ExecuteToolAsync,
             _snapshots.GetCurrentGroupCallsign);
+        if (snapshots.MissionMemory is not null)
+        {
+            MissionMemoryConversationService memoryConversation = new(snapshots.MissionMemory);
+            _turns.SetLocalTurnHandler(text => memoryConversation.TryHandle(text, out string response)
+                ? (true, response) : (false, string.Empty));
+        }
         _voice = new VoiceInteractionService(
             new OpenAiSpeechToTextService(),
             _turns,
@@ -157,6 +165,14 @@ public sealed class AssistantPanel : UserControl, IDisposable
             _status.Text = "Conversation cleared.";
         };
         assistantActions.Children.Add(clear);
+        Button lore = new() { Content = "Lore Context", MinWidth = 120, IsEnabled = _snapshots.MissionMemory is not null };
+        lore.Click += (_, _) =>
+        {
+            if (_snapshots.MissionMemory is null) return;
+            LoreContextWindow window = new(_snapshots.MissionMemory) { Owner = Window.GetWindow(this) };
+            window.ShowDialog();
+        };
+        assistantActions.Children.Add(lore);
         assistantActions.Children.Add(new TextBlock { Text = "Model", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(18, 0, 8, 0) });
         assistantActions.Children.Add(_model);
         bottom.Children.Add(assistantActions);
@@ -474,12 +490,8 @@ public sealed class AssistantPanel : UserControl, IDisposable
         CancellationToken cancellationToken)
         => name switch
         {
-            "query_environment" => _queries.QueryEnvironmentAsync(arguments, cancellationToken),
-            "query_friendly_forces" => Task.FromResult(_snapshots.BuildFriendlyForces(arguments)),
-            "query_assets" => Task.FromResult(_snapshots.BuildAssets(arguments)),
-            "query_mission_capabilities" => Task.FromResult(_snapshots.BuildMissionCapabilities(arguments)),
-            "find_named_locations" => Task.FromResult(_snapshots.BuildNamedLocations(arguments)),
-            "query_state" => Task.FromResult(_snapshots.BuildState(arguments)),
+            "remember_information" or "search_memory" or "update_memory" or "forget_memory" when _memoryTools is not null
+                => Task.FromResult(_memoryTools.Execute(name, arguments)),
             _ => Task.FromException<string>(new InvalidOperationException("Unsupported local tool."))
         };
 

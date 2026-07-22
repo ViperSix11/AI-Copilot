@@ -2,6 +2,11 @@
 
 Status: **version 0.8 Unified State Mirror & Interpreter in draft; version 0.7 accepted live**.
 
+The active release 0.8 model-context and persistence boundary is
+[`release-0.8-tactical-memory.md`](release-0.8-tactical-memory.md). It
+supersedes the earlier broad Milestone 5 model snapshot without changing the
+accepted State Mirror collection or push-to-talk path.
+
 This directory records the current product boundaries, accepted milestones and
 future architecture decisions for Papa Bear. The repository is developed
 incrementally: narrow vertical proofs of concept are accepted before broader

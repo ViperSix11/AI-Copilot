@@ -12,6 +12,7 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
     private readonly Func<CancellationToken, Task<(string ApiKey, string Model, ResponseProfileSettings Profile)>> _settingsFactory;
     private readonly Func<string, JsonElement, CancellationToken, Task<string>> _executeTool;
     private readonly Func<string> _currentGroupCallsignFactory;
+    private Func<string, (bool Handled, string Response)>? _localTurnHandler;
     private readonly RadioAcknowledgementService _acknowledgements;
     private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _acknowledgementDelay;
@@ -64,6 +65,9 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
         _acknowledgementWait = acknowledgementWait ?? ((duration, token) => Task.Delay(duration, _timeProvider, token));
     }
 
+    public void SetLocalTurnHandler(Func<string, (bool Handled, string Response)> handler)
+        => _localTurnHandler = handler ?? throw new ArgumentNullException(nameof(handler));
+
     public async Task<AssistantResponse> SubmitUserTurnAsync(
         string text,
         UserTurnSource source,
@@ -99,6 +103,26 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
+            string normalizedText = text.Trim();
+            if (_localTurnHandler?.Invoke(normalizedText) is (true, string localText))
+            {
+                string callsign = _currentGroupCallsignFactory().Trim();
+                AssistantResponse local = new(RadioFinalResponsePolicy.EnsureCurrentCallsign(localText, callsign), "local", 0, 0, 0, GroupCallsign: callsign,
+                    RequestMetrics: new AssistantRequestMetrics(0, new Dictionary<string, int>(), 0, 0, 0, 0));
+                answerTextReady?.Invoke(local);
+                return local;
+            }
+            if (FiringSolutionRequestPolicy.IsRequest(normalizedText))
+            {
+                string callsign = _currentGroupCallsignFactory().Trim();
+                string message = callsign.Length == 0
+                    ? "Firing-solution calculation is not available."
+                    : $"{callsign}, firing-solution calculation is not available.";
+                AssistantResponse local = new(message, "local", 0, 0, 0, GroupCallsign: callsign,
+                    RequestMetrics: new AssistantRequestMetrics(0, new Dictionary<string, int>(), 0, 0, 0, 0));
+                answerTextReady?.Invoke(local);
+                return local;
+            }
             (bool success, string snapshot) = _snapshotFactory(text.Trim());
             if (!success)
                 throw new InvalidOperationException("No local Arma world state is available yet.");
@@ -204,5 +228,20 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
         _disposed = true;
         _assistant.Dispose();
         _turnGate.Dispose();
+    }
+}
+
+public static class FiringSolutionRequestPolicy
+{
+    private static readonly string[] Terms =
+    {
+        "firing solution", "fire solution", "elevation correction", "wind hold", "scope clicks",
+        "time of flight", "ballistic solution"
+    };
+
+    public static bool IsRequest(string text)
+    {
+        string value = (text ?? string.Empty).Trim().ToLowerInvariant();
+        return Terms.Any(value.Contains);
     }
 }

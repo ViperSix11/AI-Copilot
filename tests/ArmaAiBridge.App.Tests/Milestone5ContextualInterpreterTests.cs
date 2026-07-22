@@ -200,7 +200,7 @@ public sealed class Milestone5ContextualInterpreterTests
     }
 
     [Fact]
-    public void Snapshot_IncludesMeasuredPositionAndAtMostThreeReferencesWithoutFullGazetteer()
+    public void LegacyTelemetryAndGazetteer_CannotRecreateRemovedBroadSnapshot()
     {
         ManualTimeProvider time = new(Start);
         WorldStateStore worldStore = new(time);
@@ -214,14 +214,9 @@ public sealed class Milestone5ContextualInterpreterTests
             Location("four", "Never Forwarded", "Hill", 3700, 5600)));
         WorldSnapshotBuilder builder = new(worldStore, time, gazetteerStore);
 
-        string json = builder.BuildCurrentSituation();
-        using JsonDocument document = JsonDocument.Parse(json);
-        JsonElement interpretation = document.RootElement.GetProperty("interpretedLocation");
-
-        Assert.Equal(3400.1, interpretation.GetProperty("measuredPosition").GetProperty("x").GetDouble(), 3);
-        Assert.Equal(2, interpretation.GetProperty("alternativeReferences").GetArrayLength());
-        Assert.DoesNotContain("Never Forwarded", json, StringComparison.Ordinal);
-        Assert.DoesNotContain("SECRET_CONFIG_KEY", json, StringComparison.Ordinal);
+        Assert.Throws<InvalidOperationException>(builder.BuildCurrentSituation);
+        Assert.False(builder.TryBuildCurrentSituation(out string json));
+        Assert.Equal(string.Empty, json);
     }
 
     [Fact]

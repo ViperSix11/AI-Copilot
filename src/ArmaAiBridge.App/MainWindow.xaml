@@ -243,6 +243,14 @@
                                         <ComboBoxItem Content="Custom" Tag="custom" />
                                     </ComboBox>
                                 </StackPanel>
+                                <StackPanel Margin="16,0,0,0">
+                                    <TextBlock Text="Banter" Margin="0,0,0,6" />
+                                    <ComboBox x:Name="ResponseBanterBox" Width="120" SelectedIndex="1">
+                                        <ComboBoxItem Content="Off" Tag="off" />
+                                        <ComboBoxItem Content="Dry" Tag="dry" />
+                                        <ComboBoxItem Content="Feisty" Tag="feisty" />
+                                    </ComboBox>
+                                </StackPanel>
                             </WrapPanel>
                             <TextBlock Text="Custom style (maximum 2,000 characters)" Margin="0,0,0,6" />
                             <TextBox x:Name="ResponseCustomStyleBox" Width="760" MaxLength="2000" MinHeight="76"

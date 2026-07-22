@@ -10,7 +10,7 @@ public sealed class WorldSnapshotBuilderTests
     private static readonly DateTimeOffset Start = new(2026, 7, 22, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void CurrentSituation_RemovesPrivateAndOpaqueIdentityFields()
+    public void LegacyTelemetry_CannotProduceTheRemovedBroadAutomaticSnapshot()
     {
         ManualTimeProvider time = new(Start);
         WorldStateStore store = new(time);
@@ -24,27 +24,9 @@ public sealed class WorldSnapshotBuilderTests
             sensorContacts: new[] { WorldModelTestData.Sensor(rawContactId) },
             vehicle: WorldModelTestData.Vehicle()));
 
-        string json = snapshots.BuildCurrentSituation();
-        using JsonDocument document = JsonDocument.Parse(json);
-        JsonElement root = document.RootElement;
-
-        Assert.Equal(WorldSnapshotBuilder.SnapshotSchema, root.GetProperty("schema").GetString());
-        Assert.Equal("current-situation", root.GetProperty("purpose").GetString());
-        Assert.Equal("player:self", root.GetProperty("player").GetProperty("entityId").GetString());
-        Assert.Equal("group:self", root.GetProperty("group").GetProperty("entityId").GetString());
-        JsonElement contact = root.GetProperty("knownContacts")[0];
-        Assert.Equal("contact-001", contact.GetProperty("entityId").GetString());
-        Assert.Equal("best-effort", contact.GetProperty("identityQuality").GetString());
-        Assert.Equal("player", contact.GetProperty("source").GetString());
-        Assert.Equal("live", contact.GetProperty("freshnessClass").GetString());
-        Assert.Equal(96, contact.GetProperty("observedAtGameTime").GetDouble(), 3);
-        Assert.Equal(18, contact.GetProperty("positionErrorMeters").GetDouble(), 3);
-        Assert.True(contact.TryGetProperty("receivedAtUtc", out _));
-        Assert.True(contact.TryGetProperty("confidence", out _));
-        Assert.False(json.Contains("SECRET-PLAYER-UID", StringComparison.Ordinal));
-        Assert.False(json.Contains("SECRET PLAYER NAME", StringComparison.Ordinal));
-        Assert.False(json.Contains(groupLabel, StringComparison.Ordinal));
-        Assert.False(json.Contains(rawContactId, StringComparison.Ordinal));
+        Assert.Throws<InvalidOperationException>(snapshots.BuildCurrentSituation);
+        Assert.False(snapshots.TryBuildCurrentSituation(out string json));
+        Assert.Equal(string.Empty, json);
     }
 
     [Fact]
@@ -58,11 +40,9 @@ public sealed class WorldSnapshotBuilderTests
             contacts: new[] { WorldModelTestData.Contact("contact") },
             vehicle: WorldModelTestData.Vehicle()));
 
-        using JsonDocument current = JsonDocument.Parse(snapshots.BuildCurrentSituation());
         using JsonDocument contacts = JsonDocument.Parse(snapshots.BuildKnownContacts());
 
-        Assert.True(current.RootElement.TryGetProperty("vehicle", out _));
-        Assert.True(current.RootElement.GetProperty("player").TryGetProperty("weapon", out _));
+        Assert.Throws<InvalidOperationException>(snapshots.BuildCurrentSituation);
         Assert.False(contacts.RootElement.TryGetProperty("vehicle", out _));
         Assert.False(contacts.RootElement.TryGetProperty("group", out _));
         Assert.True(contacts.RootElement.TryGetProperty("playerReference", out JsonElement reference));
@@ -93,8 +73,7 @@ public sealed class WorldSnapshotBuilderTests
         WorldKnownContactState historical = Assert.Single(store.GetCurrentView().KnownContacts);
         Assert.Equal(WorldFreshness.Historical, historical.Metadata.FreshnessClass);
         Assert.Equal(0.238, historical.Metadata.Confidence, 3);
-        using JsonDocument snapshot = JsonDocument.Parse(snapshots.BuildCurrentSituation());
-        Assert.Empty(snapshot.RootElement.GetProperty("knownContacts").EnumerateArray());
+        Assert.Throws<InvalidOperationException>(snapshots.BuildCurrentSituation);
     }
 
     [Fact]

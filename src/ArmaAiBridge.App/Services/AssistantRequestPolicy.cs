@@ -29,6 +29,17 @@ public static class AssistantRequestPolicy
         return TerrainQueryTerms.Any(term => normalized.Contains(term, StringComparison.Ordinal));
     }
 
+    public static bool RequiresMemoryTools(string question)
+    {
+        string normalized = Normalize(question);
+        string[] terms =
+        {
+            " remember ", " note ", " store ", " save ", " recall ", " what did i tell ",
+            " search memory ", " update memory ", " replace memory ", " forget ", " delete memory "
+        };
+        return terms.Any(term => normalized.Contains(term, StringComparison.Ordinal));
+    }
+
     private static string Normalize(string value)
         => " " + (value ?? string.Empty).Trim().ToLowerInvariant() + " ";
 }

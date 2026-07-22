@@ -2,331 +2,347 @@ using ArmaAiBridge.App.Models;
 
 namespace ArmaAiBridge.App.Services;
 
+// Compatibility facade retained for callers compiled against the release 0.8 name.
+// The only model-facing state produced here is tactical-snapshot-v2.
 public sealed class OperationalSnapshotBuilder
 {
-    public const string Schema = "arma-ai-bridge/operational-snapshot-v1";
-    private readonly IStateRepository _repository;
-    private readonly EnvironmentInterpretationService _environment = new();
-    private readonly LoadoutSummaryService _loadout = new();
-    private readonly ForceSummaryService _force = new();
-    private readonly ContactSummaryService _contacts = new();
-    public OperationalSnapshotBuilder(IStateRepository repository)
-        => _repository = repository ?? throw new ArgumentNullException(nameof(repository));
+    public const string Schema = TacticalSnapshotBuilder.Schema;
+    private readonly TacticalSnapshotBuilder _inner;
+
+    public OperationalSnapshotBuilder(IStateRepository repository, TimeProvider? timeProvider = null)
+        => _inner = new TacticalSnapshotBuilder(repository, repository as IMissionMemoryRepository, timeProvider);
 
     public Dictionary<string, object?> Build(WorldStateView view, MapGazetteerSnapshot gazetteer)
+        => _inner.Build(string.Empty);
+
+    public Dictionary<string, object?> Build(string question) => _inner.Build(question);
+}
+
+public sealed class TacticalSnapshotBuilder
+{
+    public const string Schema = "arma-ai-bridge/tactical-snapshot-v2";
+    public const int MaximumPayloadBytes = 256 * 1024;
+    private readonly IStateRepository _state;
+    private readonly IMissionMemoryRepository? _memory;
+    private readonly TimeProvider _timeProvider;
+    private readonly EnvironmentInterpretationService _environment = new();
+    private string _focusMission = string.Empty;
+    private string _lastQuestion = string.Empty;
+    private string _friendlyFocus = string.Empty;
+    private string _hostileFocus = string.Empty;
+
+    public TacticalSnapshotBuilder(IStateRepository state, IMissionMemoryRepository? memory = null,
+        TimeProvider? timeProvider = null)
     {
-        StatePlayer? player = _repository.GetPlayer();
-        if (player is null) throw new InvalidOperationException("The canonical player state is unavailable.");
-        StateRepositoryDiagnostics diagnostics = _repository.GetDiagnostics();
+        _state = state ?? throw new ArgumentNullException(nameof(state));
+        _memory = memory;
+        _timeProvider = timeProvider ?? TimeProvider.System;
+    }
+
+    public Dictionary<string, object?> Build(string question)
+    {
+        StatePlayer player = _state.GetPlayer() ?? throw new InvalidOperationException("The canonical player state is unavailable.");
+        object dialogueFocus = UpdateDialogueFocus(question, player);
+        (object friendlyForces, int groups, int units) = BuildFriendlies(player);
+        (object enemyContacts, int contacts) = BuildContacts(player);
+        object[] markers = BuildMarkers(player);
+        object[] memories = BuildMemory(question);
+        object[] lore = BuildLore(question);
         return new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["schema"] = Schema,
-            ["world"] = new { name = diagnostics.WorldName, sizeMeters = view.Map?.SizeMeters ?? 0 },
             ["player"] = Player(player),
-            ["namedLocations"] = NamedLocations(player.PositionAtl, gazetteer),
             ["environment"] = Environment(),
             ["time"] = Time(),
-            ["loadout"] = Loadout(),
-            ["friendlyForces"] = FriendlyForces(player.PositionAtl),
-            ["knownContacts"] = KnownContacts(),
-            ["tasks"] = Tasks(player.PositionAtl),
-            ["markers"] = Markers(player.PositionAtl),
-            ["capabilities"] = Capabilities(gazetteer)
+            ["friendlyForces"] = friendlyForces,
+            ["enemyContacts"] = enemyContacts,
+            ["markers"] = new { count = markers.Length, records = markers },
+            ["retrievedMemory"] = new { count = memories.Length, records = memories, dialogueFocus },
+            ["lore"] = new { count = lore.Length, sections = lore, untrustedContext = true },
+            ["modelPayloadTruncated"] = false,
+            ["includedCounts"] = new
+            {
+                friendlyGroups = new { original = groups, included = groups },
+                friendlyUnits = new { original = units, included = units },
+                enemyContacts = new { original = contacts, included = contacts },
+                markers = new { original = markers.Length, included = markers.Length },
+                memoryEntries = new { original = memories.Length, included = memories.Length },
+                loreSections = new { original = lore.Length, included = lore.Length }
+            }
         };
     }
 
-    private static object Capabilities(MapGazetteerSnapshot gazetteer)
-        => new
+    private object UpdateDialogueFocus(string question, StatePlayer player)
+    {
+        string mission = _memory?.ActiveMissionKey ?? string.Empty;
+        if (!string.Equals(mission, _focusMission, StringComparison.Ordinal))
         {
-            terrainObjectQuery = false,
-            officialNamedLocations = gazetteer.Readiness is MapGazetteerReadiness.Ready or MapGazetteerReadiness.Empty,
-            friendlyForcePicture = true,
-            supportExecution = false
+            _focusMission = mission; _lastQuestion = _friendlyFocus = _hostileFocus = string.Empty;
+        }
+        string normalized = (question ?? string.Empty).Trim();
+        string resolved = normalized;
+        int correction = normalized.IndexOf(", not ", StringComparison.OrdinalIgnoreCase);
+        if (correction > 0 && _lastQuestion.Length > 0)
+        {
+            string replacement = normalized[..correction].Trim();
+            string rejected = normalized[(correction + 6)..].Trim().TrimEnd('.', '!', '?');
+            resolved = _lastQuestion.Replace(rejected, replacement, StringComparison.OrdinalIgnoreCase);
+        }
+
+        StateFriendlyGroup[] groups = _state.GetFriendlyGroups(128, true).ToArray();
+        StateFriendlyGroup? named = groups.FirstOrDefault(x => x.Callsign.Length > 0 && normalized.Contains(x.Callsign, StringComparison.OrdinalIgnoreCase));
+        if (named is not null) _friendlyFocus = named.Callsign;
+        else if (ContainsAny(normalized, "friendlies nearby", "friendly nearby", "nearest friendly", "nearby friendlies"))
+        {
+            StateFriendlyGroup? nearest = groups.Where(x => !string.Equals(x.Callsign, player.GroupCallsign, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(x => Distance(player.PositionAtl, x.LeaderPosition)).ThenBy(x => x.Callsign, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
+            if (nearest is not null) _friendlyFocus = nearest.Callsign;
+        }
+        if (ContainsAny(resolved, "hostile", "enemy", "contact"))
+            _hostileFocus = _memory?.GetContactTracks(256).FirstOrDefault()?.TrackId ?? _hostileFocus;
+        _lastQuestion = resolved;
+        return new
+        {
+            resolvedQuestion = resolved == normalized ? null : resolved,
+            friendlyGroupCallsign = _friendlyFocus.Length == 0 ? null : _friendlyFocus,
+            hostileContactReference = _hostileFocus.Length == 0 ? null : _hostileFocus
         };
+    }
+
+    private static bool ContainsAny(string value, params string[] terms)
+        => terms.Any(term => value.Contains(term, StringComparison.OrdinalIgnoreCase));
 
     private static object Player(StatePlayer player)
     {
-        Dictionary<string, object?> value = new(StringComparer.Ordinal)
-        {
-            ["side"] = player.Side,
-            ["position"] = player.PositionAtl,
-            ["grid"] = player.Grid,
-            ["elevationAslMeters"] = Math.Round(player.PositionAsl.Z, 1)
-        };
-        if (!string.IsNullOrWhiteSpace(player.GroupCallsign)) value["groupCallsign"] = player.GroupCallsign;
-        AddSemanticState(value, player.Metadata);
-        return value;
-    }
-
-    private static object NamedLocations(WorldPosition player, MapGazetteerSnapshot gazetteer)
-    {
-        if (gazetteer.Readiness is not (MapGazetteerReadiness.Ready or MapGazetteerReadiness.Empty))
-            return new { unavailable = true };
-        object[] records = gazetteer.Locations
-            .Select(location => new
-            {
-                location,
-                distance = Distance(player, new WorldPosition(location.X, location.Y, 0))
-            })
-            .OrderBy(item => item.distance)
-            .ThenBy(item => item.location.Name, StringComparer.OrdinalIgnoreCase)
-            .Take(5)
-            .Select(item => (object)new
-            {
-                name = item.location.Name,
-                type = item.location.Type,
-                position = new WorldPosition(item.location.X, item.location.Y, 0),
-                distanceMeters = Math.Round(item.distance)
-            })
-            .ToArray();
-        return records.Length == 0 ? new { count = 0 } : new { count = records.Length, records };
+        Dictionary<string, object?> result = new(StringComparer.Ordinal) { ["side"] = player.Side };
+        if (!string.IsNullOrWhiteSpace(player.GroupCallsign)) result["groupCallsign"] = player.GroupCallsign.Trim();
+        return result;
     }
 
     private object Environment()
     {
-        StateEnvironment? state = _repository.GetEnvironment();
+        StateEnvironment? state = _state.GetEnvironment();
         if (state is null) return new { unavailable = true };
-        EnvironmentInterpretation interpretation = _environment.Interpret(state, _repository.GetTimeAstronomy());
-        Dictionary<string, object?> value = new(StringComparer.Ordinal)
+        EnvironmentInterpretation value = _environment.Interpret(state, _state.GetTimeAstronomy());
+        return new
         {
-            ["overcast"] = state.Overcast,
-            ["rain"] = state.Rain,
-            ["rainDescription"] = interpretation.RainClassification,
-            ["fog"] = state.Fog,
-            ["fogDescription"] = interpretation.FogClassification,
-            ["wind"] = new
+            overcast = Round(state.Overcast, 2),
+            rain = Round(state.Rain, 2),
+            rainDescription = value.RainClassification,
+            fog = Round(state.Fog, 2),
+            fogDescription = value.FogClassification,
+            wind = new
             {
-                speedMetersPerSecond = interpretation.WindSpeedMetersPerSecond,
-                fromBearingDegrees = interpretation.WindBearingDegrees,
-                fromDirection = interpretation.WindCardinalDirection
+                speedMetersPerSecond = Round(value.WindSpeedMetersPerSecond, 1),
+                fromBearingDegrees = value.WindBearingDegrees,
+                fromDirection = value.WindCardinalDirection
             },
-            ["lightning"] = state.Lightning
+            temperatureCelsius = state.TemperatureCelsius is null ? (double?)null : Round(state.TemperatureCelsius.Value, 1)
         };
-        if (state.TemperatureCelsius.HasValue) value["temperatureCelsius"] = state.TemperatureCelsius.Value;
-        AddSemanticState(value, state.Metadata);
-        return value;
     }
 
     private object Time()
     {
-        StateTimeAstronomy? state = _repository.GetTimeAstronomy();
+        StateTimeAstronomy? state = _state.GetTimeAstronomy();
         if (state is null) return new { unavailable = true };
-        Dictionary<string, object?> value = new(StringComparer.Ordinal)
+        string daylight = state.SunOrMoon < .2 ? "dark" : state.Daytime switch
         {
-            ["missionDate"] = state.MissionDate,
-            ["daytime"] = state.Daytime,
-            ["daylight"] = state.SunOrMoon < 0.2 ? "dark" : state.Daytime switch
+            < 6 => "dawn", < 18 => "daylight", < 20 => "dusk", _ => "dark"
+        };
+        return new { missionDate = state.MissionDate, daytime = Round(state.Daytime, 2), daylight };
+    }
+
+    private (object Snapshot, int Groups, int Units) BuildFriendlies(StatePlayer player)
+    {
+        StateFriendlyGroup[] groups = _state.GetFriendlyGroups(128, includeStale: true).Take(128).ToArray();
+        StateFriendlyUnit[] units = _state.GetFriendlyUnits(512, includeStale: true).Take(512).ToArray();
+        Dictionary<string, StateFriendlyUnit[]> byGroup = units.GroupBy(x => x.GroupAlias)
+            .ToDictionary(x => x.Key, x => x.ToArray(), StringComparer.Ordinal);
+        object[] records = groups.Select(group =>
+        {
+            StateFriendlyUnit[] members = byGroup.GetValueOrDefault(group.Alias) ?? Array.Empty<StateFriendlyUnit>();
+            double distance = Distance(player.PositionAtl, group.LeaderPosition);
+            return (object)new
             {
-                < 6 => "dawn", < 18 => "daylight", < 20 => "dusk", _ => "dark"
+                callsign = string.IsNullOrWhiteSpace(group.Callsign) ? null : group.Callsign,
+                memberCount = group.MemberAliases.Count,
+                elementType = ElementType(members),
+                compositionSummary = Composition(members),
+                approximatePosition = new { x = RoundTo(group.LeaderPosition.X, 10), y = RoundTo(group.LeaderPosition.Y, 10), precisionMeters = 10 },
+                bearingFromPlayerDegrees = Bearing(player.PositionAtl, group.LeaderPosition),
+                rangeFromPlayerMeters = RoundTo(distance, 10),
+                stale = group.Metadata.IsStale
+            };
+        }).ToArray();
+        int wounded = units.Count(x => x.Alive && x.Damage > 0);
+        int incapacitated = units.Count(x => x.Alive && x.LifeState.Contains("INCAPACITATED", StringComparison.OrdinalIgnoreCase));
+        int dead = units.Count(x => !x.Alive);
+        return (new
+        {
+            summary = new { groupCount = groups.Length, unitCount = units.Length, woundedCount = wounded, incapacitatedCount = incapacitated, deadCount = dead },
+            groups = records
+        }, groups.Length, units.Length);
+    }
+
+    private (object Snapshot, int Contacts) BuildContacts(StatePlayer player)
+    {
+        MissionContactTrack[] tracks = (_memory?.GetContactTracks(256) ?? Array.Empty<MissionContactTrack>()).Take(256).ToArray();
+        DateTimeOffset now = _timeProvider.GetUtcNow();
+        object[] records = tracks.Select(track =>
+        {
+            MissionContactObservation[] observations = (_memory?.GetContactObservations(track.TrackId, 8) ?? Array.Empty<MissionContactObservation>()).ToArray();
+            MovementEstimate movement = Movement(observations);
+            return (object)new
+            {
+                contactTrackReference = track.TrackId,
+                contactType = track.ContactType,
+                perceivedSide = track.PerceivedSide,
+                description = track.Description,
+                status = track.Status,
+                estimatedPosition = new { x = track.EstimatedPosition.X, y = track.EstimatedPosition.Y, z = track.EstimatedPosition.Z },
+                positionUncertaintyMeters = track.UncertaintyRadiusMeters,
+                rangeFromPlayerMeters = RoundTo(Distance(player.PositionAtl, track.EstimatedPosition), 50),
+                bearingFromPlayerDegrees = Bearing(player.PositionAtl, track.EstimatedPosition),
+                direction = Cardinal(Bearing(player.PositionAtl, track.EstimatedPosition)),
+                lastSeenSecondsAgo = Math.Max(0, Math.Round((now - track.LastObservedAtUtc).TotalSeconds)),
+                lastThreatSecondsAgo = Math.Max(0, Math.Round((now - track.LastThreatAtUtc).TotalSeconds)),
+                stale = track.Status != "current",
+                movementTrend = movement.Trend,
+                estimatedRelativeSpeedMetersPerSecond = movement.RelativeSpeedMetersPerSecond,
+                movementConfidence = movement.Confidence,
+                corroborated = track.Corroborated,
+                observationCount = track.ObservationCount
+            };
+        }).ToArray();
+        object[] groups = GroupContacts(tracks, player.PositionAtl);
+        return (new
+        {
+            summary = new
+            {
+                currentEnemyContactCount = tracks.Count(x => x.Status == "current"),
+                lastKnownEnemyContactCount = tracks.Count(x => x.Status == "last-known"),
+                confirmedDeadEnemyContactCount = tracks.Count(x => x.Status == "dead"),
+                byPerceivedSide = tracks.GroupBy(x => x.PerceivedSide).ToDictionary(x => x.Key, x => x.Count(), StringComparer.Ordinal),
+                byContactType = tracks.GroupBy(x => x.ContactType).ToDictionary(x => x.Key, x => x.Count(), StringComparer.Ordinal)
             },
-            ["timeMultiplier"] = state.TimeMultiplier,
-            ["moonPhase"] = state.MoonPhase
-        };
-        AddSemanticState(value, state.Metadata);
-        return value;
+            groups,
+            records
+        }, tracks.Length);
     }
 
-    private object Loadout()
+    private object[] BuildMarkers(StatePlayer player) => _state.GetMarkers(256, includeStale: true).Take(256).Select(marker => (object)new
     {
-        StateLoadout? state = _repository.GetLoadout();
-        if (state is null) return new { unavailable = true };
-        LoadoutSummary summary = _loadout.Summarize(state);
-        Dictionary<string, object?> value = new(StringComparer.Ordinal)
+        text = string.IsNullOrWhiteSpace(marker.Text) ? null : Truncate(marker.Text, 160),
+        type = marker.Type,
+        color = marker.Color,
+        shape = marker.Shape,
+        direction = marker.Direction,
+        approximatePosition = new { x = RoundTo(marker.Position.X, 10), y = RoundTo(marker.Position.Y, 10), precisionMeters = 10 },
+        rangeMeters = RoundTo(Distance(player.PositionAtl, marker.Position), 50),
+        bearingDegrees = Bearing(player.PositionAtl, marker.Position),
+        stale = marker.Metadata.IsStale
+    }).ToArray();
+
+    private object[] BuildMemory(string question) => (_memory?.SearchMemory(question, 12, 6000) ?? Array.Empty<MissionMemoryEntry>())
+        .Select(entry => (object)new
         {
-            ["loadedRounds"] = summary.LoadedRounds,
-            ["reserveMagazines"] = summary.ReserveMagazines,
-            ["reserveRounds"] = summary.ReserveRounds,
-            ["grenades"] = summary.Grenades,
-            ["throwables"] = summary.Throwables,
-            ["mines"] = summary.Mines,
-            ["explosives"] = summary.Explosives
-        };
-        AddText(value, "currentWeapon", summary.CurrentWeapon);
-        AddText(value, "currentWeaponDisplayName", summary.CurrentWeaponDisplayName);
-        string[] attachments = summary.OpticsAndAttachments.Where(item => !string.IsNullOrWhiteSpace(item)).Take(8).ToArray();
-        if (attachments.Length > 0) value["attachments"] = attachments;
-        object[] magazines = state.MagazineTotals
-            .OrderByDescending(item => string.Equals(item.Class, state.CurrentMagazine, StringComparison.Ordinal))
-            .ThenByDescending(item => item.Rounds)
-            .ThenBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .Take(8)
-            .Select(item => (object)new
-            {
-                name = string.IsNullOrWhiteSpace(item.DisplayName) ? item.Class : item.DisplayName,
-                item.MagazineCount,
-                item.Rounds
-            })
-            .ToArray();
-        if (magazines.Length > 0) value["magazineSummary"] = magazines;
-        AddSemanticState(value, state.Metadata);
-        return value;
-    }
+            id = entry.Id,
+            text = entry.Text,
+            provenance = entry.Provenance,
+            updatedAtUtc = entry.UpdatedAtUtc,
+            tags = entry.Tags,
+            approximatePosition = entry.Position is null ? null : new { x = RoundTo(entry.Position.X, 10), y = RoundTo(entry.Position.Y, 10) }
+        }).ToArray();
 
-    private object FriendlyForces(WorldPosition player)
+    private object[] BuildLore(string question)
     {
-        IReadOnlyList<StateFriendlyGroup> groups = _repository.GetFriendlyGroups(100, includeStale: true);
-        IReadOnlyList<StateFriendlyUnit> units = _repository.GetFriendlyUnits(100, includeStale: true);
-        ForceSummary summary = _force.Summarize(groups, units);
-        Dictionary<string, object?> value = new(StringComparer.Ordinal)
+        HashSet<string> terms = Terms(question);
+        int characters = 0;
+        List<object> result = new();
+        foreach (LoreSection section in (_memory?.GetLoreSections() ?? Array.Empty<LoreSection>()).Where(x => x.Enabled))
         {
-            ["summary"] = new
-            {
-                summary.GroupCount,
-                summary.UnitCount,
-                summary.WoundedCount,
-                summary.IncapacitatedCount,
-                summary.DeadCount
-            }
-        };
-        object[] records = groups
-            .OrderBy(item => Distance(player, item.LeaderPosition))
-            .ThenBy(item => item.Callsign, StringComparer.OrdinalIgnoreCase)
-            .Take(8)
-            .Select(item => (object)Group(item))
-            .ToArray();
-        if (records.Length > 0) value["groups"] = records;
-        if (summary.IsStale) { value["stale"] = true; value["lastKnown"] = true; }
-        return value;
-    }
-
-    private static object Group(StateFriendlyGroup group)
-    {
-        Dictionary<string, object?> value = new(StringComparer.Ordinal)
-        {
-            ["memberCount"] = group.MemberAliases.Count,
-            ["leaderPosition"] = group.LeaderPosition
-        };
-        AddText(value, "callsign", group.Callsign);
-        AddText(value, "behaviour", group.Behaviour);
-        AddText(value, "combatMode", group.CombatMode);
-        AddText(value, "formation", group.Formation);
-        if (group.Waypoint is not null)
-            value["waypoint"] = new { group.Waypoint.Position, group.Waypoint.Type };
-        AddSemanticState(value, group.Metadata);
-        return value;
-    }
-
-    private object KnownContacts()
-    {
-        StateKnownContact[] contacts = _repository.GetKnownContacts(100, includeStale: true)
-            .Where(ContactEligibilityPolicy.IsEligible).ToArray();
-        ContactSummary summary = _contacts.Summarize(contacts);
-        Dictionary<string, object?> value = new(StringComparer.Ordinal)
-        {
-            ["summary"] = new
-            {
-                summary.KnownContactCount,
-                summary.StaleContactCount,
-                summary.ByRelationship,
-                summary.ByContactType
-            }
-        };
-        object[] records = contacts
-            .OrderBy(item => item.Metadata.IsStale)
-            .ThenBy(item => item.LastSeenAgeSeconds < 0 ? double.MaxValue : item.LastSeenAgeSeconds)
-            .ThenBy(item => item.PositionErrorMeters)
-            .Take(8)
-            .Select(item => (object)Contact(item))
-            .ToArray();
-        if (records.Length > 0) value["contacts"] = records;
-        return value;
-    }
-
-    private static object Contact(StateKnownContact contact)
-    {
-        Dictionary<string, object?> value = new(StringComparer.Ordinal)
-        {
-            ["estimatedPosition"] = contact.EstimatedPosition,
-            ["positionErrorMeters"] = contact.PositionErrorMeters,
-            ["approximate"] = contact.PositionErrorMeters > 0
-        };
-        AddText(value, "description", ContactEligibilityPolicy.Description(contact));
-        AddText(value, "type", contact.ContactType);
-        AddText(value, "perceivedSide", contact.PerceivedSide);
-        AddText(value, "relationship", contact.Relationship);
-        if (contact.LastSeenAgeSeconds >= 0) value["lastSeenSecondsAgo"] = contact.LastSeenAgeSeconds;
-        AddSemanticState(value, contact.Metadata);
-        return value;
-    }
-
-    private object Tasks(WorldPosition player)
-    {
-        IReadOnlyList<StateTask> tasks = _repository.GetTasks(100, includeStale: true);
-        StateTask? active = tasks.FirstOrDefault(item => item.Active);
-        StateTask[] additional = tasks.Where(item => !ReferenceEquals(item, active))
-            .OrderByDescending(item => item.Active)
-            .ThenBy(item => item.Destination is null ? double.MaxValue : Distance(player, item.Destination))
-            .ThenBy(item => item.Title, StringComparer.OrdinalIgnoreCase)
-            .Take(2)
-            .ToArray();
-        Dictionary<string, object?> value = new(StringComparer.Ordinal) { ["count"] = tasks.Count };
-        if (active is not null) value["active"] = Task(active);
-        if (additional.Length > 0) value["additional"] = additional.Select(Task).ToArray();
-        return value;
-    }
-
-    private static object Task(StateTask task)
-    {
-        Dictionary<string, object?> value = new(StringComparer.Ordinal) { ["active"] = task.Active };
-        AddText(value, "title", Truncate(task.Title, 160));
-        AddText(value, "description", Truncate(task.Description, 256));
-        AddText(value, "type", task.Type);
-        AddText(value, "status", task.Status);
-        if (task.Destination is not null) value["destination"] = task.Destination;
-        AddSemanticState(value, task.Metadata);
-        return value;
-    }
-
-    private object Markers(WorldPosition player)
-    {
-        IReadOnlyList<StateMarker> markers = _repository.GetMarkers(100, includeStale: true);
-        object[] records = markers
-            .OrderByDescending(item => !string.IsNullOrWhiteSpace(item.Text))
-            .ThenBy(item => Distance(player, item.Position))
-            .ThenBy(item => item.Text, StringComparer.OrdinalIgnoreCase)
-            .Take(5)
-            .Select(item => (object)Marker(item))
-            .ToArray();
-        return records.Length == 0
-            ? new { count = 0 }
-            : new { count = markers.Count, records };
-    }
-
-    private static object Marker(StateMarker marker)
-    {
-        Dictionary<string, object?> value = new(StringComparer.Ordinal)
-        {
-            ["position"] = marker.Position,
-            ["direction"] = marker.Direction
-        };
-        AddText(value, "text", Truncate(marker.Text, 160));
-        AddText(value, "type", marker.Type);
-        AddText(value, "color", marker.Color);
-        AddText(value, "shape", marker.Shape);
-        AddSemanticState(value, marker.Metadata);
-        return value;
-    }
-
-    private static void AddSemanticState(IDictionary<string, object?> target, StateSectionMetadata metadata)
-    {
-        if (metadata.IsStale || metadata.Readiness == StateSectionReadiness.Stale)
-        {
-            target["stale"] = true;
-            target["lastKnown"] = true;
+            bool relevant = section.AlwaysInclude || terms.Count == 0 || Terms(section.Content).Overlaps(terms);
+            if (!relevant || characters + section.Content.Length > 8000) continue;
+            result.Add(new { scope = section.Scope, content = section.Content, untrustedContext = true });
+            characters += section.Content.Length;
         }
-        else if (metadata.Readiness is StateSectionReadiness.Unavailable or StateSectionReadiness.Failed)
-        {
-            target["unavailable"] = true;
-        }
+        return result.ToArray();
     }
 
-    private static void AddText(IDictionary<string, object?> target, string key, string? value)
+    private object[] GroupContacts(MissionContactTrack[] contacts, WorldPosition player)
     {
-        if (!string.IsNullOrWhiteSpace(value)) target[key] = value.Trim();
+        List<List<MissionContactTrack>> groups = new();
+        foreach (MissionContactTrack contact in contacts.Where(x => x.Status != "dead").OrderBy(x => x.TrackId, StringComparer.Ordinal))
+        {
+            List<MissionContactTrack>? group = groups.FirstOrDefault(g => g.All(x =>
+                string.Equals(x.ContactType, contact.ContactType, StringComparison.OrdinalIgnoreCase) &&
+                Math.Abs((x.LastObservedAtUtc - contact.LastObservedAtUtc).TotalSeconds) <= 120 &&
+                Distance(x.EstimatedPosition, contact.EstimatedPosition) <= 40));
+            if (group is null) groups.Add(group = new List<MissionContactTrack>());
+            group.Add(contact);
+        }
+        return groups.Where(g => g.Count > 1).Select((group, index) =>
+        {
+            WorldPosition center = new(group.Average(x => x.EstimatedPosition.X), group.Average(x => x.EstimatedPosition.Y), 0);
+            return (object)new
+            {
+                groupReference = $"hostile-group-{index + 1}", memberCount = group.Count,
+                description = $"hostile {GroupNoun(group[0].ContactType)} group",
+                grid = Grid(center),
+                estimatedCentroid = new { x = RoundTo(center.X, 10), y = RoundTo(center.Y, 10) },
+                positionUncertaintyMeters = Math.Ceiling(group.Max(x => x.UncertaintyRadiusMeters) / 10) * 10,
+                rangeFromPlayerMeters = RoundTo(Distance(player, center), 50), bearingFromPlayerDegrees = Bearing(player, center), direction = Cardinal(Bearing(player, center)),
+                status = group.Any(x => x.Status == "current") ? "current" : "last-known",
+                lastSeenSecondsAgo = Math.Max(0, Math.Round((_timeProvider.GetUtcNow() - group.Max(x => x.LastObservedAtUtc)).TotalSeconds))
+            };
+        }).ToArray();
     }
 
-    private static double Distance(WorldPosition from, WorldPosition? to)
-        => to is null ? double.PositiveInfinity : Math.Sqrt(Math.Pow(to.X - from.X, 2) + Math.Pow(to.Y - from.Y, 2));
+    private static MovementEstimate Movement(IReadOnlyList<MissionContactObservation> observations)
+    {
+        if (observations.Count < 2) return new("movement unknown", null, "low");
+        MissionContactObservation newest = observations[0], oldest = observations[^1];
+        double seconds = (newest.ObservedAtUtc - oldest.ObservedAtUtc).TotalSeconds;
+        if (seconds < 1) return new("movement unknown", null, "low");
+        double displacement = Distance(newest.EstimatedPosition, oldest.EstimatedPosition);
+        if (displacement < Math.Max(10, newest.UncertaintyRadiusMeters + oldest.UncertaintyRadiusMeters))
+            return new("stationary", 0, "medium");
+        if (newest.PlayerPosition is null || oldest.PlayerPosition is null) return new("movement unknown", null, "low");
+        double oldRange = Distance(oldest.PlayerPosition, oldest.EstimatedPosition);
+        double newRange = Distance(newest.PlayerPosition, newest.EstimatedPosition);
+        double relativeSpeed = Math.Round(Math.Abs(newRange - oldRange) / seconds, 1);
+        if (newRange < oldRange - 15) return new("closing", relativeSpeed, "medium");
+        if (newRange > oldRange + 15) return new("moving away", relativeSpeed, "medium");
+        double oldBearing = Bearing(oldest.PlayerPosition, oldest.EstimatedPosition);
+        double newBearing = Bearing(newest.PlayerPosition, newest.EstimatedPosition);
+        double delta = ((newBearing - oldBearing + 540) % 360) - 180;
+        return new(delta < 0 ? "crossing left" : "crossing right", relativeSpeed, "medium");
+    }
 
-    private static string Truncate(string value, int maximum) => value.Length <= maximum ? value : value[..maximum];
+    private static string ElementType(IReadOnlyList<StateFriendlyUnit> members)
+    {
+        if (members.Count == 0) return "unknown";
+        if (members.Any(x => x.VehicleRole.Length > 0)) return "vehicle-element";
+        if (members.Any(x => x.DisplayRole.Contains("medic", StringComparison.OrdinalIgnoreCase))) return "medical team";
+        return members.Count switch { <= 2 => "infantry pair", <= 6 => "infantry fireteam", <= 12 => "infantry squad", _ => "support element" };
+    }
+
+    private static string Composition(IReadOnlyList<StateFriendlyUnit> members)
+        => $"{NumberWord(members.Count(x => x.Alive))} {ElementType(members)}";
+
+    private static string GroupNoun(string type) => type.ToLowerInvariant() switch
+    { "person" or "man" => "infantry", "air" or "aircraft" => "aircraft", "ship" or "naval" => "naval", _ => "vehicle" };
+    private static string NumberWord(int value) => value switch
+    { 0 => "no", 1 => "one", 2 => "two", 3 => "three", 4 => "four", 5 => "five", 6 => "six", 7 => "seven", 8 => "eight", 9 => "nine", 10 => "ten", 11 => "eleven", 12 => "twelve", _ => value.ToString(System.Globalization.CultureInfo.InvariantCulture) };
+    private static string Grid(WorldPosition value) => $"{Math.Clamp((int)Math.Floor(value.X / 100), 0, 999):000}{Math.Clamp((int)Math.Floor(value.Y / 100), 0, 999):000}";
+
+    private static HashSet<string> Terms(string text) => text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+        .Select(x => new string(x.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant()).Where(x => x.Length > 2).ToHashSet(StringComparer.Ordinal);
+    private static double Distance(WorldPosition a, WorldPosition b) => Math.Sqrt(Math.Pow(b.X - a.X, 2) + Math.Pow(b.Y - a.Y, 2));
+    private static int Bearing(WorldPosition from, WorldPosition to) => (int)Math.Round((Math.Atan2(to.X - from.X, to.Y - from.Y) * 180 / Math.PI + 360) % 360) % 360;
+    private static string Cardinal(int bearing) => new[] { "north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest" }[(int)Math.Round(bearing / 45d) % 8];
+    private static double Round(double value, int digits) => Math.Round(value, digits);
+    private static double RoundTo(double value, double increment) => Math.Round(value / increment) * increment;
+    private static string Truncate(string value, int max) => value.Length <= max ? value : value[..max];
+    private sealed record MovementEstimate(string Trend, double? RelativeSpeedMetersPerSecond, string Confidence);
 }

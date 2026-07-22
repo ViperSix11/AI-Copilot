@@ -193,7 +193,7 @@ public sealed class Milestone5UnifiedStateMirrorTests
 
         using SqliteStateRepository repository = new(database.Path, new ManualTimeProvider(Start));
         Assert.Equal(StateRepositoryReadiness.Ready, repository.GetDiagnostics().Readiness);
-        Assert.Equal(3, repository.GetDiagnostics().SchemaVersion);
+        Assert.Equal(4, repository.GetDiagnostics().SchemaVersion);
     }
 
     [Fact]
@@ -217,7 +217,7 @@ public sealed class Milestone5UnifiedStateMirrorTests
         }
 
         using (SqliteStateRepository repository = new(database.Path, new ManualTimeProvider(Start)))
-            Assert.Equal(3, repository.GetDiagnostics().SchemaVersion);
+            Assert.Equal(4, repository.GetDiagnostics().SchemaVersion);
 
         using SqliteConnection verify = new($"Data Source={database.Path};Pooling=False");
         verify.Open();
@@ -274,17 +274,17 @@ public sealed class Milestone5UnifiedStateMirrorTests
         Assert.Equal(OperationalSnapshotBuilder.Schema, root.GetProperty("schema").GetString());
         foreach (string domain in new[]
         {
-            "world", "player", "namedLocations", "environment", "time", "loadout",
-            "friendlyForces", "knownContacts", "tasks", "markers", "capabilities"
+            "player", "environment", "time", "friendlyForces", "enemyContacts", "markers", "retrievedMemory", "lore"
         })
             Assert.True(root.TryGetProperty(domain, out _), domain);
         Assert.Equal("Alpha 1-1", root.GetProperty("player").GetProperty("groupCallsign").GetString());
-        Assert.False(root.GetProperty("capabilities").TryGetProperty("ballistics", out _));
+        foreach (string removed in new[] { "world", "namedLocations", "loadout", "tasks", "capabilities", "knownContacts" })
+            Assert.False(root.TryGetProperty(removed, out _), removed);
         Assert.DoesNotContain("sourceId", json, StringComparison.Ordinal);
         Assert.DoesNotContain("Alias", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("readiness", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("ageSeconds", json, StringComparison.OrdinalIgnoreCase);
-        Assert.True(Encoding.UTF8.GetByteCount(json) <= 8000, $"Operational context bytes: {Encoding.UTF8.GetByteCount(json)}");
+        Assert.True(Encoding.UTF8.GetByteCount(json) <= TacticalSnapshotBuilder.MaximumPayloadBytes, $"Tactical context bytes: {Encoding.UTF8.GetByteCount(json)}");
     }
 
     [Fact]
@@ -311,15 +311,16 @@ public sealed class Milestone5UnifiedStateMirrorTests
         JsonElement root = document.RootElement;
         Assert.Equal(0, root.GetProperty("environment").GetProperty("rain").GetDouble());
         Assert.Equal(0, root.GetProperty("environment").GetProperty("fog").GetDouble());
-        Assert.Equal(0, root.GetProperty("loadout").GetProperty("mines").GetInt32());
-        Assert.Equal(8, root.GetProperty("friendlyForces").GetProperty("groups").GetArrayLength());
-        Assert.Equal(8, root.GetProperty("knownContacts").GetProperty("contacts").GetArrayLength());
-        Assert.Equal(5, root.GetProperty("markers").GetProperty("records").GetArrayLength());
+        Assert.False(root.TryGetProperty("loadout", out _));
+        Assert.Equal(12, root.GetProperty("friendlyForces").GetProperty("groups").GetArrayLength());
+        Assert.Equal(12, root.GetProperty("enemyContacts").GetProperty("records").GetArrayLength());
+        Assert.Equal(12, root.GetProperty("markers").GetProperty("records").GetArrayLength());
     }
 
     [Fact]
-    public void NonOperationalQuestion_HasNoOperationalSnapshot()
-        => Assert.Equal(string.Empty, CanonicalSnapshot("How do I bake a loaf of bread?"));
+    public void NonOperationalQuestion_StillReceivesBoundedMemoryAndLoreSnapshot()
+        => Assert.Equal(OperationalSnapshotBuilder.Schema,
+            JsonDocument.Parse(CanonicalSnapshot("How do I bake a loaf of bread?")).RootElement.GetProperty("schema").GetString());
 
     [Fact]
     public void EmptyArmaCallsign_IsOmittedFromCompactPlayerContext()
@@ -336,7 +337,8 @@ public sealed class Milestone5UnifiedStateMirrorTests
         using JsonDocument document = JsonDocument.Parse(CanonicalSnapshot(string.Empty));
         Assert.Equal(OperationalSnapshotBuilder.Schema, document.RootElement.GetProperty("schema").GetString());
         Assert.True(document.RootElement.TryGetProperty("player", out _));
-        Assert.True(document.RootElement.TryGetProperty("capabilities", out _));
+        Assert.True(document.RootElement.TryGetProperty("retrievedMemory", out _));
+        Assert.False(document.RootElement.TryGetProperty("capabilities", out _));
         Assert.False(document.RootElement.TryGetProperty("stateMirror", out _));
         Assert.False(document.RootElement.TryGetProperty("reconciliation", out _));
     }

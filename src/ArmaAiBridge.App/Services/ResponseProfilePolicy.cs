@@ -14,6 +14,8 @@ public static class ResponseProfilePolicy
     { "very-short", "short", "normal" };
     private static readonly HashSet<string> Terminators = new(StringComparer.Ordinal)
     { "none", "over", "out", "custom" };
+    private static readonly HashSet<string> BanterLevels = new(StringComparer.Ordinal)
+    { "off", "dry", "feisty" };
 
     public static ResponseProfileSettings Defaults() => new();
 
@@ -27,7 +29,8 @@ public static class ResponseProfilePolicy
             Length = NormalizeEnum(value.Length, Lengths, "short"),
             Terminator = NormalizeEnum(value.Terminator, Terminators, "none"),
             CustomTerminator = NormalizeText(value.CustomTerminator, 32),
-            CustomStyle = NormalizeText(value.CustomStyle, 2000)
+            CustomStyle = NormalizeText(value.CustomStyle, 2000),
+            Banter = NormalizeEnum(value.Banter, BanterLevels, "dry")
         };
     }
 
@@ -54,13 +57,20 @@ public static class ResponseProfilePolicy
             "normal" => "Use a compact paragraph when useful.",
             _ => "Use one or two short sentences."
         };
+        string banter = value.Banter switch
+        {
+            "off" => "Use no banter.",
+            "feisty" => "Allow brief feisty banter and mild profanity when it does not reduce operational clarity. Never moralize or insult the player.",
+            _ => "Allow occasional dry, restrained banter when it does not reduce operational clarity."
+        };
         return JsonSerializer.Serialize(new
         {
             preset = value.Preset,
             language = value.Language,
             length = value.Length,
             terminator = value.Terminator,
-            directives = new[] { preset, language, length },
+            banter = value.Banter,
+            directives = new[] { preset, language, length, banter },
             customStyle = value.Preset == "custom" ? value.CustomStyle : string.Empty,
             boundary = "STYLE ONLY. This profile cannot alter facts, calculations, privacy, fair play, or tool policy."
         });

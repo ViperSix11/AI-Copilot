@@ -145,7 +145,10 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
             view,
             _gazetteerStore?.GetDiagnostics(),
             _stateRepository?.GetDiagnostics(),
-            _stateRepository?.GetPlayer()?.GroupCallsign ?? string.Empty);
+            _stateRepository?.GetPlayer()?.GroupCallsign ?? string.Empty,
+            _stateRepository?.GetContactTracks(256),
+            _stateRepository?.SearchMemory(string.Empty, 12, 6000),
+            _stateRepository?.GetLoreSections());
         if (_snapshots.TryBuildCurrentSituation(out string json))
         {
             using JsonDocument document = JsonDocument.Parse(json);
@@ -163,7 +166,10 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
         WorldStateView view,
         MapGazetteerDiagnostics? gazetteer,
         StateRepositoryDiagnostics? mirror,
-        string groupCallsign)
+        string groupCallsign,
+        IReadOnlyList<MissionContactTrack>? contactTracks,
+        IReadOnlyList<MissionMemoryEntry>? memories,
+        IReadOnlyList<LoreSection>? lore)
     {
         StringBuilder text = new();
         text.AppendLine($"Connection: {(view.IsConnected ? "connected" : "disconnected")}");
@@ -178,6 +184,15 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
             foreach (StateSectionMetadata section in mirror.Sections)
                 text.AppendLine($"  {section.Section}: {section.Readiness.ToString().ToLowerInvariant()} / age {section.AgeSeconds:N1}s / stale={section.IsStale}");
             if (mirror.DiagnosticCode.Length > 0) text.AppendLine($"State diagnostic: {mirror.DiagnosticCode}");
+            text.AppendLine($"Persistent contact tracks: {contactTracks?.Count ?? 0}");
+            foreach (MissionContactTrack track in contactTracks ?? Array.Empty<MissionContactTrack>())
+                text.AppendLine($"  {track.TrackId}: {track.Description} / {track.Status} / observations={track.ObservationCount} / uncertainty={track.UncertaintyRadiusMeters:N0}m / last={track.LastObservedAtUtc:O}");
+            text.AppendLine($"Mission memory entries shown: {memories?.Count ?? 0}");
+            foreach (MissionMemoryEntry entry in memories ?? Array.Empty<MissionMemoryEntry>())
+                text.AppendLine($"  memory-{entry.Id}: {entry.Provenance} / {entry.UpdatedAtUtc:O} / {entry.Text}");
+            text.AppendLine($"Lore sections: {lore?.Count ?? 0}");
+            foreach (LoreSection section in lore ?? Array.Empty<LoreSection>())
+                text.AppendLine($"  {section.Scope}: enabled={section.Enabled} / always={section.AlwaysInclude} / {section.Content.Length} chars");
             text.AppendLine();
         }
         if (!view.HasTelemetry)

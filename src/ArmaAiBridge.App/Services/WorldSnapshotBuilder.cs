@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using ArmaAiBridge.App.Models;
 
 namespace ArmaAiBridge.App.Services;
@@ -27,46 +28,37 @@ public sealed class WorldSnapshotBuilder
         _gazetteerStore = gazetteerStore;
         _positionInterpreter = positionInterpreter ?? new PositionInterpretationService();
         _stateRepository = stateRepository;
-        _operationalSnapshotBuilder = stateRepository is null ? null : new OperationalSnapshotBuilder(stateRepository);
+        _operationalSnapshotBuilder = stateRepository is null ? null : new OperationalSnapshotBuilder(stateRepository, _timeProvider);
         _stateQuery = stateRepository is null ? null : new StateQueryService(stateRepository);
     }
 
     public bool TryBuildCurrentSituation(out string json)
     {
-        WorldStateView view = _store.GetCurrentView();
-        if (!view.HasTelemetry || view.Map is null || view.Player is null)
+        if (_operationalSnapshotBuilder is null || _stateRepository is null || _stateRepository.GetDiagnostics().LastSequence <= 0 || _stateRepository.GetPlayer() is null)
         {
             json = string.Empty;
             return false;
         }
-        json = Serialize(BuildCurrentSituation(view, string.Empty));
+        json = SerializeTactical(_operationalSnapshotBuilder.Build(string.Empty));
         return true;
     }
 
     public bool TryBuildCurrentSituation(string question, out string json)
     {
-        WorldStateView view = _store.GetCurrentView();
-        if (!view.HasTelemetry || view.Map is null || view.Player is null)
+        if (_operationalSnapshotBuilder is null || _stateRepository is null || _stateRepository.GetDiagnostics().LastSequence <= 0 || _stateRepository.GetPlayer() is null)
         {
             json = string.Empty;
             return false;
         }
-        if (_operationalSnapshotBuilder is not null && _stateRepository!.GetDiagnostics().LastSequence > 0 &&
-            !AssistantRequestPolicy.IsOperational(question))
-        {
-            json = string.Empty;
-            return true;
-        }
-        json = Serialize(BuildCurrentSituation(view, question));
+        json = SerializeTactical(_operationalSnapshotBuilder.Build(question));
         return true;
     }
 
     public string BuildCurrentSituation()
     {
-        WorldStateView view = _store.GetCurrentView();
-        if (!view.HasTelemetry || view.Map is null || view.Player is null)
+        if (_operationalSnapshotBuilder is null || _stateRepository is null || _stateRepository.GetDiagnostics().LastSequence <= 0 || _stateRepository.GetPlayer() is null)
             throw new InvalidOperationException("No world-state telemetry is available yet.");
-        return Serialize(BuildCurrentSituation(view, string.Empty));
+        return SerializeTactical(_operationalSnapshotBuilder.Build(string.Empty));
     }
 
     public string BuildKnownContacts()
@@ -202,7 +194,7 @@ public sealed class WorldSnapshotBuilder
     private Dictionary<string, object?> BuildCurrentSituation(WorldStateView view, string question)
     {
         if (_operationalSnapshotBuilder is not null && _stateRepository!.GetDiagnostics().LastSequence > 0)
-            return BuildCanonicalCurrentSituation(view);
+            return BuildCanonicalCurrentSituation(view, question);
 
         MapGazetteerSnapshot gazetteer = _gazetteerStore?.GetSnapshot()
             ?? new MapGazetteerSnapshot(
@@ -231,7 +223,7 @@ public sealed class WorldSnapshotBuilder
         return result;
     }
 
-    private Dictionary<string, object?> BuildCanonicalCurrentSituation(WorldStateView view)
+    private Dictionary<string, object?> BuildCanonicalCurrentSituation(WorldStateView view, string question)
     {
         MapGazetteerSnapshot gazetteer = _gazetteerStore?.GetSnapshot()
             ?? new MapGazetteerSnapshot(
@@ -240,11 +232,13 @@ public sealed class WorldSnapshotBuilder
                 view.Map.SizeMeters,
                 Array.Empty<MapGazetteerLocation>(),
                 "gazetteer_not_configured");
-        return _operationalSnapshotBuilder!.Build(view, gazetteer);
+        return _operationalSnapshotBuilder!.Build(question);
     }
 
     public string GetCurrentGroupCallsign()
         => _stateRepository?.GetPlayer()?.GroupCallsign ?? string.Empty;
+
+    public IMissionMemoryRepository? MissionMemory => _stateRepository as IMissionMemoryRepository;
 
     private string BuildMirroredFriendlyForces(JsonElement arguments)
     {
@@ -601,4 +595,33 @@ public sealed class WorldSnapshotBuilder
 
     private static string Serialize(object value)
         => JsonSerializer.Serialize(value, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+
+    private static string SerializeTactical(Dictionary<string, object?> value)
+    {
+        string json = Serialize(value);
+        if (System.Text.Encoding.UTF8.GetByteCount(json) <= TacticalSnapshotBuilder.MaximumPayloadBytes) return json;
+        JsonObject root = JsonNode.Parse(json)?.AsObject() ?? throw new InvalidOperationException("The tactical snapshot could not be bounded.");
+        root["modelPayloadTruncated"] = true;
+        foreach ((string section, string collection, string countName) in new[]
+        {
+            ("enemyContacts", "records", "enemyContacts"),
+            ("retrievedMemory", "records", "memoryEntries"),
+            ("lore", "sections", "loreSections"),
+            ("markers", "records", "markers")
+        })
+        {
+            JsonArray? records = root[section]?[collection]?.AsArray();
+            while (records is { Count: > 0 } && Utf8Size(root) > TacticalSnapshotBuilder.MaximumPayloadBytes)
+            {
+                records.RemoveAt(records.Count - 1);
+                if (root[section] is JsonObject sectionObject && sectionObject.ContainsKey("count")) sectionObject["count"] = records.Count;
+                if (root["includedCounts"]?[countName] is JsonObject count) count["included"] = records.Count;
+            }
+        }
+        if (Utf8Size(root) > TacticalSnapshotBuilder.MaximumPayloadBytes)
+            throw new InvalidOperationException("The tactical snapshot exceeded 256 KiB after deterministic bounded truncation.");
+        return root.ToJsonString(new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+    }
+
+    private static int Utf8Size(JsonNode value) => System.Text.Encoding.UTF8.GetByteCount(value.ToJsonString());
 }
