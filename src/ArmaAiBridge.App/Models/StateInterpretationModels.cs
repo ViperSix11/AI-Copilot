@@ -43,7 +43,3 @@ public sealed record ContactSummary(
     int StaleContactCount,
     double AgeSeconds,
     bool IsStale);
-
-public sealed record StateContextSelection(
-    IReadOnlyList<string> SelectedSections,
-    IReadOnlyDictionary<string, object?> SelectedContext);

@@ -58,6 +58,7 @@ private _runSection =
             ["sourceId", [player, "unit"] call AAB_fnc_getStableEntityId],
             ["side", str (side player)],
             ["groupSourceId", [group player, "group"] call AAB_fnc_getStableEntityId],
+            ["groupCallsign", groupId (group player)],
             ["positionATL", getPosATL player],
             ["positionASL", getPosASL player],
             ["grid", mapGridPosition player]

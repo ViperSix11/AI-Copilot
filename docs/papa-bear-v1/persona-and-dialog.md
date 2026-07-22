@@ -54,6 +54,10 @@ For requests:
 
 For firing solutions:
 
+Release 0.8 has no validated ballistic solver. The following dialogue shape is
+reserved for a later milestone and must not be used to estimate or fabricate a
+firing solution in the current product.
+
 1. read back range and bearing;
 2. identify weapon, ammunition and optic when ambiguity exists;
 3. state any assumed target elevation or atmospheric fallback;

@@ -326,12 +326,13 @@ public sealed class OpenAiAssistantServiceTests
         {
             Assert.Equal(1, requestNumber);
             string instructions = request.GetProperty("instructions").GetString()!;
-            Assert.Contains("Do not state raw coordinates unless", instructions, StringComparison.Ordinal);
-            Assert.Contains("explicitly requests coordinates", instructions, StringComparison.Ordinal);
+            Assert.Contains("complete current game picture", instructions, StringComparison.Ordinal);
+            Assert.Contains("player.groupCallsign", instructions, StringComparison.Ordinal);
             Assert.Contains("last-known", instructions, StringComparison.Ordinal);
+            Assert.Contains("validatedBallisticSolver", instructions, StringComparison.Ordinal);
             Assert.Contains("style-only", instructions, StringComparison.OrdinalIgnoreCase);
             string content = request.GetProperty("input")[0].GetProperty("content").GetString()!;
-            int facts = content.IndexOf("CURRENT PRIVACY-MINIMIZED ARMA WORLD STATE", StringComparison.Ordinal);
+            int facts = content.IndexOf("COMPACT OPERATIONAL SNAPSHOT", StringComparison.Ordinal);
             int profile = content.IndexOf("RESPONSE PROFILE (STYLE ONLY)", StringComparison.Ordinal);
             int question = content.IndexOf("QUESTION:", StringComparison.Ordinal);
             Assert.True(facts >= 0 && facts < profile && profile < question);
@@ -388,7 +389,7 @@ public sealed class OpenAiAssistantServiceTests
         ScriptedHandler handler = new((_, request) =>
         {
             string content = request.GetProperty("input")[0].GetProperty("content").GetString() ?? string.Empty;
-            Assert.Contains("CURRENT PRIVACY-MINIMIZED ARMA WORLD STATE", content, StringComparison.Ordinal);
+            Assert.Contains("COMPACT OPERATIONAL SNAPSHOT", content, StringComparison.Ordinal);
             Assert.Contains(WorldSnapshot, content, StringComparison.Ordinal);
             Assert.DoesNotContain("ARMA TELEMETRY", content, StringComparison.Ordinal);
             return FinalResponse("Snapshot received.");
@@ -452,57 +453,43 @@ public sealed class OpenAiAssistantServiceTests
     }
 
     [Fact]
-    public async Task Milestone3Tools_AreStrictAndRouteToTheLocalWorldModel()
+    public async Task StandardTurnsHaveNoToolsAndExplicitTerrainTurnHasOnlyStrictEnvironmentTool()
     {
-        const string arguments =
-            "{\"kind\":\"any\",\"availableOnly\":true,\"maxDistanceMeters\":5000,\"includeStale\":false,\"limit\":20}";
-        string? toolOutput = null;
         ScriptedHandler handler = new((requestNumber, request) =>
         {
             if (requestNumber == 1)
             {
-                JsonElement[] tools = request.GetProperty("tools").EnumerateArray().ToArray();
-                Assert.Equal(
-                    new[] { "find_named_locations", "query_assets", "query_environment", "query_friendly_forces", "query_mission_capabilities", "query_state" },
-                    tools.Select(item => item.GetProperty("name").GetString()).OrderBy(name => name).ToArray());
-                foreach (JsonElement tool in tools)
-                {
-                    Assert.True(tool.GetProperty("strict").GetBoolean());
-                    JsonElement parameters = tool.GetProperty("parameters");
-                    Assert.False(parameters.GetProperty("additionalProperties").GetBoolean());
-                    string[] properties = parameters.GetProperty("properties").EnumerateObject()
-                        .Select(property => property.Name).OrderBy(name => name).ToArray();
-                    string[] required = parameters.GetProperty("required").EnumerateArray()
-                        .Select(item => item.GetString()!).OrderBy(name => name).ToArray();
-                    Assert.Equal(properties, required);
-                }
-                return ToolResponse("rs_assets", "call_assets", arguments, "query_assets");
+                Assert.False(request.TryGetProperty("tools", out _));
+                return FinalResponse("Position received.");
             }
-
-            toolOutput = FindFunctionOutput(request, "call_assets");
-            return FinalResponse("Asset picture received.");
+            JsonElement[] tools = request.GetProperty("tools").EnumerateArray().ToArray();
+            JsonElement tool = Assert.Single(tools);
+            Assert.Equal("query_environment", tool.GetProperty("name").GetString());
+            Assert.True(tool.GetProperty("strict").GetBoolean());
+            JsonElement parameters = tool.GetProperty("parameters");
+            Assert.False(parameters.GetProperty("additionalProperties").GetBoolean());
+            Assert.Equal(
+                parameters.GetProperty("properties").EnumerateObject().Select(item => item.Name).OrderBy(item => item).ToArray(),
+                parameters.GetProperty("required").EnumerateArray().Select(item => item.GetString()!).OrderBy(item => item).ToArray());
+            return FinalResponse("Terrain tool available.");
         });
         using HttpClient httpClient = Client(handler);
         using OpenAiAssistantService service = new(httpClient);
-        string? routedName = null;
 
-        AssistantResponse response = await service.AskAsync(
+        AssistantResponse standard = await service.AskAsync(
             "test-key",
             "gpt-5-mini",
-            "What transport is ready?",
+            "What is my position?",
             WorldSnapshot,
-            (name, args, _) =>
-            {
-                routedName = name;
-                Assert.Equal("any", args.GetProperty("kind").GetString());
-                return Task.FromResult("{\"schema\":\"arma-ai-bridge/world-snapshot-v1\",\"purpose\":\"assets\"}");
-            },
+            (_, _, _) => Task.FromResult("unused"),
+            TestContext.Current.CancellationToken);
+        AssistantResponse terrain = await service.AskAsync(
+            "test-key", "gpt-5-mini", "What buildings are nearby?", WorldSnapshot,
+            (_, _, _) => Task.FromResult("unused"),
             TestContext.Current.CancellationToken);
 
-        Assert.Equal("query_assets", routedName);
-        Assert.Contains("\"purpose\":\"assets\"", toolOutput, StringComparison.Ordinal);
-        Assert.Equal("Asset picture received.", response.Text);
-        Assert.Equal(1, response.ToolCalls);
+        Assert.Equal(0, standard.RequestMetrics!.SelectedToolCount);
+        Assert.Equal(1, terrain.RequestMetrics!.SelectedToolCount);
     }
 
     [Fact]
@@ -679,7 +666,7 @@ public sealed class OpenAiAssistantServiceTests
     public async Task DiagnosticLog_RedactsApiKeyConversationSnapshotAndToolResults()
     {
         const string apiKey = "sk-super-secret-key";
-        const string question = "SECRET QUESTION";
+        const string question = "What terrain objects are nearby? SECRET QUESTION";
         const string secretMap = "SECRET MAP";
         const string toolResult = "SECRET TOOL RESULT";
         const string customStyle = "SECRET CUSTOM STYLE";

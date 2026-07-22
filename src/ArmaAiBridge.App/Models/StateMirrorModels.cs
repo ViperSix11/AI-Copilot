@@ -29,6 +29,7 @@ public sealed record StatePlayer(
     string Alias,
     string Side,
     string GroupAlias,
+    string GroupCallsign,
     WorldPosition PositionAtl,
     WorldPosition PositionAsl,
     string Grid,

@@ -2,6 +2,8 @@
 
 > This is the preserved subordinate Phase A design. The complete release 0.8
 > boundary is `codex-milestone-5-unified-state-mirror.md`.
+> Any question-specific state-selection language below is superseded by that
+> document's fixed compact operational snapshot contract.
 
 ## Objective and release boundary
 

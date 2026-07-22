@@ -55,6 +55,7 @@ public static class StateSnapshotParser
                 RequiredString(section, "sourceId", 128);
                 RequiredString(section, "side", 16);
                 RequiredString(section, "groupSourceId", 128, allowEmpty: true);
+                RequiredString(section, "groupCallsign", 160, allowEmpty: true);
                 Vector(section, "positionATL"); Vector(section, "positionASL");
                 RequiredString(section, "grid", 32, allowEmpty: true);
                 foreach (string forbidden in new[] { "cameraPosition", "eyeDirection", "viewFocus", "cursorTarget", "crosshairObject" })

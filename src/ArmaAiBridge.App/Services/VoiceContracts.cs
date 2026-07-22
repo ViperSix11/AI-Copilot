@@ -105,6 +105,13 @@ public interface IAssistantTurnService
         UserTurnSource source,
         CancellationToken cancellationToken);
 
+    Task<AssistantResponse> SubmitUserTurnAsync(
+        string text,
+        UserTurnSource source,
+        Action<RadioAcknowledgement>? acknowledgementReady,
+        CancellationToken cancellationToken)
+        => SubmitUserTurnAsync(text, source, cancellationToken);
+
     void ResetConversation();
 }
 

@@ -40,11 +40,11 @@
     },
     "player": {
       "type": "object",
-      "required": ["sampledAt", "readiness", "sourceId", "side", "groupSourceId", "positionATL", "positionASL", "grid"],
+      "required": ["sampledAt", "readiness", "sourceId", "side", "groupSourceId", "groupCallsign", "positionATL", "positionASL", "grid"],
       "properties": {
         "sampledAt": { "type": "number", "minimum": 0 }, "readiness": { "$ref": "#/$defs/readiness" },
         "sourceId": { "$ref": "#/$defs/id" }, "side": { "enum": ["WEST", "EAST", "GUER", "CIV"] },
-        "groupSourceId": { "type": "string", "maxLength": 128 }, "positionATL": { "$ref": "#/$defs/vector" },
+        "groupSourceId": { "type": "string", "maxLength": 128 }, "groupCallsign": { "type": "string", "maxLength": 160 }, "positionATL": { "$ref": "#/$defs/vector" },
         "positionASL": { "$ref": "#/$defs/vector" }, "grid": { "type": "string", "maxLength": 32 }
       },
       "additionalProperties": false

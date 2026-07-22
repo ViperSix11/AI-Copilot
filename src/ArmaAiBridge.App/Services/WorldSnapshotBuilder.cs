@@ -11,7 +11,7 @@ public sealed class WorldSnapshotBuilder
     private readonly MapGazetteerStore? _gazetteerStore;
     private readonly PositionInterpretationService _positionInterpreter;
     private readonly IStateRepository? _stateRepository;
-    private readonly StateContextSelector? _stateContextSelector;
+    private readonly OperationalSnapshotBuilder? _operationalSnapshotBuilder;
     private readonly StateQueryService? _stateQuery;
     private readonly TimeProvider _timeProvider;
 
@@ -27,7 +27,7 @@ public sealed class WorldSnapshotBuilder
         _gazetteerStore = gazetteerStore;
         _positionInterpreter = positionInterpreter ?? new PositionInterpretationService();
         _stateRepository = stateRepository;
-        _stateContextSelector = stateRepository is null ? null : new StateContextSelector(stateRepository);
+        _operationalSnapshotBuilder = stateRepository is null ? null : new OperationalSnapshotBuilder(stateRepository);
         _stateQuery = stateRepository is null ? null : new StateQueryService(stateRepository);
     }
 
@@ -50,6 +50,12 @@ public sealed class WorldSnapshotBuilder
         {
             json = string.Empty;
             return false;
+        }
+        if (_operationalSnapshotBuilder is not null && _stateRepository!.GetDiagnostics().LastSequence > 0 &&
+            !AssistantRequestPolicy.IsOperational(question))
+        {
+            json = string.Empty;
+            return true;
         }
         json = Serialize(BuildCurrentSituation(view, question));
         return true;
@@ -195,8 +201,8 @@ public sealed class WorldSnapshotBuilder
 
     private Dictionary<string, object?> BuildCurrentSituation(WorldStateView view, string question)
     {
-        if (_stateContextSelector is not null && _stateRepository!.GetDiagnostics().LastSequence > 0)
-            return BuildCanonicalCurrentSituation(view, question);
+        if (_operationalSnapshotBuilder is not null && _stateRepository!.GetDiagnostics().LastSequence > 0)
+            return BuildCanonicalCurrentSituation(view);
 
         MapGazetteerSnapshot gazetteer = _gazetteerStore?.GetSnapshot()
             ?? new MapGazetteerSnapshot(
@@ -225,68 +231,20 @@ public sealed class WorldSnapshotBuilder
         return result;
     }
 
-    private Dictionary<string, object?> BuildCanonicalCurrentSituation(WorldStateView view, string question)
+    private Dictionary<string, object?> BuildCanonicalCurrentSituation(WorldStateView view)
     {
-        StateContextSelection selection = _stateContextSelector!.Select(question);
-        bool preview = string.IsNullOrWhiteSpace(question);
-        Dictionary<string, object?> result = new()
-        {
-            ["schema"] = SnapshotSchema,
-            ["purpose"] = preview ? "current-situation-preview" : "current-situation"
-        };
-
-        if (preview)
-        {
-            result["stateMirror"] = new
-            {
-                selectedSections = Array.Empty<string>(),
-                selectedContext = new Dictionary<string, object?>()
-            };
-            return result;
-        }
-
-        if (selection.SelectedSections.Contains("position", StringComparer.Ordinal))
-        {
-            MapGazetteerSnapshot gazetteer = _gazetteerStore?.GetSnapshot()
-                ?? new MapGazetteerSnapshot(
-                    MapGazetteerReadiness.Unavailable,
-                    view.Map!.Name,
-                    view.Map.SizeMeters,
-                    Array.Empty<MapGazetteerLocation>(),
-                    "gazetteer_not_configured");
-            PositionInterpretation interpretation = _positionInterpreter.Interpret(view, gazetteer);
-            Dictionary<string, object?> location = new()
-            {
-                ["status"] = interpretation.Status,
-                ["worldName"] = interpretation.WorldName,
-                ["grid"] = interpretation.Grid,
-                ["informationAgeSeconds"] = interpretation.InformationAgeSeconds,
-                ["gazetteerReadiness"] = interpretation.GazetteerReadiness
-            };
-            if (RequestsExactCoordinates(question)) location["measuredPosition"] = interpretation.MeasuredPosition;
-            if (interpretation.PrimaryReference is not null) location["primaryReference"] = interpretation.PrimaryReference;
-            if (interpretation.AlternativeReferences.Count > 0)
-                location["alternativeReferences"] = interpretation.AlternativeReferences.Take(2).ToArray();
-            result["interpretedLocation"] = location;
-        }
-
-        if (selection.SelectedSections.Count > 0)
-        {
-            result["stateMirror"] = new
-            {
-                selectedSections = selection.SelectedSections,
-                selectedContext = selection.SelectedContext
-            };
-        }
-        return result;
+        MapGazetteerSnapshot gazetteer = _gazetteerStore?.GetSnapshot()
+            ?? new MapGazetteerSnapshot(
+                MapGazetteerReadiness.Unavailable,
+                view.Map!.Name,
+                view.Map.SizeMeters,
+                Array.Empty<MapGazetteerLocation>(),
+                "gazetteer_not_configured");
+        return _operationalSnapshotBuilder!.Build(view, gazetteer);
     }
 
-    private static bool RequestsExactCoordinates(string question)
-    {
-        string normalized = question.ToLowerInvariant();
-        return new[] { "coordinate", "coordinates", "koordinate", "koordinaten", "exact position", "genaue position" }
-            .Any(term => normalized.Contains(term, StringComparison.Ordinal));
-    }
+    public string GetCurrentGroupCallsign()
+        => _stateRepository?.GetPlayer()?.GroupCallsign ?? string.Empty;
 
     private string BuildMirroredFriendlyForces(JsonElement arguments)
     {

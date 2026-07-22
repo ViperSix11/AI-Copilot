@@ -141,7 +141,11 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
     {
         if (_disposed) return;
         WorldStateView view = _store.GetCurrentView();
-        _summary.Text = BuildSummary(view, _gazetteerStore?.GetDiagnostics(), _stateRepository?.GetDiagnostics());
+        _summary.Text = BuildSummary(
+            view,
+            _gazetteerStore?.GetDiagnostics(),
+            _stateRepository?.GetDiagnostics(),
+            _stateRepository?.GetPlayer()?.GroupCallsign ?? string.Empty);
         if (_snapshots.TryBuildCurrentSituation(out string json))
         {
             using JsonDocument document = JsonDocument.Parse(json);
@@ -155,7 +159,11 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
         }
     }
 
-    private static string BuildSummary(WorldStateView view, MapGazetteerDiagnostics? gazetteer, StateRepositoryDiagnostics? mirror)
+    private static string BuildSummary(
+        WorldStateView view,
+        MapGazetteerDiagnostics? gazetteer,
+        StateRepositoryDiagnostics? mirror,
+        string groupCallsign)
     {
         StringBuilder text = new();
         text.AppendLine($"Connection: {(view.IsConnected ? "connected" : "disconnected")}");
@@ -165,6 +173,7 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
             text.AppendLine($"State session: {(mirror.ActiveSessionAlias.Length == 0 ? "none" : mirror.ActiveSessionAlias)} / baseline={(mirror.BaselineReady ? "ready" : "unavailable")}");
             text.AppendLine($"State sequence / receipt: {mirror.LastSequence} / {(mirror.LastSnapshotReceivedAtUtc is null ? "never" : mirror.LastSnapshotReceivedAtUtc.Value.ToString("O", CultureInfo.InvariantCulture))}");
             text.AppendLine($"OpenAI context source: {(mirror.LastSequence > 0 ? "state-snapshot-v2" : "legacy-telemetry-v1")}");
+            text.AppendLine($"Player group callsign: {(groupCallsign.Length == 0 ? "unavailable" : groupCallsign)}");
             text.AppendLine($"State database: {mirror.DatabaseSizeBytes:N0} bytes / rows {string.Join(", ", mirror.RowCounts.Select(item => $"{item.Key}={item.Value}"))}");
             foreach (StateSectionMetadata section in mirror.Sections)
                 text.AppendLine($"  {section.Section}: {section.Readiness.ToString().ToLowerInvariant()} / age {section.AgeSeconds:N1}s / stale={section.IsStale}");

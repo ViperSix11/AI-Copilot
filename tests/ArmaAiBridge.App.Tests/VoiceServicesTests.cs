@@ -561,10 +561,47 @@ public sealed class VoiceServicesTests
             answer => visible.Add(answer.Text), TestContext.Current.CancellationToken);
 
         Assert.Equal(new[] { "Position confirmed. Over." }, visible);
-        Assert.Equal(visible, synthesis.Texts);
+        Assert.Equal(new[] { "Papa Bear copies. Stand by.", "Position confirmed. Over." }, synthesis.Texts);
         Assert.Equal("Position confirmed. Over.", result.Answer.Text);
         Assert.Equal(1, handler.RequestCount);
         result.Audio?.Dispose();
+    }
+
+    [Fact]
+    public async Task VoiceTurn_CachesAcknowledgementAudioAndFormatsOnlySpokenCallsign()
+    {
+        FakeSpeechToText speech = new("Status?");
+        AcknowledgingTurnService turns = new();
+        FakeTextToSpeech synthesis = new();
+        FakePlayback playback = new();
+        using VoiceInteractionService voice = CreateVoice(speech, turns, synthesis, playback);
+        List<string> visibleEvents = new();
+
+        for (int index = 0; index < 2; index++)
+        {
+            VoiceTurnResult result = await voice.RunVoiceTurnAsync(
+                new Recording(Encoding.ASCII.GetBytes("wave")), null,
+                _ => { },
+                acknowledgement => visibleEvents.Add(acknowledgement.VisibleText),
+                answer => visibleEvents.Add(answer.Text),
+                TestContext.Current.CancellationToken);
+            result.Audio?.Dispose();
+        }
+
+        Assert.Equal(new[]
+        {
+            "Alpha 1-1, Papa Bear. Copy. Stand by.",
+            "Alpha 1-1, Papa Bear. Position confirmed.",
+            "Alpha 1-1, Papa Bear. Copy. Stand by.",
+            "Alpha 1-1, Papa Bear. Position confirmed."
+        }, visibleEvents);
+        Assert.Equal(new[]
+        {
+            "Alpha One-One, Papa Bear. Copy. Stand by.",
+            "Alpha One-One, Papa Bear. Position confirmed.",
+            "Alpha One-One, Papa Bear. Position confirmed."
+        }, synthesis.Texts);
+        Assert.Equal(4, playback.CallCount);
     }
 
     [Theory]
@@ -757,6 +794,35 @@ public sealed class VoiceServicesTests
             Calls.Add((text, source));
             return Task.FromResult(_response);
         }
+        public void ResetConversation() { }
+    }
+
+    private sealed class AcknowledgingTurnService : IAssistantTurnService
+    {
+        private static readonly RadioAcknowledgement Acknowledgement = new(
+            "Alpha 1-1, Papa Bear. Copy. Stand by.",
+            "Alpha One-One, Papa Bear. Copy. Stand by.",
+            "Alpha 1-1",
+            "ack-test");
+
+        public Task<AssistantResponse> SubmitUserTurnAsync(
+            string text,
+            UserTurnSource source,
+            CancellationToken cancellationToken)
+            => SubmitUserTurnAsync(text, source, null, cancellationToken);
+
+        public Task<AssistantResponse> SubmitUserTurnAsync(
+            string text,
+            UserTurnSource source,
+            Action<RadioAcknowledgement>? acknowledgementReady,
+            CancellationToken cancellationToken)
+        {
+            acknowledgementReady?.Invoke(Acknowledgement);
+            return Task.FromResult(new AssistantResponse(
+                "Alpha 1-1, Papa Bear. Position confirmed.",
+                "gpt-5-mini", 0, 1, 1, GroupCallsign: "Alpha 1-1"));
+        }
+
         public void ResetConversation() { }
     }
 

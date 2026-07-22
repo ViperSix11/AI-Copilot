@@ -197,6 +197,7 @@ public sealed class SqliteStateRepository : IStateRepository, IDisposable
             JsonElement root = value.Value;
             return new StatePlayer(
                 Text(root, "alias", "player-self"), Text(root, "side"), Text(root, "groupAlias"),
+                Text(root, "groupCallsign"),
                 Vector(root, "positionATL"), Vector(root, "positionASL"), Text(root, "grid"), metadata);
         }
     }

@@ -5,7 +5,11 @@
 Release 0.8 is the **Unified State Mirror & Interpreter**. It preserves the
 accepted 0.7 voice path and the already implemented Phase A named-location,
 position-interpretation and response-profile work, then adds one bounded
-periodic Arma state message and a local SQLite current-state mirror.
+periodic Arma state message and a local SQLite current-state mirror. Every
+operational assistant turn receives one frozen, fixed, bounded compact snapshot
+and an immediate local English radio acknowledgement. The acknowledgement and
+final answer use the current Arma player-group callsign, never a configured or
+hardcoded substitute.
 
 The release is user-initiated only. State changes never invoke OpenAI,
 ElevenLabs or playback. This is not the abandoned static-map index or
@@ -24,9 +28,10 @@ SQF, and proactive notifications.
 `find_named_locations`, `ResponseProfilePolicy`, the response-profile UI and
 final-text terminator normalization remain authoritative subordinate designs.
 The complete gazetteer stays local and is never repeated in dynamic snapshots.
-Visible answer, assistant history, ElevenLabs input and replay continue to use
-one identical normalized string. Version 0.7 partial-success behavior remains
-unchanged.
+The final answer remains one normalized text result. The visible form preserves
+the exact Arma callsign; ElevenLabs input and replay may differ only by the
+deterministic speech-only callsign pronunciation. Version 0.7 partial-success
+behavior remains unchanged.
 
 ## Official Arma source audit
 
@@ -35,7 +40,7 @@ it does not call setters or execute mission actions.
 
 | Section | Documented sources | Local boundary |
 | --- | --- | --- |
-| player | [`getPosATL`](https://community.bohemia.net/wiki/getPosATL), [`getPosASL`](https://community.bohemia.net/wiki/getPosASL), [`mapGridPosition`](https://community.bohemia.net/wiki/mapGridPosition), [`side`](https://community.bohemia.net/wiki/side), [`group`](https://community.bohemia.net/wiki/group) | local player only |
+| player | [`getPosATL`](https://community.bohemia.net/wiki/getPosATL), [`getPosASL`](https://community.bohemia.net/wiki/getPosASL), [`mapGridPosition`](https://community.bohemia.net/wiki/mapGridPosition), [`side`](https://community.bohemia.net/wiki/side), [`group`](https://community.bohemia.net/wiki/group), [`groupId`](https://community.bohemia.net/wiki/groupId) | local player only; `groupId (group player)` returns the current group name string |
 | weather | [`overcast`](https://community.bohemia.net/wiki/overcast), [`overcastForecast`](https://community.bohemia.net/wiki/overcastForecast), [`rain`](https://community.bohemia.net/wiki/rain), [`fog`](https://community.bohemia.net/wiki/fog), [`fogParams`](https://community.bohemia.net/wiki/fogParams), [`fogForecast`](https://community.bohemia.net/wiki/fogForecast), [`wind`](https://community.bohemia.net/wiki/wind), [`windDir`](https://community.bohemia.net/wiki/windDir), [`windStr`](https://community.bohemia.net/wiki/windStr), [`gusts`](https://community.bohemia.net/wiki/gusts), [`waves`](https://community.bohemia.net/wiki/waves), [`lightnings`](https://community.bohemia.net/wiki/lightnings), [`humidity`](https://community.bohemia.net/wiki/humidity), [`ambientTemperature`](https://community.bohemia.net/wiki/ambientTemperature), [`nextWeatherChange`](https://community.bohemia.net/wiki/nextWeatherChange) | client weather; forecast fog may differ by machine; temperature is unavailable before Arma 3 2.06 |
 | time/astronomy | [`date`](https://community.bohemia.net/wiki/date), [`daytime`](https://community.bohemia.net/wiki/daytime), [`time`](https://community.bohemia.net/wiki/time), [`timeMultiplier`](https://community.bohemia.net/wiki/timeMultiplier), [`moonPhase`](https://community.bohemia.net/wiki/moonPhase), [`sunOrMoon`](https://community.bohemia.net/wiki/sunOrMoon) | mission time plus the minimal moon phase and sun-or-moon scalar used for deterministic daylight classification; no lighting-incidence or star-visibility collector |
 | loadout | [`primaryWeapon`](https://community.bohemia.net/wiki/primaryWeapon), [`secondaryWeapon`](https://community.bohemia.net/wiki/secondaryWeapon), [`handgunWeapon`](https://community.bohemia.net/wiki/handgunWeapon), [`currentWeapon`](https://community.bohemia.net/wiki/currentWeapon), [`currentMuzzle`](https://community.bohemia.net/wiki/currentMuzzle), [`currentWeaponMode`](https://community.bohemia.net/wiki/currentWeaponMode), [`currentMagazine`](https://community.bohemia.net/wiki/currentMagazine), [`ammo`](https://community.bohemia.net/wiki/ammo), weapon-item getters, [`magazinesAmmoFull`](https://community.bohemia.net/wiki/magazinesAmmoFull), [`assignedItems`](https://community.bohemia.net/wiki/assignedItems), container getters and [`hashValue`](https://community.bohemia.net/wiki/hashValue) | local player; arrays are capped and normalized |
@@ -113,7 +118,11 @@ content is logged.
 ### Player
 
 The canonical player section contains only ATL/ASL position, map grid, local
-side and group source identity. Camera position, eye direction, view focus,
+side, group source identity and `groupCallsign`. The callsign is the exact
+result of `groupId (group player)` and is recollected on the normal one-second
+player cycle. Mission, session, respawn, playable-unit, group-membership and
+mission-authored group-ID changes therefore replace it naturally. Empty is a
+valid value and never falls back to a raw ID or alias. Camera position, eye direction, view focus,
 cursor target and crosshair object are forbidden. Legacy telemetry fields may
 still be parsed for compatibility, but the mirror does not use them.
 
@@ -211,65 +220,91 @@ Deterministic services derive environment wind/rain/fog/temperature/daytime and
 age; loadout weapon/ammunition/grenade/explosive/attachment summary; force
 group/unit/wounded/incapacitated/dead counts; contact counts by side/type,
 newest age, uncertainty and stale count; and the existing position relation.
-`StateContextSelector` recognizes German and English position, weather/wind,
-time/darkness, weapons/ammunition, friendly forces, contacts/enemies,
-tasks/objectives and markers. It performs no model call.
+The former keyword-selected `StateContextSelector` is removed. One deterministic
+operational/non-operational classifier decides only whether a state block is
+appropriate, never which operational domains the model may see.
 
 Once a valid v2 snapshot is accepted, SQLite is the canonical dynamic-state
-authority. OpenAI receives explicit compact DTOs only for the domains selected
-by the current question. There is no universal state base: clearly ordinary
-conversation receives only the fixed snapshot schema/purpose envelope, while a
-broad situation question intentionally receives a bounded multi-domain summary.
-Position context appears once as `interpretedLocation`; weather, time, loadout,
-friendly forces, contacts, tasks and markers appear only under the matching
-selected-context key. Missing optional facts are omitted by schema-aware DTO
-construction; meaningful zero counts, zero ammunition, zero rain/fog and false
-booleans remain. Internal repository records, schema details, paths, raw IDs,
-empty placeholder strings and legacy compatibility projections are never
-serialized directly into the model context.
+authority. Every operational question receives one frozen compact DTO with
+world, player position/grid/ASL elevation and optional exact `groupCallsign`,
+five nearest official locations, environment, time/daylight, loadout, own-side
+summary plus at most eight groups, contact summary plus at most eight contacts,
+the active task plus at most two additional tasks, at most five relevant
+markers and explicit local capability flags. Individual friendly units are
+omitted by default. Attachments and magazine summary rows are each capped at
+eight. `validatedBallisticSolver` is always false in release 0.8.
 
-The canonical v2 root is:
+Missing optional strings and objects are omitted; meaningful zero counts,
+ammunition, rain/fog and false capability flags remain. Normal ready/live
+metadata and current-fact ages are omitted. Only semantic qualifiers such as
+`lastKnown`, `stale`, `unavailable`, `approximate`, contact
+`positionErrorMeters` and `lastSeenSecondsAgo` may appear. Internal repository
+records, paths, raw IDs, aliases, full inventories, complete collections and
+legacy compatibility projections are never serialized. Clearly
+non-operational conversation receives no operational state block.
+
+The fixed operational root is:
 
 ```text
-schema
-purpose
-interpretedLocation                 # position questions only
-stateMirror:
-  selectedSections
-  selectedContext
+schema: arma-ai-bridge/operational-snapshot-v1
+world
+player
+namedLocations
+environment
+time
+loadout
+friendlyForces
+knownContacts
+tasks
+markers
+capabilities
 ```
 
-An exact-coordinate question may add measured position once inside
-`interpretedLocation`; ordinary position questions use grid and named-location
-relations without duplicating coordinates. Before v2 is accepted, genuine
-legacy telemetry may use the bounded legacy snapshot path. The two sources are
-never mixed. Diagnostics labels the active source `state-snapshot-v2` or
-`legacy-telemetry-v1`; the engineering label is not ordinary Papa Bear speech.
-The right-hand World State view is an explicitly labelled no-question preview
-of the same compact eligible shape, not a union of all stored fields.
+Before v2 is accepted, genuine legacy telemetry may use the bounded legacy
+snapshot path. The two sources are never mixed. Diagnostics labels the active
+source and shows the exact current player group callsign or `unavailable`, never
+a source identity. The right-hand World State view previews the same fixed
+compact eligible shape.
 
 ## Local tools
 
-`query_state(section, includeStale, limit)` accepts only `environment`, `time`,
-`loadout`, `friendly_forces`, `contacts`, `tasks`, `markers` and
-`named_locations`. It calls typed repository methods and returns bounded DTOs.
-It cannot expose SQL, paths, raw IDs, unlimited text or the database.
-`find_named_locations` remains the spatial/name-ranked official lookup;
-`query_state(named_locations)` is a small bounded list. Existing
-`query_environment`, friendly-force, asset and capability tools remain read-only.
+Standard turns attach no tool definitions. A deterministic local pre-classifier
+attaches only strict `query_environment` for an explicit terrain-object request
+that needs buildings, vegetation, roads, walls or rocks absent from the compact
+snapshot. Other bounded read services remain local application capabilities but
+are not advertised to the model in the standard release 0.8 request.
 
 ## One-request, privacy and diagnostics
 
-The path remains microphone -> OpenAI transcription -> local selector and
-interpreters -> one Responses turn -> normalized visible answer -> ElevenLabs
--> playback. Tool continuation rounds stay within that turn. There is no
-background model call or proactivity.
+After a valid typed question or completed transcription, the application
+selects one of eight local English acknowledgement templates, inserts only the
+current dynamic callsign placeholder, displays it immediately and starts the
+Responses request. Spoken turns synthesize/play the acknowledgement through
+ElevenLabs while the model request runs; generated acknowledgement audio is
+cached locally. It is never model-generated, never entered into history and
+never counted as the final answer. The visible status says Papa Bear is working.
+Final text is displayed as soon as Responses completes and final speech waits
+for acknowledgement playback, preventing overlap.
+
+The visible acknowledgement retains exact Arma form. Speech-only formatting
+may pronounce digits and separators without modifying stored identity. Empty
+callsign uses exactly `Papa Bear copies. Stand by.` and the final prompt omits
+direct address. The final prompt requires the current snapshot callsign to
+override any earlier-history callsign and normally appear once at the start.
+
+History is at most three user/assistant pairs and 4,000 characters. It contains
+no prior state block. Tool continuation rounds stay within the one current
+Responses turn. There is no acknowledgement model call, background state model
+call or proactivity.
 
 Mission text is data, never policy. Logs may contain schema, counts, sequence,
 readiness and safe codes only. They must not contain prompts, transcripts,
 answers, tool payloads, raw IDs, task/marker text, loadouts, contact positions,
 database contents, API keys or voice IDs. Only retrieved minimized results enter
-OpenAI context.
+OpenAI context. Per-turn safe metrics are compact-snapshot UTF-8 bytes, section
+record counts, history message/character counts, selected-tool count, provider
+input/output/reasoning token totals, acknowledgement variation ID and total
+response latency. Metric logs contain no callsign or content.
 
 ### Responses terminal-state contract
 
@@ -323,14 +358,16 @@ The Windows suite must prove:
 12. contacts deduplicate sources and never use hostile actual position.
 13. tasks/markers are client-scoped, bounded and absent from logs.
 14. typed repository and `query_state` validation reject arbitrary SQL/sections.
-15. German/English context selection chooses every required section.
-16. ordinary section questions use one Responses request and only their compact
-    selected context; non-operational questions receive no game-state payload.
-17. raw IDs, paths, complete database, complete collections, duplicate legacy
-    facts and synthetic zero/empty placeholders never enter canonical v2 OpenAI
-    context.
-18. profiles, terminators, visible/history/TTS/replay identity and every 0.7
-    regression remain green.
+15. every operational question receives every fixed compact domain; clearly
+    non-operational questions receive no operational state block.
+16. location/group/contact/task/marker/attachment/magazine limits are
+    5/8/8/3/5/8/8 regardless of mission size; meaningful zeros remain.
+17. raw IDs, aliases, paths, complete database/collections, normal readiness,
+    current ages, duplicate legacy facts and empty placeholders never enter the
+    fixed operational context.
+18. standard requests attach zero tools; an explicit terrain-object request
+    attaches only strict `query_environment`; snapshot state stays frozen for
+    the turn and previous snapshots never enter bounded history.
 19. repository verifier, WPF win-x64, native x64, PBO and matching ZIP pass.
 20. active runtime/schema/payload fixtures contain no `sunDirection`,
     `getLighting`, `lightDirection`, `starsVisibility` or `moonIntensity`;
@@ -341,9 +378,17 @@ The Windows suite must prove:
 22. the Responses budget is 1200, explicit text format is present, reasoning
     usage is counted, direct answers do not retry and the default remains
     `gpt-5-mini`.
-23. position/weather/time/loadout/force/contact/task/marker/general/situation
-    selection is schema-aware, preserves meaningful zeros and stays below
-    recorded compact serialized-size ceilings.
+23. `groupId (group player)` reaches canonical `groupCallsign`, updates on the
+    next player snapshot, clears on a new session and appears identically in
+    acknowledgement state, diagnostics and final model context.
+24. eight English-only placeholder acknowledgements are local, immediate,
+    non-repeating, absent from model history and followed by one final answer;
+    empty callsign uses the neutral fallback.
+25. speech-only digit formatting preserves stored/visible callsign identity,
+    acknowledgement audio caches locally, final speech cannot overlap it and
+    no hardcoded callsign remains in active runtime or templates.
+26. profiles, terminators, partial-success text/TTS/replay behavior and every
+    accepted 0.7 regression remain green.
 
 ## Exact live acceptance
 
@@ -352,20 +397,31 @@ Use the extended Stratis mission and matching 0.8 app/DLL/PBO:
 1. Confirm one gazetteer and handshake feature `state-snapshot@2`.
 2. Confirm one snapshot about every four seconds, real section sample times and
    full reconciliation about every 30 seconds.
-3. Ask weather/wind, time/darkness and ammunition in German/English; confirm
-   local derivations and normally no tool call.
-4. With two WEST groups, confirm friendly counts/status/current waypoint.
-5. Let only the remote group know an EAST target. Confirm estimated
+3. Set the player group ID to `Alpha 1-1`; confirm exact State Mirror and
+   diagnostics value, immediate English acknowledgement and the same current
+   callsign in the final answer. Change group/unit and group ID, respawn and
+   start a new session; confirm the next player sample replaces it without
+   retaining the prior identity. Empty group ID must use the neutral fallback.
+4. Ask `What is my position?`, `What is the nearest town?`, `What is my current
+   loadout?`, `Which friendly group is closest to the newest contact?` and `I
+   need a firing solution. Range 1200 metres, bearing 223.` Confirm immediate
+   acknowledgement, natural cross-domain use, no status/freshness narration,
+   zero standard tools and no fabricated firing solution.
+5. Ask an explicit buildings/roads-ahead question; confirm the request exposes
+   only `query_environment`.
+6. With two WEST groups, confirm friendly counts/status/current waypoint.
+7. Let only the remote group know an EAST target. Confirm estimated
    position/error/source alias, never hostile actual position. If locality
    prevents access, confirm omission and record the limitation.
-6. Create a visible task and marker; confirm answers, then removal via ready-empty.
-7. Confirm named-place relation and response-profile/terminator behavior.
-8. Change state without a question; confirm no model, TTS, speech or alert.
-9. Run 15 minutes; confirm row counts/database size stabilize.
-10. Restart app; cache is stale until handshake and a fresh snapshot.
-11. Change mission; old dynamic state disappears before new state is visible.
-12. Reset requires confirmation and preserves keys/profiles.
-13. Logs contain no protected content.
+8. Create a visible task and marker; confirm answers, then removal via ready-empty.
+9. Confirm response-profile/terminator behavior and spoken digit formatting.
+10. Change state without a question; confirm no model, TTS, speech or alert.
+11. Run 15 minutes; confirm row counts/database size stabilize and snapshot
+    bounds do not grow with mission size.
+12. Restart app; cache is stale until handshake and a fresh snapshot.
+13. Change mission; old dynamic state and callsign disappear before new state is visible.
+14. Reset requires confirmation and preserves keys/profiles.
+15. Logs contain only approved metrics and no protected content or callsign.
 
 Live regression for the release-blocking astronomy fault and its final cleanup:
 
@@ -388,7 +444,8 @@ Live regression for the release-blocking Responses failure:
   only safe status/type/token metadata and performs no automatic retry;
 - ask weather/wind, ammunition and position in the accepted State Mirror
   session; each completed direct answer uses one Responses request and the same
-  normalized visible/spoken/replay text, while an incomplete result is precise
+  normalized answer, with only deterministic spoken callsign pronunciation
+  permitted to differ from visible text, while an incomplete result is precise
   and redacted.
 
 The draft PR remains unmerged until this gate passes. Official OpenAI reference

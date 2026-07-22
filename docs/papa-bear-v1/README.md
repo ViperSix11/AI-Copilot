@@ -24,10 +24,11 @@ The accepted 0.7 proof of concept answers a spoken question about the player’s
 current position using live Arma state and returns both visible text and spoken
 ElevenLabs audio.
 
-The 0.8 milestone adds one bounded selected-state snapshot, a local SQLite
-current-state mirror, deterministic context selection and interpretation,
-official named-place interpretation and response profiles. Complete collections
-stay local and the existing single Responses turn remains unchanged.
+The 0.8 milestone adds one bounded unified state snapshot, a local SQLite
+current-state mirror, one fixed compact multi-domain operational prompt,
+official named-place interpretation, dynamic Arma player-group callsigns,
+local two-stage radio acknowledgement and response profiles. Complete
+collections stay local and the existing single Responses turn remains unchanged.
 
 ## Active architectural decisions
 
@@ -42,7 +43,8 @@ stay local and the existing single Responses turn remains unchanged.
 - Failed TTS or playback must never discard a completed transcript or answer.
 - Arma supplies measured facts; local services calculate spatial relations; one
   existing Responses request supplies natural language; ElevenLabs speaks the
-  exact final visible text.
+  final visible answer with only deterministic speech pronunciation of the
+  current Arma callsign permitted to differ.
 - Tools remain bounded, typed, locally validated and read-only until a later
   milestone explicitly introduces an authorized action.
 - ACE, ballistics, routes, support execution, observation-fusion memory, full
@@ -66,7 +68,8 @@ stay local and the existing single Responses turn remains unchanged.
     position-answer proof of concept.
 
 12. `codex-milestone-5-unified-state-mirror.md` — complete release 0.8 state,
-    SQLite, interpretation, context-selection and diagnostics contract.
+    SQLite, interpretation, fixed compact operational context and diagnostics
+    contract.
 13. `codex-milestone-5-contextual-interpreter.md` — subordinate Phase A
     named-location, spatial-language and response-profile design.
 
