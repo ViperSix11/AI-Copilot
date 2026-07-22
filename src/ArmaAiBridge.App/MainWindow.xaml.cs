@@ -205,13 +205,11 @@ public partial class MainWindow : Window
     {
         try
         {
-            AppSettings settings = new()
-            {
-                OpenAiApiKeyProtected = DpapiService.Protect(OpenAiKeyBox.Password.Trim()),
-                ElevenLabsApiKeyProtected = DpapiService.Protect(ElevenLabsKeyBox.Password.Trim()),
-                ElevenLabsVoiceId = ElevenLabsVoiceIdBox.Text.Trim(),
-                ResponseProfile = ReadResponseProfile()
-            };
+            AppSettings settings = await _settingsService.LoadAsync();
+            settings.OpenAiApiKeyProtected = DpapiService.Protect(OpenAiKeyBox.Password.Trim());
+            settings.ElevenLabsApiKeyProtected = DpapiService.Protect(ElevenLabsKeyBox.Password.Trim());
+            settings.ElevenLabsVoiceId = ElevenLabsVoiceIdBox.Text.Trim();
+            settings.ResponseProfile = ReadResponseProfile();
             await _settingsService.SaveAsync(settings);
             SettingsStatusText.Text = $"Saved at {DateTime.Now:T}.";
             _log.Info("Encrypted API settings saved. Credential values were not logged.");

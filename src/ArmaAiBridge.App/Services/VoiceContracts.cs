@@ -112,6 +112,26 @@ public interface IAssistantTurnService
         CancellationToken cancellationToken)
         => SubmitUserTurnAsync(text, source, cancellationToken);
 
+    async Task<AssistantResponse> SubmitUserTurnAsync(
+        string text,
+        UserTurnSource source,
+        Func<RadioAcknowledgement, CancellationToken, Task>? acknowledgementReady,
+        Action<AssistantResponse>? answerTextReady,
+        CancellationToken cancellationToken)
+    {
+        Task acknowledgementDelivery = Task.CompletedTask;
+        AssistantResponse answer = await SubmitUserTurnAsync(
+            text,
+            source,
+            acknowledgementReady is null
+                ? null
+                : acknowledgement => acknowledgementDelivery = acknowledgementReady(acknowledgement, cancellationToken),
+            cancellationToken).ConfigureAwait(false);
+        answerTextReady?.Invoke(answer);
+        await acknowledgementDelivery.ConfigureAwait(false);
+        return answer;
+    }
+
     void ResetConversation();
 }
 

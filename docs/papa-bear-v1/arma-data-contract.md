@@ -57,6 +57,22 @@ come only from the loadout section. There is no release 0.8 vehicle subsystem.
 Camera position, free-look direction, cursor target and unrestricted object
 state are intentionally excluded.
 
+## Current-shot ballistic profile
+
+The four-second loadout section includes one closed `ballisticProfile` for the
+current weapon/muzzle/mode/magazine/ammunition only. It carries local raw class
+names and bounded display names, loaded rounds, `currentZeroing` distance/index,
+`eyePos player`, effective magazine/weapon/muzzle initial speed, air friction,
+gravity coefficient, typical speed, simulation type and advanced-ballistics
+detection. Raw classes remain local and are not copied into the compact model
+snapshot. Availability fails closed for missing config, non-bullet/shell,
+powered/guided/submunition/artillery or overriding advanced-ballistics cases.
+
+`query_terrain_height` is a closed read-only command accepting exactly one
+bounded two-dimensional position and returning `getTerrainHeightASL`. It exists
+only to resolve optional terrain elevation for `calculate_firing_solution`;
+the query cannot accept a target entity, cursor, script or arbitrary SQF.
+
 ## Friendly force data
 
 The snapshot exports own-side groups and units. Raw netIds are transport-only

@@ -137,7 +137,8 @@ public sealed class Release08OperationalRadioTests
             new OpenAiAssistantService(client),
             _ => (true, """{"schema":"arma-ai-bridge/operational-snapshot-v1","player":{"groupCallsign":"Alpha 1-1"}}"""),
             _ => Task.FromResult(("test-key", "gpt-5-mini", new ResponseProfileSettings())),
-            (_, _, _) => Task.FromResult("unused"));
+            (_, _, _) => Task.FromResult("unused"),
+            acknowledgementDelay: TimeSpan.Zero);
 
         AssistantResponse response = await turns.SubmitUserTurnAsync(
             "What is my position?", UserTurnSource.Typed, _ => { },
@@ -149,7 +150,7 @@ public sealed class Release08OperationalRadioTests
     }
 
     [Fact]
-    public async Task Acknowledgement_IsImmediateLocalAndNeverAddedToModelHistory()
+    public async Task Acknowledgement_IsDelayedUntilThresholdAndNeverAddedToModelHistory()
     {
         TaskCompletionSource<HttpResponseMessage> firstResponse = new(TaskCreationOptions.RunContinuationsAsynchronously);
         CapturingHandler handler = new((requestNumber, request) =>
@@ -187,6 +188,96 @@ public sealed class Release08OperationalRadioTests
     }
 
     [Fact]
+    public async Task FastAnswerSuppressesAcknowledgementAndReportsThresholdMetrics()
+    {
+        CapturingHandler handler = new((_, _) => Task.FromResult(FinalResponse("Current picture follows.")));
+        using HttpClient client = new(handler) { BaseAddress = new Uri("https://api.openai.test/v1/") };
+        using AssistantTurnService turns = new(
+            new OpenAiAssistantService(client),
+            _ => (true, """{"schema":"arma-ai-bridge/operational-snapshot-v1","player":{"groupCallsign":"Alpha 1-1"}}"""),
+            _ => Task.FromResult(("test-key", "gpt-5-mini", new ResponseProfileSettings())),
+            (_, _, _) => Task.FromResult("unused"));
+        int acknowledgements = 0;
+
+        AssistantResponse answer = await turns.SubmitUserTurnAsync(
+            "Situation?", UserTurnSource.Typed, _ => acknowledgements++,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, acknowledgements);
+        Assert.True(answer.RequestMetrics!.AcknowledgementEligible);
+        Assert.False(answer.RequestMetrics.AcknowledgementEmitted);
+        Assert.Equal(1500, answer.RequestMetrics.AcknowledgementThresholdMilliseconds);
+        Assert.True(answer.RequestMetrics.AnswerTextLatencyMilliseconds >= 0);
+    }
+
+    [Fact]
+    public async Task AnswerDuringAcknowledgementPreparationCancelsItBeforePlayback()
+    {
+        TaskCompletionSource<HttpResponseMessage> responseGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        CapturingHandler handler = new((_, _) => responseGate.Task);
+        using HttpClient client = new(handler) { BaseAddress = new Uri("https://api.openai.test/v1/") };
+        using AssistantTurnService turns = new(
+            new OpenAiAssistantService(client),
+            _ => (true, """{"schema":"arma-ai-bridge/operational-snapshot-v1","player":{"groupCallsign":"Alpha 1-1"}}"""),
+            _ => Task.FromResult(("test-key", "gpt-5-mini", new ResponseProfileSettings())),
+            (_, _, _) => Task.FromResult("unused"),
+            acknowledgementDelay: TimeSpan.Zero);
+        TaskCompletionSource preparationStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool playbackStarted = false;
+
+        Task<AssistantResponse> turn = turns.SubmitUserTurnAsync(
+            "Situation?",
+            UserTurnSource.Typed,
+            async (_, preparationToken) =>
+            {
+                preparationStarted.SetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, preparationToken);
+                playbackStarted = true;
+            },
+            null,
+            TestContext.Current.CancellationToken);
+        await preparationStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+        responseGate.SetResult(FinalResponse("Current picture follows."));
+
+        AssistantResponse response = await turn;
+        Assert.False(playbackStarted);
+        Assert.True(response.RequestMetrics!.AcknowledgementEmitted);
+    }
+
+    [Fact]
+    public async Task StartedAcknowledgementPlaybackFinishesBeforeTurnReturnsForFinalSpeech()
+    {
+        TaskCompletionSource<HttpResponseMessage> responseGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource playbackStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource playbackFinished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        CapturingHandler handler = new((_, _) => responseGate.Task);
+        using HttpClient client = new(handler) { BaseAddress = new Uri("https://api.openai.test/v1/") };
+        using AssistantTurnService turns = new(
+            new OpenAiAssistantService(client),
+            _ => (true, """{"schema":"arma-ai-bridge/operational-snapshot-v1","player":{"groupCallsign":"Alpha 1-1"}}"""),
+            _ => Task.FromResult(("test-key", "gpt-5-mini", new ResponseProfileSettings())),
+            (_, _, _) => Task.FromResult("unused"),
+            acknowledgementDelay: TimeSpan.Zero);
+
+        Task<AssistantResponse> turn = turns.SubmitUserTurnAsync(
+            "Situation?",
+            UserTurnSource.Typed,
+            async (_, _) =>
+            {
+                playbackStarted.SetResult();
+                await playbackFinished.Task;
+            },
+            null,
+            TestContext.Current.CancellationToken);
+        await playbackStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+        responseGate.SetResult(FinalResponse("Current picture follows."));
+        await Task.Yield();
+        Assert.False(turn.IsCompleted);
+        playbackFinished.SetResult();
+        await turn;
+    }
+
+    [Fact]
     public async Task TurnFreezesSnapshotAndCallsignBeforeTheProviderRequestCompletes()
     {
         string snapshot = """{"schema":"arma-ai-bridge/operational-snapshot-v1","player":{"groupCallsign":"Alpha 1-1"}}""";
@@ -203,7 +294,8 @@ public sealed class Release08OperationalRadioTests
             new OpenAiAssistantService(client),
             _ => (true, snapshot),
             _ => Task.FromResult(("test-key", "gpt-5-mini", new ResponseProfileSettings())),
-            (_, _, _) => Task.FromResult("unused"));
+            (_, _, _) => Task.FromResult("unused"),
+            acknowledgementDelay: TimeSpan.Zero);
         RadioAcknowledgement? acknowledgement = null;
 
         Task<AssistantResponse> turn = turns.SubmitUserTurnAsync(

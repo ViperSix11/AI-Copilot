@@ -66,6 +66,30 @@ public sealed record StateTimeAstronomy(
 public sealed record StateMagazine(string Class, string DisplayName, int Rounds, bool Loaded, string Container);
 public sealed record StateMagazineTotal(string Class, string DisplayName, int MagazineCount, int Rounds);
 
+public sealed record StateBallisticProfile(
+    bool Available,
+    string Reason,
+    string Model,
+    string SupportedProjectileType,
+    string WeaponClass,
+    string WeaponDisplayName,
+    string MuzzleClass,
+    string FireMode,
+    string MagazineClass,
+    string MagazineDisplayName,
+    string AmmunitionClass,
+    string AmmunitionDisplayName,
+    string Simulation,
+    int LoadedRounds,
+    double CurrentZeroingMeters,
+    int CurrentZeroingIndex,
+    double InitialSpeedMetersPerSecond,
+    double AirFriction,
+    double GravityCoefficient,
+    double TypicalSpeedMetersPerSecond,
+    WorldPosition ShooterPositionAsl,
+    bool AdvancedBallisticsDetected);
+
 public sealed record StateLoadout(
     string PrimaryWeapon,
     string Launcher,
@@ -89,6 +113,7 @@ public sealed record StateLoadout(
     string VestClass,
     string BackpackClass,
     string LoadoutHash,
+    StateBallisticProfile BallisticProfile,
     StateSectionMetadata Metadata);
 
 public sealed record StateWaypoint(int Index, WorldPosition Position, string Type);

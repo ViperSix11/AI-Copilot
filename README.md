@@ -84,6 +84,12 @@ separate conversation model.
 - deterministic position containment, distance, bearing, cardinal direction,
   salience ranking and current/last-known interpretation;
 - local response profiles with deterministic final-text terminators.
+- deterministic Vanilla-config bullet/shell firing solutions with current
+  zeroing, terrain-height lookup and fail-closed advanced-ballistics detection;
+- conditional 1.5-second English radio acknowledgements and deterministic
+  speech-safe number/unit normalization;
+- configurable system-wide press-and-hold push-to-talk, default Shift + Space,
+  using documented Windows hotkey registration without hooks or injection.
 
 ### Local read tools
 
@@ -96,6 +102,7 @@ query_assets(kind, availableOnly, maxDistanceMeters, includeStale, limit)
 query_mission_capabilities(enabledOnly, includeStale)
 find_named_locations(query, maxDistanceMeters, limit)
 query_state(section, includeStale, limit)
+calculate_firing_solution(rangeMeters, bearingDegrees, targetElevationAslMeters, targetHeightAboveTerrainMeters)
 ```
 
 No tool can execute arbitrary SQF, C++, PowerShell or operating-system commands.
@@ -197,14 +204,15 @@ reasoning.
 
 Version 0.8 does not provide:
 
-- always-on listening, wake words, VAD or a global push-to-talk hotkey;
+- always-on listening, wake words or VAD;
 - streaming transcription or streaming speech output;
 - microphone/output-device selection in the UI;
 - proactive military contact reports;
 - player-reported observations or persistent operational memory;
 - persistent, runtime-object or full-static-map indexing;
 - perception of empty vehicles and other non-contact objects;
-- ACE integration or deterministic ballistics;
+- ACE integration, advanced-ballistics approximation, wind hold or optic-click
+  calculation;
 - route planning, landing-zone scoring or support execution;
 - hardened multiplayer packaging, signatures or installer/updater support.
 
@@ -238,7 +246,7 @@ does not already provide the required information.
 
 ### Later backlog
 
-ACE, ballistics, validated support actions, route planning, voice hardening and
+ACE ballistic integration, validated support actions, route planning and
 multiplayer packaging remain deferred until the narrow tactical POC is stable.
 
 ## Build and test on Windows
@@ -279,8 +287,9 @@ application, native DLL, `mod.cpp` and PBO.
 
 - **0.8** — bounded official named-location gazetteer, transactional SQLite
   current-state mirror, deterministic contextual interpretation, strict
-  `query_state`, bounded location lookup, local response profiles and a
-  high-contrast Papa Bear tactical desktop theme.
+  `query_state`, bounded location lookup, local response profiles,
+  Vanilla-config firing solutions, conditional acknowledgements, speech-safe
+  English, global PTT and a high-contrast Papa Bear tactical desktop theme.
 
 Detailed architectural records and milestone acceptance specifications are under
 [`docs/papa-bear-v1`](docs/papa-bear-v1/).

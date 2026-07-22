@@ -64,7 +64,7 @@ public sealed class OpenAiAssistantServiceTests
         Assert.Equal("responses_incomplete_max_tokens", exception.ErrorCode);
         Assert.Contains("response budget", exception.Message, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Missing final output text", OpenAiAssistantService.FormatFailureForLog(exception), StringComparison.Ordinal);
-        Assert.Equal(1, handler.RequestCount);
+        Assert.Equal(2, handler.RequestCount);
     }
 
     [Fact]
@@ -74,7 +74,9 @@ public sealed class OpenAiAssistantServiceTests
         {
             Assert.Equal(1, requestNumber);
             Assert.Equal("gpt-5-mini", request.GetProperty("model").GetString());
-            Assert.Equal(1200, request.GetProperty("max_output_tokens").GetInt32());
+            Assert.Equal(1800, request.GetProperty("max_output_tokens").GetInt32());
+            Assert.Equal("low", request.GetProperty("reasoning").GetProperty("effort").GetString());
+            Assert.Equal("low", request.GetProperty("text").GetProperty("verbosity").GetString());
             Assert.Equal("text", request.GetProperty("text").GetProperty("format").GetProperty("type").GetString());
             Assert.False(request.TryGetProperty("previous_response_id", out JsonElement _));
             return FinalResponse("Ready.");
@@ -88,6 +90,51 @@ public sealed class OpenAiAssistantServiceTests
 
         Assert.Equal("gpt-5-mini", response.Model);
         Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task MaxTokenIncomplete_RetriesOnceWithFrozenInputAndAggregatedUsage()
+    {
+        string? frozenInput = null;
+        ScriptedHandler handler = new((requestNumber, request) =>
+        {
+            string input = request.GetProperty("input").GetRawText();
+            if (requestNumber == 1)
+            {
+                frozenInput = input;
+                Assert.Equal(1800, request.GetProperty("max_output_tokens").GetInt32());
+                return Json(HttpStatusCode.OK, """
+                {
+                  "status":"incomplete", "incomplete_details":{"reason":"max_output_tokens"},
+                  "model":"gpt-5-mini", "output":[{"type":"reasoning","summary":[]}],
+                  "usage":{"input_tokens":100,"output_tokens":1800,"output_tokens_details":{"reasoning_tokens":1700}}
+                }
+                """);
+            }
+            Assert.Equal(2, requestNumber);
+            Assert.Equal(2400, request.GetProperty("max_output_tokens").GetInt32());
+            Assert.Equal(frozenInput, input);
+            return Json(HttpStatusCode.OK, """
+            {
+              "status":"completed", "model":"gpt-5-mini",
+              "output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Complete."}]}],
+              "usage":{"input_tokens":100,"output_tokens":20,"output_tokens_details":{"reasoning_tokens":5}}
+            }
+            """);
+        });
+        using HttpClient httpClient = Client(handler);
+        using OpenAiAssistantService service = new(httpClient);
+
+        AssistantResponse response = await AskAsync(
+            service, (_, _) => Task.FromResult("unused"), TestContext.Current.CancellationToken);
+
+        Assert.Equal("Complete.", response.Text);
+        Assert.Equal(200, response.InputTokens);
+        Assert.Equal(1820, response.OutputTokens);
+        Assert.Equal(1705, response.ReasoningTokens);
+        Assert.True(response.RequestMetrics!.RetryPerformed);
+        Assert.Equal("max_output_tokens", response.RequestMetrics.InitialIncompleteReason);
+        Assert.Equal(2, handler.RequestCount);
     }
 
     [Fact]
@@ -164,11 +211,14 @@ public sealed class OpenAiAssistantServiceTests
 
         Assert.Equal(expectedCode, exception.ErrorCode);
         Assert.Contains(expectedMessage, exception.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(1, handler.RequestCount);
+        Assert.Equal(reason is "max_output_tokens" or "max_tokens" ? 2 : 1, handler.RequestCount);
         string log = OpenAiAssistantService.FormatFailureForLog(exception);
         Assert.Contains($"reason={reason}", log, StringComparison.Ordinal);
         Assert.Contains("outputTypes=reasoning:1", log, StringComparison.Ordinal);
-        Assert.Contains("reasoningTokens=1200", log, StringComparison.Ordinal);
+        Assert.Contains(
+            reason is "max_output_tokens" or "max_tokens" ? "reasoningTokens=2400" : "reasoningTokens=1200",
+            log,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -197,7 +247,7 @@ public sealed class OpenAiAssistantServiceTests
 
         Assert.Equal("responses_incomplete_max_tokens", exception.ErrorCode);
         Assert.Equal(0, executions);
-        Assert.Equal(1, handler.RequestCount);
+        Assert.Equal(2, handler.RequestCount);
     }
 
     [Fact]
@@ -329,7 +379,7 @@ public sealed class OpenAiAssistantServiceTests
             Assert.Contains("complete current game picture", instructions, StringComparison.Ordinal);
             Assert.Contains("player.groupCallsign", instructions, StringComparison.Ordinal);
             Assert.Contains("last-known", instructions, StringComparison.Ordinal);
-            Assert.Contains("validatedBallisticSolver", instructions, StringComparison.Ordinal);
+            Assert.Contains("calculate_firing_solution", instructions, StringComparison.Ordinal);
             Assert.Contains("style-only", instructions, StringComparison.OrdinalIgnoreCase);
             string content = request.GetProperty("input")[0].GetProperty("content").GetString()!;
             int facts = content.IndexOf("COMPACT OPERATIONAL SNAPSHOT", StringComparison.Ordinal);
@@ -490,6 +540,44 @@ public sealed class OpenAiAssistantServiceTests
 
         Assert.Equal(0, standard.RequestMetrics!.SelectedToolCount);
         Assert.Equal(1, terrain.RequestMetrics!.SelectedToolCount);
+    }
+
+    [Fact]
+    public async Task ExplicitFiringQuestionOffersAndExecutesOnlyStrictBallisticTool()
+    {
+        const string arguments = """{"rangeMeters":660,"bearingDegrees":190,"targetElevationAslMeters":null,"targetHeightAboveTerrainMeters":null}""";
+        ScriptedHandler handler = new((requestNumber, request) =>
+        {
+            JsonElement tool = Assert.Single(request.GetProperty("tools").EnumerateArray());
+            Assert.Equal("calculate_firing_solution", tool.GetProperty("name").GetString());
+            Assert.True(tool.GetProperty("strict").GetBoolean());
+            if (requestNumber == 1)
+                return ToolResponse("rs_ballistic", "call_ballistic", arguments, "calculate_firing_solution");
+            string output = FindFunctionOutput(request, "call_ballistic");
+            Assert.Contains("elevationCorrectionMilliradians", output, StringComparison.Ordinal);
+            return FinalResponse("This is an in-game Arma firing solution.");
+        });
+        using HttpClient httpClient = Client(handler);
+        using OpenAiAssistantService service = new(httpClient);
+        int calculations = 0;
+
+        AssistantResponse response = await service.AskAsync(
+            "test-key", "gpt-5-mini",
+            "I need a firing solution. Range 660 metres, bearing 190.",
+            WorldSnapshot,
+            new ResponseProfileSettings(),
+            (name, _, _) =>
+            {
+                Assert.Equal("calculate_firing_solution", name);
+                calculations++;
+                return Task.FromResult("""{"firingSolution":{"elevationCorrectionMilliradians":4.2}}""");
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, calculations);
+        Assert.Equal(1, response.ToolCalls);
+        Assert.Equal(1, response.RequestMetrics!.SelectedToolCount);
+        Assert.Equal(2, handler.RequestCount);
     }
 
     [Fact]

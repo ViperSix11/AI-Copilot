@@ -25,9 +25,11 @@ Explicitly out of Phase A are full static-map indexing, runtime terrain-object
 scans and observation-fusion operational memory. SQLite current-state mirroring,
 selected weather/loadout/task/marker state and own-side contact aggregation are
 defined by the parent release specification. Still deferred are proactive
-contact reports, empty-object perception, player-report memory, ACE,
-ballistics, routes, landing-zone analysis, support execution, always-on audio,
-wake words, VAD, and streaming STT/TTS.
+contact reports, empty-object perception, player-report memory, ACE, routes,
+landing-zone analysis, support execution, always-on audio, wake words, VAD and
+streaming STT/TTS. Phase A itself added no ballistics or global hotkey; the
+later parent release patch narrowly authorizes the Vanilla-config solver and
+registered press-and-hold PTT defined there.
 
 ## Existing implementation and official-command audit
 

@@ -104,30 +104,28 @@ public sealed class VoiceInteractionService : IDisposable
             cancellationToken.ThrowIfCancellationRequested();
 
             progress?.Report(VoiceStage.Thinking);
-            Task acknowledgementSpeech = Task.CompletedTask;
             Models.AssistantResponse answer = await _assistantTurns.SubmitUserTurnAsync(
                 transcript,
                 UserTurnSource.Spoken,
-                acknowledgement =>
+                (acknowledgement, preparationToken) =>
                 {
                     acknowledgementReady(acknowledgement);
-                    acknowledgementSpeech = SpeakAcknowledgementAsync(
+                    return SpeakAcknowledgementAsync(
                         acknowledgement,
                         settings,
                         progress,
+                        preparationToken,
                         cancellationToken);
                 },
+                answerReady,
                 cancellationToken).ConfigureAwait(false);
-            answerReady(answer);
-            cancellationToken.ThrowIfCancellationRequested();
-            await acknowledgementSpeech.ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
 
             progress?.Report(VoiceStage.GeneratingVoice);
             try
             {
                 audio = await _textToSpeech.SynthesizeAsync(
-                    CallsignSpeechFormatter.FormatAnswerForSpeech(answer.Text, answer.GroupCallsign),
+                    RadioSpeechTextNormalizer.Normalize(answer.Text, answer.GroupCallsign),
                     settings.ElevenLabsApiKey,
                     settings.ElevenLabsVoiceId,
                     cancellationToken).ConfigureAwait(false);
@@ -255,7 +253,8 @@ public sealed class VoiceInteractionService : IDisposable
         RadioAcknowledgement acknowledgement,
         VoiceProviderSettings settings,
         IProgress<VoiceStage>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken preparationToken,
+        CancellationToken turnToken)
     {
         AudioPayload? audio = null;
         try
@@ -271,11 +270,12 @@ public sealed class VoiceInteractionService : IDisposable
                     acknowledgement.SpokenText,
                     settings.ElevenLabsApiKey,
                     settings.ElevenLabsVoiceId,
-                    cancellationToken).ConfigureAwait(false);
+                    preparationToken).ConfigureAwait(false);
                 CacheAcknowledgement(acknowledgement.SpokenText, audio);
             }
+            preparationToken.ThrowIfCancellationRequested();
             progress?.Report(VoiceStage.Speaking);
-            await _playback.PlayAsync(audio, cancellationToken).ConfigureAwait(false);
+            await _playback.PlayAsync(audio, turnToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {

@@ -6,4 +6,5 @@ public sealed class AppSettings
     public string ElevenLabsApiKeyProtected { get; set; } = string.Empty;
     public string ElevenLabsVoiceId { get; set; } = string.Empty;
     public ResponseProfileSettings ResponseProfile { get; set; } = new();
+    public GlobalPushToTalkHotkey GlobalPushToTalkHotkey { get; set; } = GlobalPushToTalkHotkey.Default;
 }

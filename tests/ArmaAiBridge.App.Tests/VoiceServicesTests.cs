@@ -388,7 +388,7 @@ public sealed class VoiceServicesTests
         Assert.Equal("Papa Bear, welche Position habe ich?", result.Transcript);
         Assert.Equal(new[] { "Papa Bear, welche Position habe ich?" }, visibleTranscripts);
         Assert.Equal(new[] { "Altis, grid 123456." }, visibleAnswers);
-        Assert.Equal(new[] { "Altis, grid 123456." }, synthesis.Texts);
+        Assert.Equal(new[] { "Altis, grid one hundred twenty-three thousand four hundred fifty-six." }, synthesis.Texts);
         Assert.Equal(1, playback.CallCount);
         Assert.True(result.SpeechSucceeded);
         Assert.Equal(new[] { VoiceStage.Transcribing, VoiceStage.Thinking, VoiceStage.GeneratingVoice, VoiceStage.Speaking, VoiceStage.Ready }, stages);
@@ -561,7 +561,7 @@ public sealed class VoiceServicesTests
             answer => visible.Add(answer.Text), TestContext.Current.CancellationToken);
 
         Assert.Equal(new[] { "Position confirmed. Over." }, visible);
-        Assert.Equal(new[] { "Papa Bear copies. Stand by.", "Position confirmed. Over." }, synthesis.Texts);
+        Assert.Equal(new[] { "Position confirmed. Over." }, synthesis.Texts);
         Assert.Equal("Position confirmed. Over.", result.Answer.Text);
         Assert.Equal(1, handler.RequestCount);
         result.Audio?.Dispose();

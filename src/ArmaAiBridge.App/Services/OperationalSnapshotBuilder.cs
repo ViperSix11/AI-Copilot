@@ -32,14 +32,32 @@ public sealed class OperationalSnapshotBuilder
             ["knownContacts"] = KnownContacts(),
             ["tasks"] = Tasks(player.PositionAtl),
             ["markers"] = Markers(player.PositionAtl),
-            ["capabilities"] = new
-            {
-                terrainObjectQuery = true,
-                officialNamedLocations = gazetteer.Readiness is MapGazetteerReadiness.Ready or MapGazetteerReadiness.Empty,
-                friendlyForcePicture = true,
-                validatedBallisticSolver = false,
-                supportExecution = false
-            }
+            ["capabilities"] = Capabilities(gazetteer, _repository.GetLoadout()?.BallisticProfile)
+        };
+    }
+
+    private static object Capabilities(MapGazetteerSnapshot gazetteer, StateBallisticProfile? profile)
+    {
+        Dictionary<string, object?> ballistics = new(StringComparer.Ordinal)
+        {
+            ["available"] = profile?.Available == true,
+            ["model"] = "arma-vanilla-config",
+            ["windCorrectionAvailable"] = false
+        };
+        if (profile is null) ballistics["reason"] = "missing_ballistic_config";
+        else
+        {
+            if (!profile.Available) ballistics["reason"] = string.IsNullOrWhiteSpace(profile.Reason) ? "missing_ballistic_config" : profile.Reason;
+            if (!string.IsNullOrWhiteSpace(profile.SupportedProjectileType))
+                ballistics["supportedProjectileType"] = profile.SupportedProjectileType;
+        }
+        return new
+        {
+            terrainObjectQuery = true,
+            officialNamedLocations = gazetteer.Readiness is MapGazetteerReadiness.Ready or MapGazetteerReadiness.Empty,
+            friendlyForcePicture = true,
+            ballistics,
+            supportExecution = false
         };
     }
 

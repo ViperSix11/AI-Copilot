@@ -246,6 +246,9 @@ public sealed class WorldSnapshotBuilder
     public string GetCurrentGroupCallsign()
         => _stateRepository?.GetPlayer()?.GroupCallsign ?? string.Empty;
 
+    public StateBallisticProfile? GetCurrentBallisticProfile()
+        => _stateRepository?.GetLoadout()?.BallisticProfile;
+
     private string BuildMirroredFriendlyForces(JsonElement arguments)
     {
         string entityType = ReadEnum(arguments, "entityType", "group", "unit", "vehicle", "all");

@@ -31,11 +31,21 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private readonly Button _holdToTalk = new() { Content = "Hold to Talk", MinWidth = 130, ToolTip = "Press and hold while speaking; release to submit." };
     private readonly Button _replay = new() { Content = "Replay Last Answer", MinWidth = 145, IsEnabled = false };
     private readonly Button _cancel = new() { Content = "Cancel", MinWidth = 100, IsEnabled = false };
+    private readonly CheckBox _globalPttEnabled = new() { Content = "Enable global push-to-talk" };
+    private readonly TextBlock _globalPttHotkey = new() { Text = "Hotkey: Shift + Space" };
+    private readonly TextBlock _globalPttStatus = new() { Text = "Status: Initializing", TextWrapping = TextWrapping.Wrap };
+    private readonly Button _changeGlobalPtt = new() { Content = "Change hotkey", MinWidth = 120 };
+    private readonly Button _resetGlobalPtt = new() { Content = "Reset to default", MinWidth = 120 };
     private CancellationTokenSource? _activeRequest;
     private Button? _heldButton;
     private AudioPayload? _lastAnswerAudio;
     private string? _lastAnswerText;
     private string? _lastAnswerSpeechText;
+    private GlobalPushToTalkController? _globalPtt;
+    private GlobalPushToTalkHotkey _globalPttBinding = GlobalPushToTalkHotkey.Default;
+    private bool _capturingGlobalHotkey;
+    private bool _globalPttLoaded;
+    private bool _updatingGlobalPttUi;
     private bool _disposed;
 
     public AssistantPanel(
@@ -56,7 +66,9 @@ public sealed class AssistantPanel : UserControl, IDisposable
             BuildSnapshot,
             LoadOpenAiSettingsAsync,
             ExecuteToolAsync,
-            _snapshots.GetCurrentGroupCallsign);
+            _snapshots.GetCurrentGroupCallsign,
+            ballisticProfileFactory: _snapshots.GetCurrentBallisticProfile,
+            contextualExecuteTool: ExecuteToolAsync);
         _voice = new VoiceInteractionService(
             new OpenAiSpeechToTextService(),
             _turns,
@@ -72,6 +84,12 @@ public sealed class AssistantPanel : UserControl, IDisposable
         AttachHoldAction(_testMicrophone, CapturePurpose.MicrophoneTest);
         AttachHoldAction(_testTranscription, CapturePurpose.TranscriptionTest);
         AttachHoldAction(_holdToTalk, CapturePurpose.AssistantTurn);
+        Loaded += AssistantPanel_Loaded;
+        PreviewKeyDown += AssistantPanel_PreviewKeyDown;
+        _globalPttEnabled.Checked += GlobalPttEnabled_Changed;
+        _globalPttEnabled.Unchecked += GlobalPttEnabled_Changed;
+        _changeGlobalPtt.Click += ChangeGlobalPtt_Click;
+        _resetGlobalPtt.Click += ResetGlobalPtt_Click;
     }
 
     private UIElement BuildUi()
@@ -137,6 +155,28 @@ public sealed class AssistantPanel : UserControl, IDisposable
         voiceActions.Children.Add(_replay);
         bottom.Children.Add(voiceActions);
 
+        StackPanel globalPtt = new() { Margin = new Thickness(0, 12, 0, 0) };
+        globalPtt.Children.Add(new TextBlock
+        {
+            Text = "Global push-to-talk",
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 4)
+        });
+        globalPtt.Children.Add(_globalPttEnabled);
+        globalPtt.Children.Add(_globalPttHotkey);
+        WrapPanel globalActions = new() { Margin = new Thickness(0, 4, 0, 0) };
+        globalActions.Children.Add(_changeGlobalPtt);
+        globalActions.Children.Add(_resetGlobalPtt);
+        globalPtt.Children.Add(globalActions);
+        globalPtt.Children.Add(_globalPttStatus);
+        globalPtt.Children.Add(new TextBlock
+        {
+            Text = "The registered combination is reserved globally while the Bridge is running.",
+            Foreground = Resource<Brush>("MutedTextBrush"),
+            TextWrapping = TextWrapping.Wrap
+        });
+        bottom.Children.Add(globalPtt);
+
         _voiceStage.Margin = new Thickness(0, 8, 0, 0);
         bottom.Children.Add(_voiceStage);
         _status.Margin = new Thickness(0, 4, 0, 0);
@@ -170,24 +210,26 @@ public sealed class AssistantPanel : UserControl, IDisposable
         };
     }
 
-    private async Task BeginCaptureAsync(Button button, CapturePurpose purpose)
+    private async Task<bool> BeginCaptureAsync(Button? button, CapturePurpose purpose)
     {
-        if (_activeRequest is not null || _disposed) return;
+        if (_activeRequest is not null || _disposed) return false;
         try
         {
             _activeRequest = new CancellationTokenSource();
             _heldButton = button;
-            button.CaptureMouse();
+            button?.CaptureMouse();
             SetOperationBusy(true);
             SetVoiceStage(VoiceStage.Recording);
             _status.Text = "Release the button to stop recording.";
             Task<IAudioRecording> recording = _capture.BeginAsync(_activeRequest.Token);
             _ = ObserveCaptureAsync(recording, purpose, _activeRequest);
+            return true;
         }
         catch (Exception exception)
         {
             HandleVoiceFailure(exception);
             FinishOperation();
+            return false;
         }
     }
 
@@ -208,6 +250,13 @@ public sealed class AssistantPanel : UserControl, IDisposable
             {
                 if (!ReferenceEquals(request, _activeRequest)) return;
                 request.Token.ThrowIfCancellationRequested();
+                if (purpose == CapturePurpose.AssistantTurn && !PushToTalkRecordingPolicy.ShouldSubmit(recording.Duration))
+                {
+                    SetVoiceStage(VoiceStage.Ready);
+                    _status.Text = "Ready.";
+                    _log.Info($"Push-to-talk recording cancelled: durationMs={(long)recording.Duration.TotalMilliseconds}, cancelledAsShortPress=true.");
+                    return;
+                }
                 Progress<VoiceStage> progress = new(SetVoiceStage);
                 switch (purpose)
                 {
@@ -278,9 +327,13 @@ public sealed class AssistantPanel : UserControl, IDisposable
             AssistantResponse response = await _turns.SubmitUserTurnAsync(
                 question,
                 UserTurnSource.Typed,
-                acknowledgement => Dispatcher.Invoke(() => ShowAcknowledgement(acknowledgement)),
+                (acknowledgement, _) =>
+                {
+                    Dispatcher.Invoke(() => ShowAcknowledgement(acknowledgement));
+                    return Task.CompletedTask;
+                },
+                response => Dispatcher.Invoke(() => CommitVisibleAnswer(response)),
                 _activeRequest.Token);
-            CommitVisibleAnswer(response);
             _status.Text = FormatCompletion(response);
             SetVoiceStage(VoiceStage.Ready);
             LogCompletion("Typed", response);
@@ -412,6 +465,18 @@ public sealed class AssistantPanel : UserControl, IDisposable
             _ => Task.FromException<string>(new InvalidOperationException("Unsupported local tool."))
         };
 
+    private Task<string> ExecuteToolAsync(
+        string name,
+        JsonElement arguments,
+        AssistantToolContext context,
+        CancellationToken cancellationToken)
+        => name switch
+        {
+            "calculate_firing_solution" => new BallisticToolService(_queries.QueryTerrainHeightAslAsync)
+                .CalculateAsync(arguments, context.BallisticProfile, cancellationToken),
+            _ => ExecuteToolAsync(name, arguments, cancellationToken)
+        };
+
     private void Append(string speaker, string text)
     {
         if (_conversation.Text.Length > 0) _conversation.AppendText(Environment.NewLine + Environment.NewLine);
@@ -439,7 +504,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
     {
         Append("Papa Bear", response.Text);
         _lastAnswerText = response.Text;
-        _lastAnswerSpeechText = CallsignSpeechFormatter.FormatAnswerForSpeech(
+        _lastAnswerSpeechText = RadioSpeechTextNormalizer.Normalize(
             response.Text,
             response.GroupCallsign);
         _lastAnswerAudio?.Dispose();
@@ -473,6 +538,8 @@ public sealed class AssistantPanel : UserControl, IDisposable
         _holdToTalk.IsEnabled = !busy;
         if (busy && _heldButton is not null) _heldButton.IsEnabled = true;
         _replay.IsEnabled = !busy && !string.IsNullOrWhiteSpace(_lastAnswerText);
+        _changeGlobalPtt.IsEnabled = !busy || _globalPtt?.IsRecording == true;
+        _resetGlobalPtt.IsEnabled = !busy || _globalPtt?.IsRecording == true;
     }
 
     private void FinishOperation()
@@ -482,6 +549,152 @@ public sealed class AssistantPanel : UserControl, IDisposable
         _activeRequest?.Dispose();
         _activeRequest = null;
         SetOperationBusy(false);
+    }
+
+    private async void AssistantPanel_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (_globalPttLoaded || _disposed) return;
+        _globalPttLoaded = true;
+        try
+        {
+            AppSettings settings = await _settings.LoadAsync();
+            _globalPttBinding = settings.GlobalPushToTalkHotkey ?? GlobalPushToTalkHotkey.Default;
+            try { _globalPttBinding.Validate(); }
+            catch { _globalPttBinding = GlobalPushToTalkHotkey.Default; }
+            Window window = Window.GetWindow(this) ?? throw new InvalidOperationException("The application window is unavailable.");
+            _globalPtt = new GlobalPushToTalkController(
+                new WindowsGlobalHotkeyService(window),
+                new WindowsKeyStateService(),
+                BeginGlobalPushToTalkAsync,
+                _ => _capture.ReleaseAsync());
+            _globalPtt.StatusChanged += GlobalPtt_StatusChanged;
+            SetGlobalPttChecked(_globalPttBinding.Enabled);
+            UpdateGlobalPttBindingText();
+            GlobalHotkeyRegistrationResult result = _globalPtt.Configure(_globalPttBinding);
+            UpdateGlobalPttStatus(result);
+        }
+        catch (Exception exception)
+        {
+            _globalPttStatus.Text = "Status: Registration failed";
+            _log.Warn($"Global PTT initialization failed: {exception.GetType().Name}.");
+        }
+    }
+
+    private Task<bool> BeginGlobalPushToTalkAsync(GlobalPushToTalkHotkey binding, CancellationToken cancellationToken)
+    {
+        if (Dispatcher.CheckAccess()) return BeginGlobalPushToTalkOnUiAsync();
+        return Dispatcher.InvokeAsync(BeginGlobalPushToTalkOnUiAsync).Task.Unwrap();
+
+        async Task<bool> BeginGlobalPushToTalkOnUiAsync()
+        {
+            if (_activeRequest is not null)
+            {
+                _status.Text = "Voice operation already active.";
+                return false;
+            }
+            _log.Info("Global PTT activated: hotkeyActivationSource=registered-hotkey.");
+            return await BeginCaptureAsync(null, CapturePurpose.AssistantTurn);
+        }
+    }
+
+    private void GlobalPtt_StatusChanged(object? sender, GlobalHotkeyRegistrationResult result)
+    {
+        if (!Dispatcher.CheckAccess()) { _ = Dispatcher.BeginInvoke(() => UpdateGlobalPttStatus(result)); return; }
+        UpdateGlobalPttStatus(result);
+    }
+
+    private void UpdateGlobalPttStatus(GlobalHotkeyRegistrationResult result)
+    {
+        _globalPttStatus.Text = $"Status: {result.Message}";
+        _log.Info($"Global PTT status: enabled={_globalPttBinding.Enabled}, registered={result.Registered}, result={result.Code}.");
+    }
+
+    private void UpdateGlobalPttBindingText() => _globalPttHotkey.Text = $"Hotkey: {_globalPttBinding.DisplayName}";
+
+    private async void GlobalPttEnabled_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_updatingGlobalPttUi || !_globalPttLoaded || _globalPtt is null) return;
+        await SaveAndApplyGlobalPttAsync(
+            _globalPttBinding with { Enabled = _globalPttEnabled.IsChecked == true });
+    }
+
+    private void ChangeGlobalPtt_Click(object sender, RoutedEventArgs e)
+    {
+        if (_globalPtt is null || (_activeRequest is not null && !_globalPtt.IsRecording)) return;
+        _capturingGlobalHotkey = true;
+        _globalPtt.Suspend();
+        _globalPttStatus.Text = "Status: Press the desired key combination… (Escape cancels)";
+        Focus();
+        Keyboard.Focus(this);
+    }
+
+    private async void ResetGlobalPtt_Click(object sender, RoutedEventArgs e)
+    {
+        if (_globalPtt is null) return;
+        _capturingGlobalHotkey = false;
+        SetGlobalPttChecked(true);
+        await SaveAndApplyGlobalPttAsync(GlobalPushToTalkHotkey.Default);
+    }
+
+    private async void AssistantPanel_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (!_capturingGlobalHotkey || _globalPtt is null) return;
+        e.Handled = true;
+        Key key = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (key == Key.Escape)
+        {
+            _capturingGlobalHotkey = false;
+            UpdateGlobalPttStatus(_globalPtt.Resume());
+            return;
+        }
+        if (key is Key.LeftShift or Key.RightShift or Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt or Key.LWin or Key.RWin)
+            return;
+        GlobalHotkeyModifiers modifiers = GlobalHotkeyModifiers.None;
+        ModifierKeys active = Keyboard.Modifiers;
+        if (active.HasFlag(ModifierKeys.Shift)) modifiers |= GlobalHotkeyModifiers.Shift;
+        if (active.HasFlag(ModifierKeys.Control)) modifiers |= GlobalHotkeyModifiers.Control;
+        if (active.HasFlag(ModifierKeys.Alt)) modifiers |= GlobalHotkeyModifiers.Alt;
+        if (active.HasFlag(ModifierKeys.Windows)) modifiers |= GlobalHotkeyModifiers.Windows;
+        GlobalPushToTalkHotkey candidate = new(true, modifiers, KeyInterop.VirtualKeyFromKey(key));
+        try { candidate.Validate(); }
+        catch (InvalidOperationException exception)
+        {
+            _capturingGlobalHotkey = false;
+            _globalPtt.Resume();
+            _globalPttStatus.Text = $"Status: {exception.Message}";
+            return;
+        }
+        _capturingGlobalHotkey = false;
+        SetGlobalPttChecked(true);
+        await SaveAndApplyGlobalPttAsync(candidate);
+    }
+
+    private async Task SaveAndApplyGlobalPttAsync(GlobalPushToTalkHotkey binding)
+    {
+        try
+        {
+            AppSettings settings = await _settings.LoadAsync();
+            settings.GlobalPushToTalkHotkey = binding;
+            await _settings.SaveAsync(settings);
+            _globalPttBinding = binding;
+            SetGlobalPttChecked(binding.Enabled);
+            UpdateGlobalPttBindingText();
+            if (_globalPtt is not null) UpdateGlobalPttStatus(_globalPtt.Configure(binding));
+        }
+        catch (Exception exception)
+        {
+            if (_globalPtt is not null) _globalPtt.Resume();
+            SetGlobalPttChecked(_globalPttBinding.Enabled);
+            _globalPttStatus.Text = "Status: Could not save the hotkey setting.";
+            _log.Warn($"Global PTT setting save failed: {exception.GetType().Name}.");
+        }
+    }
+
+    private void SetGlobalPttChecked(bool value)
+    {
+        _updatingGlobalPttUi = true;
+        try { _globalPttEnabled.IsChecked = value; }
+        finally { _updatingGlobalPttUi = false; }
     }
 
     private void HandleAssistantFailure(Exception exception)
@@ -506,7 +719,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
         AssistantRequestMetrics? metrics = response.RequestMetrics;
         string requestMetrics = metrics is null
             ? string.Empty
-            : $", snapshotBytes={metrics.SnapshotUtf8Bytes}, sectionCounts={string.Join("|", metrics.SectionRecordCounts.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => $"{item.Key}:{item.Value}"))}, historyMessages={metrics.HistoryMessageCount}, historyCharacters={metrics.HistoryCharacterCount}, selectedTools={metrics.SelectedToolCount}, acknowledgement={metrics.AcknowledgementVariationId}, latencyMs={metrics.ResponseLatencyMilliseconds}";
+            : $", snapshotBytes={metrics.SnapshotUtf8Bytes}, sectionCounts={string.Join("|", metrics.SectionRecordCounts.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => $"{item.Key}:{item.Value}"))}, historyMessages={metrics.HistoryMessageCount}, historyCharacters={metrics.HistoryCharacterCount}, selectedTools={metrics.SelectedToolCount}, acknowledgementEligible={metrics.AcknowledgementEligible}, acknowledgementEmitted={metrics.AcknowledgementEmitted}, acknowledgementThresholdMs={metrics.AcknowledgementThresholdMilliseconds}, acknowledgementVariation={metrics.AcknowledgementVariationId}, answerTextLatencyMs={metrics.AnswerTextLatencyMilliseconds}, responseLatencyMs={metrics.ResponseLatencyMilliseconds}, retryPerformed={metrics.RetryPerformed}, initialIncompleteReason={metrics.InitialIncompleteReason}";
         _log.Info($"{source} assistant text completed: model={response.Model}, tools={response.ToolCalls}, inputTokens={response.InputTokens}, outputTokens={response.OutputTokens}, reasoningTokens={response.ReasoningTokens}{requestMetrics}.");
     }
 
@@ -520,6 +733,12 @@ public sealed class AssistantPanel : UserControl, IDisposable
         _lastAnswerAudio?.Dispose();
         _lastAnswerText = null;
         _lastAnswerSpeechText = null;
+        if (_globalPtt is not null)
+        {
+            _globalPtt.StatusChanged -= GlobalPtt_StatusChanged;
+            _globalPtt.Dispose();
+            _globalPtt = null;
+        }
         _voice.Dispose();
         _turns.Dispose();
         _queries.Dispose();

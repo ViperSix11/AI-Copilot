@@ -16,7 +16,9 @@
       "properties": {
         "query": { "type": "object" },
         "categories": { "type": "object" },
-        "analysis": { "type": "object" }
+        "analysis": { "type": "object" },
+        "position": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number" } },
+        "terrainHeightAslMeters": { "type": "number", "minimum": -1000, "maximum": 10000 }
       },
       "additionalProperties": true
     }

@@ -17,4 +17,10 @@ public sealed record AssistantRequestMetrics(
     int HistoryCharacterCount,
     int SelectedToolCount,
     long ResponseLatencyMilliseconds,
-    string AcknowledgementVariationId = "");
+    string AcknowledgementVariationId = "",
+    bool AcknowledgementEligible = false,
+    bool AcknowledgementEmitted = false,
+    int AcknowledgementThresholdMilliseconds = 0,
+    long AnswerTextLatencyMilliseconds = 0,
+    bool RetryPerformed = false,
+    string InitialIncompleteReason = "");

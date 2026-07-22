@@ -54,15 +54,17 @@ For requests:
 
 For firing solutions:
 
-Release 0.8 has no validated ballistic solver. The following dialogue shape is
-reserved for a later milestone and must not be used to estimate or fabricate a
-firing solution in the current product.
+Release 0.8 has one validated deterministic Vanilla-config solver for supported
+unpowered bullet/shell profiles. It is available only after an explicit firing
+request invokes `calculate_firing_solution`; Papa Bear must never estimate the
+trajectory itself or use it as real-world advice.
 
 1. read back range and bearing;
 2. identify weapon, ammunition and optic when ambiguity exists;
 3. state any assumed target elevation or atmospheric fallback;
-4. give elevation and windage in the optic's actual click unit plus MRAD/MOA reference;
-5. optionally give time of flight, transonic status and confidence;
+4. give signed elevation correction in degrees/milliradians and plain hold
+   direction; give no optic clicks or horizontal wind hold in this release;
+5. optionally give time of flight, impact velocity and terrain-point assumption;
 6. never guess missing deterministic values.
 
 ## Conversation memory

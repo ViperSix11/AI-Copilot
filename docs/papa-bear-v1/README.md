@@ -28,7 +28,9 @@ The 0.8 milestone adds one bounded unified state snapshot, a local SQLite
 current-state mirror, one fixed compact multi-domain operational prompt,
 official named-place interpretation, dynamic Arma player-group callsigns,
 local two-stage radio acknowledgement and response profiles. Complete
-collections stay local and the existing single Responses turn remains unchanged.
+collections stay local. The release patch adds conditional delayed
+acknowledgements, deterministic Vanilla-config firing solutions, speech-safe
+English, one bounded max-token retry and configurable global press-and-hold PTT.
 
 ## Active architectural decisions
 
@@ -43,12 +45,13 @@ collections stay local and the existing single Responses turn remains unchanged.
 - Failed TTS or playback must never discard a completed transcript or answer.
 - Arma supplies measured facts; local services calculate spatial relations; one
   existing Responses request supplies natural language; ElevenLabs speaks the
-  final visible answer with only deterministic speech pronunciation of the
-  current Arma callsign permitted to differ.
+  final visible answer with only deterministic speech pronunciation of numbers,
+  units and the current Arma callsign permitted to differ.
 - Tools remain bounded, typed, locally validated and read-only until a later
   milestone explicitly introduces an authorized action.
-- ACE, ballistics, routes, support execution, observation-fusion memory, full
-  map indexing and proactive notifications are deferred.
+- ACE integration, routes, support execution, observation-fusion memory, full
+  map indexing and proactive notifications are deferred. Release 0.8 supports
+  only the explicitly bounded deterministic Vanilla-config ballistic solver.
 
 ## Active documents
 

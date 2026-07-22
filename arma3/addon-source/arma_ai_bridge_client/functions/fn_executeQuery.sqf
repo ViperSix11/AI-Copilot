@@ -40,6 +40,26 @@ switch (_command) do
         _response set ["ok", true];
         _response set ["result", _result];
     };
+    case "query_terrain_height":
+    {
+        private _position = _parameters getOrDefault ["position", []];
+        if !(_position isEqualType [] && { count _position isEqualTo 2 } && { (_position select 0) isEqualType 0 } && { (_position select 1) isEqualType 0 }) then
+        {
+            _response set ["ok", false];
+            _response set ["error", "Position must contain two finite map coordinates."];
+        }
+        else
+        {
+            private _x = (_position select 0) max -10000000 min 10000000;
+            private _y = (_position select 1) max -10000000 min 10000000;
+            _response set ["ok", true];
+            _response set ["result", createHashMapFromArray
+            [
+                ["position", [_x, _y]],
+                ["terrainHeightAslMeters", getTerrainHeightASL [_x, _y]]
+            ]];
+        };
+    };
     case "request_map_gazetteer":
     {
         [_requestId] spawn AAB_fnc_publishMapGazetteer;

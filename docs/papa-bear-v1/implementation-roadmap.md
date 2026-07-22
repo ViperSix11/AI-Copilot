@@ -65,6 +65,8 @@ active dependencies:
 - player-report or persistent operational memory;
 - empty vehicles and tactical-object perception;
 - full static map indexing or a spatial database;
-- ACE/CBA integration and deterministic ballistics;
+- ACE/CBA integration and advanced ballistics; release 0.8 contains only its
+  explicitly bounded deterministic Vanilla-config solver;
 - routes, landing-zone evaluation and support execution;
-- always-on/streaming voice, global hotkeys and release hardening.
+- always-on/streaming voice and audio effects; release 0.8 includes only its
+  registered configurable global press-and-hold hotkey.

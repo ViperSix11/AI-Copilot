@@ -30,7 +30,6 @@ public sealed class ArmaQueryCoordinator : IDisposable
         int limit = (int)ReadNumber(arguments, "maxResultsPerCategory", 1, 50, integer: true);
         string[] categories = ReadCategories(arguments);
 
-        string requestId = Guid.NewGuid().ToString("N");
         Dictionary<string, object> parameters = new()
         {
             ["origin"] = "player",
@@ -42,11 +41,35 @@ public sealed class ArmaQueryCoordinator : IDisposable
         };
         if (shape == "cone") parameters["angleDegrees"] = angle;
 
+        return await SendQueryAsync("query_environment", parameters, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<double> QueryTerrainHeightAslAsync(double x, double y, CancellationToken cancellationToken)
+    {
+        if (!double.IsFinite(x) || !double.IsFinite(y) || Math.Abs(x) > 10_000_000 || Math.Abs(y) > 10_000_000)
+            throw new InvalidOperationException("Terrain query position is outside supported bounds.");
+        string json = await SendQueryAsync("query_terrain_height", new Dictionary<string, object>
+        {
+            ["position"] = new[] { x, y }
+        }, cancellationToken).ConfigureAwait(false);
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement root = document.RootElement;
+        if (!root.TryGetProperty("ok", out JsonElement ok) || ok.ValueKind != JsonValueKind.True ||
+            !root.TryGetProperty("result", out JsonElement result) ||
+            !result.TryGetProperty("terrainHeightAslMeters", out JsonElement height) ||
+            height.ValueKind != JsonValueKind.Number || !height.TryGetDouble(out double value) || !double.IsFinite(value))
+            throw new InvalidOperationException("Arma returned an invalid terrain-height result.");
+        return value;
+    }
+
+    private async Task<string> SendQueryAsync(string commandName, object parameters, CancellationToken cancellationToken)
+    {
+        string requestId = Guid.NewGuid().ToString("N");
         string command = JsonSerializer.Serialize(new
         {
             schema = CommandSchema,
             requestId,
-            command = "query_environment",
+            command = commandName,
             parameters
         });
 
@@ -65,7 +88,7 @@ public sealed class ArmaQueryCoordinator : IDisposable
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new TimeoutException("Arma did not return the map query within 12 seconds.");
+                throw new TimeoutException("Arma did not return the local read query within 12 seconds.");
         }
         finally
         {

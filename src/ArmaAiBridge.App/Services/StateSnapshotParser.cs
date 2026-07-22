@@ -89,6 +89,18 @@ public static class StateSnapshotParser
                 ArrayLength(section, "magazineTotals", 0, 64); ArrayLength(section, "assignedItems", 0, 64);
                 foreach (string field in new[] { "grenadeCount", "throwableCount", "mineCount", "explosiveCount" })
                     RequiredInteger(section, field, 0, 10000);
+                JsonElement ballistic = section.GetProperty("ballisticProfile");
+                RequiredBoolean(ballistic, "available"); RequiredBoolean(ballistic, "advancedBallisticsDetected");
+                foreach (string field in new[] { "reason", "model", "supportedProjectileType", "weaponClass", "weaponDisplayName", "muzzleClass", "fireMode", "magazineClass", "magazineDisplayName", "ammunitionClass", "ammunitionDisplayName", "simulation" })
+                    RequiredString(ballistic, field, 256, allowEmpty: true);
+                RequiredInteger(ballistic, "loadedRounds", 0, 100000);
+                RequiredInteger(ballistic, "currentZeroingIndex", -1, 10000);
+                RequiredNumber(ballistic, "currentZeroingMeters", 0, 10000);
+                RequiredNumber(ballistic, "initialSpeedMetersPerSecond", 0, 10000);
+                RequiredNumber(ballistic, "airFriction", -10, 10);
+                RequiredNumber(ballistic, "gravityCoefficient", 0, 100);
+                RequiredNumber(ballistic, "typicalSpeedMetersPerSecond", 0, 10000);
+                Vector(ballistic, "shooterPositionASL");
                 break;
             case "friendlyForces":
                 ArrayLength(section, "groups", 0, 128); ArrayLength(section, "units", 0, 512);

@@ -167,6 +167,70 @@ private _runSection =
         ((primaryWeaponItems player) + (secondaryWeaponItems player) + (handgunItems player) + (binocularItems player));
     if ((count _attachments) > 32) then { _attachments resize 32; };
 
+    private _currentMagazine = currentMagazine player;
+    private _magazineConfig = configFile >> "CfgMagazines" >> _currentMagazine;
+    private _ammunitionClass = getText (_magazineConfig >> "ammo");
+    private _ammunitionConfig = configFile >> "CfgAmmo" >> _ammunitionClass;
+    private _ammunitionDisplayName = getText (_ammunitionConfig >> "displayName");
+    if (_ammunitionDisplayName isEqualTo "") then { _ammunitionDisplayName = getText (_ammunitionConfig >> "descriptionShort"); };
+    private _simulation = toLower (getText (_ammunitionConfig >> "simulation"));
+    private _magazineInitSpeed = getNumber (_magazineConfig >> "initSpeed");
+    private _weaponMuzzleConfig = configFile >> "CfgWeapons" >> _selected >> _muzzle;
+    if !(isClass _weaponMuzzleConfig) then { _weaponMuzzleConfig = configFile >> "CfgWeapons" >> _selected; };
+    private _weaponInitSpeed = if (isNumber (_weaponMuzzleConfig >> "initSpeed")) then
+        { getNumber (_weaponMuzzleConfig >> "initSpeed") } else { 0 };
+    private _effectiveInitSpeed = if (_weaponInitSpeed > 0) then
+        { _weaponInitSpeed }
+        else
+        { if (_weaponInitSpeed < 0) then { _magazineInitSpeed * abs _weaponInitSpeed } else { _magazineInitSpeed } };
+    private _airFriction = getNumber (_ammunitionConfig >> "airFriction");
+    private _typicalSpeed = getNumber (_ammunitionConfig >> "typicalSpeed");
+    private _gravityCoefficient = if (isNumber (_ammunitionConfig >> "coefGravity")) then
+        { getNumber (_ammunitionConfig >> "coefGravity") } else { 1 };
+    private _muzzleDevice = "";
+    private _weaponItems = if (_selected isEqualTo primaryWeapon player) then { primaryWeaponItems player } else
+        { if (_selected isEqualTo handgunWeapon player) then { handgunItems player } else
+            { if (_selected isEqualTo secondaryWeapon player) then { secondaryWeaponItems player } else { [] } } };
+    if ((count _weaponItems) > 0) then { _muzzleDevice = _weaponItems param [0, ""]; };
+    if !(_muzzleDevice isEqualTo "") then
+    {
+        private _itemInfo = configFile >> "CfgWeapons" >> _muzzleDevice >> "ItemInfo";
+        if (isNumber (_itemInfo >> "MagazineCoef" >> "initSpeed")) then
+            { _effectiveInitSpeed = _effectiveInitSpeed * getNumber (_itemInfo >> "MagazineCoef" >> "initSpeed"); };
+        if (isNumber (_itemInfo >> "AmmoCoef" >> "airFriction")) then
+            { _airFriction = _airFriction * getNumber (_itemInfo >> "AmmoCoef" >> "airFriction"); };
+        if (isNumber (_itemInfo >> "AmmoCoef" >> "typicalSpeed")) then
+            { _typicalSpeed = _typicalSpeed * getNumber (_itemInfo >> "AmmoCoef" >> "typicalSpeed"); };
+    };
+    private _zeroing = if (_selected isEqualTo "") then { [0, -1] } else { player currentZeroing [_selected, _muzzle] };
+    private _zeroingDistance = _zeroing param [0, 0];
+    private _zeroingIndex = _zeroing param [1, -1];
+    private _advancedBallistics = isClass (configFile >> "CfgPatches" >> "ace_advanced_ballistics");
+    private _submunition = getText (_ammunitionConfig >> "submunitionAmmo");
+    private _customAmmoHandlers = isClass (_ammunitionConfig >> "EventHandlers");
+    private _ballisticReason = "";
+    if (_selected isEqualTo "" || { _currentMagazine isEqualTo "" }) then { _ballisticReason = "no_current_weapon"; };
+    if (_ballisticReason isEqualTo "" && { _advancedBallistics }) then { _ballisticReason = "advanced_ballistics_mod_detected"; };
+    if (_ballisticReason isEqualTo "" && { !(_simulation in ["shotbullet", "shotshell"]) || { !(_submunition isEqualTo "") } || { getNumber (_ammunitionConfig >> "artilleryLock") > 0 } || { _customAmmoHandlers } }) then
+        { _ballisticReason = "unsupported_projectile"; };
+    if (_ballisticReason isEqualTo "" && { _effectiveInitSpeed <= 0 || { _airFriction > 0 } || { _gravityCoefficient <= 0 } || { _typicalSpeed <= 0 } }) then
+        { _ballisticReason = "missing_ballistic_config"; };
+    private _ballisticProfile = createHashMapFromArray
+    [
+        ["available", _ballisticReason isEqualTo ""], ["reason", _ballisticReason],
+        ["model", "arma-vanilla-config"],
+        ["supportedProjectileType", if (_simulation isEqualTo "shotbullet") then { "bullet" } else { if (_simulation isEqualTo "shotshell") then { "shell" } else { "" } }],
+        ["weaponClass", _selected], ["weaponDisplayName", getText (configFile >> "CfgWeapons" >> _selected >> "displayName")],
+        ["muzzleClass", _muzzle], ["fireMode", _fireMode],
+        ["magazineClass", _currentMagazine], ["magazineDisplayName", getText (_magazineConfig >> "displayName")],
+        ["ammunitionClass", _ammunitionClass], ["ammunitionDisplayName", _ammunitionDisplayName],
+        ["simulation", _simulation], ["loadedRounds", if (_muzzle isEqualTo "") then { 0 } else { player ammo _muzzle }],
+        ["currentZeroingMeters", _zeroingDistance], ["currentZeroingIndex", _zeroingIndex],
+        ["initialSpeedMetersPerSecond", _effectiveInitSpeed], ["airFriction", _airFriction],
+        ["gravityCoefficient", _gravityCoefficient], ["typicalSpeedMetersPerSecond", _typicalSpeed],
+        ["shooterPositionASL", eyePos player], ["advancedBallisticsDetected", _advancedBallistics]
+    ];
+
     private _containers = [];
     {
         _x params ["_name", "_container"];
@@ -186,7 +250,7 @@ private _runSection =
         ["handgun", handgunWeapon player], ["selectedWeapon", _selected],
         ["selectedWeaponDisplayName", getText (configFile >> "CfgWeapons" >> _selected >> "displayName")],
         ["muzzle", _muzzle], ["fireMode", _fireMode],
-        ["currentMagazine", currentMagazine player],
+        ["currentMagazine", _currentMagazine],
         ["loadedRounds", if (_muzzle isEqualTo "") then { 0 } else { player ammo _muzzle }],
         ["opticsAndAttachments", _attachments], ["binocular", binocular player],
         ["magazines", _magazines], ["magazineTotals", _magazineTotals],
@@ -194,7 +258,7 @@ private _runSection =
         ["mineCount", _mines], ["explosiveCount", _explosives],
         ["assignedItems", (assignedItems player) select [0, 64]],
         ["uniformClass", uniform player], ["vestClass", vest player], ["backpackClass", backpack player],
-        ["containerContents", _containers]
+        ["containerContents", _containers], ["ballisticProfile", _ballisticProfile]
     ];
     _value set ["loadoutHash", str (hashValue (toJSON _value))];
     ["loadout", _value] call _finish;
