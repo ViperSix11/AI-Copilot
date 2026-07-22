@@ -28,6 +28,14 @@ public sealed class SpeechServiceException : Exception
         return $"Voice operation failed: provider={Safe(speech.Provider)}, stage={Safe(speech.Stage)}{status}.";
     }
 
+    public static string FormatPartialSuccessForUser(Exception exception)
+    {
+        string safeError = exception is SpeechServiceException
+            ? exception.Message
+            : "Speech output could not be completed.";
+        return $"Answer completed, but speech output failed: {safeError}";
+    }
+
     private static string Safe(string value)
         => new(value.Where(character => char.IsLetterOrDigit(character) || character is '-' or '_').Take(40).ToArray());
 }

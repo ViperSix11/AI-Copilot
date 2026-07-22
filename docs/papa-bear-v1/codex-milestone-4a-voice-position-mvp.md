@@ -56,14 +56,16 @@ SubmitUserTurnAsync(text, source, cancellationToken)
   -> build a fresh current-situation snapshot
   -> call the existing OpenAI Responses service
   -> run the same bounded, typed, stateless local tool loop when selected
-  -> append one user turn and one Papa Bear answer to the conversation
+  -> append the final transcript as soon as STT succeeds
+  -> append one Papa Bear answer as soon as OpenAI succeeds
+  -> attempt speech synthesis and playback without owning text delivery
 ```
 
 `source` is local metadata (`typed` or `spoken`) used for UI behavior and
 tests. It does not select a different prompt, tool set, world snapshot, history,
-privacy policy, or reasoning service. Only a successfully completed spoken
-turn proceeds to TTS. Typed turns remain text-only unless Replay Last Answer is
-explicitly selected.
+privacy policy, or reasoning service. A successfully completed OpenAI turn
+proceeds to TTS, but TTS and playback cannot roll back the visible transcript,
+answer, or assistant history. Typed turns remain text-only.
 
 The position question must therefore be answered from the fresh snapshot, not
 from transcript text, UI telemetry labels, a second OpenAI prompt, or a new
@@ -153,9 +155,13 @@ contract.
 `IAudioPlaybackService` plays a WAV recording or synthesized MP3 on the default
 Windows output device. It permits one playback at a time. Starting another
 operation is rejected; Cancel stops playback and disposes decoder/device state.
-No synthesized file is persisted. The last successful synthesized payload is
-kept only in memory for **Replay Last Answer**, is replaced atomically by the
-next successful answer, and is cleared on panel disposal.
+No synthesized file is persisted. The last completed text answer is retained
+in the in-memory Assistant panel for explicit speech retry. A successfully
+synthesized payload is also kept in memory, including when its first playback
+fails, so **Replay Last Answer** can retry playback without another provider
+call. If synthesis failed, Replay retries synthesis from the already completed
+text answer without invoking AssemblyAI or OpenAI. Both values are replaced
+atomically by the next completed answer and cleared on panel disposal.
 
 Missing/invalid key, missing/invalid voice ID, 401/403, 404, 422, 429, provider
 5xx, network timeout, oversized/empty audio, decoder failure, missing output
@@ -191,14 +197,20 @@ Actions:
 - **Test Papa Bear Voice**: synthesize and play the fixed phrase only;
 - **Hold to Talk**: press/start and release/stop, then STT → shared assistant
   turn → TTS → playback;
-- **Replay Last Answer**: play the most recent in-memory TTS payload;
+- **Replay Last Answer**: replay the most recent in-memory TTS payload, or retry
+  synthesis from the last completed text answer when no payload exists;
 - **Cancel**: stop whichever recording, HTTP call, OpenAI/tool call, synthesis,
   or playback is active.
 
-The final transcript is appended once as the user's conversation turn and the
-final answer once as Papa Bear's turn. Partial text is never shown. Neither is
-written to Logs. Existing typed Ask and Clear Conversation behavior remains;
-Clear also resets the shared OpenAI history.
+The final transcript is appended once as the user's conversation turn
+immediately after AssemblyAI succeeds. The final answer is appended once as
+Papa Bear's turn immediately after OpenAI succeeds and before speech output is
+attempted. Partial STT or OpenAI text is never shown. If synthesis or playback
+fails, both completed text entries remain visible, assistant history remains
+committed, and status reads `Answer completed, but speech output failed: <safe
+provider error>`. Neither content nor the provider error body is written to
+Logs. Existing typed Ask and Clear Conversation behavior remains; Clear also
+resets the shared OpenAI history and last-answer speech retry state.
 
 ## Cancellation, timeouts, and overlap policy
 
@@ -213,7 +225,8 @@ Clear also resets the shared OpenAI history.
 - cancellation between stages is checked before the next provider call.
 
 No retry is automatic because upload, transcription, and synthesis may incur
-provider cost. The user may explicitly retry.
+provider cost. The user may explicitly retry speech for a completed answer;
+that retry never repeats AssemblyAI or OpenAI.
 
 ## Privacy, logging, and prompt boundary
 
@@ -242,7 +255,9 @@ The Windows test suite must prove:
 4. transcription test calls AssemblyAI once and does not call OpenAI or TTS;
 5. AssemblyAI upload/create/poll handles completed, error, malformed,
    credential, network, timeout, and cancellation responses deterministically;
-6. one final transcript is submitted and appended exactly once;
+6. one final transcript is submitted and appended exactly once immediately
+   after STT, and one final answer is appended exactly once immediately after
+   OpenAI;
 7. typed and spoken text enter the same `SubmitUserTurnAsync` implementation,
    take a fresh current-situation snapshot, and use the same OpenAI/tool path;
 8. a spoken position question supplies current map, grid, position, freshness,
@@ -252,14 +267,17 @@ The Windows test suite must prove:
 10. ElevenLabs authentication, URL escaping, model/output format, bounded audio,
     credential/voice/network/provider failures, and cancellation are correct;
 11. no overlapping capture, turn, synthesis, or playback is allowed;
-12. Replay uses only the last in-memory successful payload and Cancel works in
-    recording, transcribing, thinking, generating-voice, and speaking stages;
-13. test logs contain none of the seeded keys, audio markers, transcript,
+12. TTS failure and playback failure preserve the visible transcript, visible
+    answer, and committed assistant history while reporting partial success;
+13. Replay reuses retained audio after playback failure or retries synthesis
+    after TTS failure, without calling AssemblyAI or OpenAI again; Cancel works
+    in recording, transcribing, thinking, generating-voice, and speaking stages;
+14. test logs contain none of the seeded keys, audio markers, transcript,
     question, answer, snapshot, tool result, upload URL, transcript ID, or voice
     ID;
-14. all Milestones 1–3 ingestion, world-model, strict-tool, stateless-context,
+15. all Milestones 1–3 ingestion, world-model, strict-tool, stateless-context,
     cancellation, and privacy tests remain green;
-15. repository verification, Release tests, WPF win-x64 publish, native x64
+16. repository verification, Release tests, WPF win-x64 publish, native x64
     build, deterministic PBO packaging, and artifact-content verification pass.
 
 Audio-device tests use fakes in CI. Live hardware/provider behavior is covered

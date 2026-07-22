@@ -72,8 +72,12 @@ public sealed class VoiceInteractionService : IDisposable
     public async Task<VoiceTurnResult> RunVoiceTurnAsync(
         IAudioRecording recording,
         IProgress<VoiceStage>? progress,
+        Action<string> transcriptReady,
+        Action<Models.AssistantResponse> answerReady,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(transcriptReady);
+        ArgumentNullException.ThrowIfNull(answerReady);
         await EnterAsync(cancellationToken).ConfigureAwait(false);
         AudioPayload? audio = null;
         try
@@ -84,6 +88,7 @@ public sealed class VoiceInteractionService : IDisposable
                 recording,
                 settings.AssemblyAiApiKey,
                 cancellationToken).ConfigureAwait(false);
+            transcriptReady(transcript);
             cancellationToken.ThrowIfCancellationRequested();
 
             progress?.Report(VoiceStage.Thinking);
@@ -91,20 +96,39 @@ public sealed class VoiceInteractionService : IDisposable
                 transcript,
                 UserTurnSource.Spoken,
                 cancellationToken).ConfigureAwait(false);
+            answerReady(answer);
             cancellationToken.ThrowIfCancellationRequested();
 
             progress?.Report(VoiceStage.GeneratingVoice);
-            audio = await _textToSpeech.SynthesizeAsync(
-                answer.Text,
-                settings.ElevenLabsApiKey,
-                settings.ElevenLabsVoiceId,
-                cancellationToken).ConfigureAwait(false);
+            try
+            {
+                audio = await _textToSpeech.SynthesizeAsync(
+                    answer.Text,
+                    settings.ElevenLabsApiKey,
+                    settings.ElevenLabsVoiceId,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                progress?.Report(VoiceStage.Failed);
+                return new VoiceTurnResult(transcript, answer, null, exception);
+            }
             cancellationToken.ThrowIfCancellationRequested();
 
             progress?.Report(VoiceStage.Speaking);
-            await _playback.PlayAsync(audio, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await _playback.PlayAsync(audio, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                progress?.Report(VoiceStage.Failed);
+                VoiceTurnResult partial = new(transcript, answer, audio, exception);
+                audio = null;
+                return partial;
+            }
             progress?.Report(VoiceStage.Ready);
-            VoiceTurnResult result = new(transcript, answer, audio);
+            VoiceTurnResult result = new(transcript, answer, audio, null);
             audio = null;
             return result;
         }
@@ -144,20 +168,59 @@ public sealed class VoiceInteractionService : IDisposable
         }
     }
 
-    public async Task ReplayAsync(
-        AudioPayload audio,
+    public async Task<SpeechOutputResult> RetrySpeechAsync(
+        string text,
+        AudioPayload? reusableAudio,
         IProgress<VoiceStage>? progress,
         CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(text)) throw new InvalidOperationException("There is no text answer to speak.");
         await EnterAsync(cancellationToken).ConfigureAwait(false);
+        AudioPayload? createdAudio = null;
         try
         {
+            AudioPayload? audio = reusableAudio;
+            if (audio is null)
+            {
+                VoiceProviderSettings settings = await _settingsFactory(cancellationToken).ConfigureAwait(false);
+                progress?.Report(VoiceStage.GeneratingVoice);
+                try
+                {
+                    createdAudio = await _textToSpeech.SynthesizeAsync(
+                        text,
+                        settings.ElevenLabsApiKey,
+                        settings.ElevenLabsVoiceId,
+                        cancellationToken).ConfigureAwait(false);
+                    audio = createdAudio;
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    progress?.Report(VoiceStage.Failed);
+                    return new SpeechOutputResult(null, exception);
+                }
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
             progress?.Report(VoiceStage.Speaking);
-            await _playback.PlayAsync(audio, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await _playback.PlayAsync(audio, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                progress?.Report(VoiceStage.Failed);
+                SpeechOutputResult partial = new(audio, exception);
+                createdAudio = null;
+                return partial;
+            }
             progress?.Report(VoiceStage.Ready);
+            SpeechOutputResult result = new(audio, null);
+            createdAudio = null;
+            return result;
         }
         finally
         {
+            createdAudio?.Dispose();
             _operationGate.Release();
         }
     }

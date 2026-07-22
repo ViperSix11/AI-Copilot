@@ -291,20 +291,132 @@ public sealed class VoiceServicesTests
         using VoiceInteractionService voice = CreateVoice(speech, turns, synthesis, playback);
         Recording recording = new(Encoding.ASCII.GetBytes("RIFF-wave"));
         List<VoiceStage> stages = new();
+        List<string> visibleTranscripts = new();
+        List<string> visibleAnswers = new();
 
         VoiceTurnResult result = await voice.RunVoiceTurnAsync(
             recording,
             new InlineProgress<VoiceStage>(stages.Add),
+            visibleTranscripts.Add,
+            answer => visibleAnswers.Add(answer.Text),
             TestContext.Current.CancellationToken);
 
         Assert.Equal(1, speech.CallCount);
         Assert.Single(turns.Calls);
         Assert.Equal(UserTurnSource.Spoken, turns.Calls[0].Source);
         Assert.Equal("Papa Bear, welche Position habe ich?", result.Transcript);
+        Assert.Equal(new[] { "Papa Bear, welche Position habe ich?" }, visibleTranscripts);
+        Assert.Equal(new[] { "Altis, grid 123456." }, visibleAnswers);
         Assert.Equal(new[] { "Altis, grid 123456." }, synthesis.Texts);
         Assert.Equal(1, playback.CallCount);
+        Assert.True(result.SpeechSucceeded);
         Assert.Equal(new[] { VoiceStage.Transcribing, VoiceStage.Thinking, VoiceStage.GeneratingVoice, VoiceStage.Speaking, VoiceStage.Ready }, stages);
-        result.Audio.Dispose();
+        result.Audio!.Dispose();
+    }
+
+    [Fact]
+    public async Task VoiceTurn_TtsFailurePreservesVisibleTranscriptAndAnswer()
+    {
+        FakeSpeechToText speech = new("visible transcript");
+        FakeTurnService turns = new(new AssistantResponse("visible answer", "model", 0, 0, 0));
+        FailingTextToSpeech synthesis = new();
+        FakePlayback playback = new();
+        using VoiceInteractionService voice = CreateVoice(speech, turns, synthesis, playback);
+        List<string> transcripts = new();
+        List<string> answers = new();
+
+        VoiceTurnResult result = await voice.RunVoiceTurnAsync(
+            new Recording(Encoding.ASCII.GetBytes("wave")),
+            null,
+            transcripts.Add,
+            answer => answers.Add(answer.Text),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(new[] { "visible transcript" }, transcripts);
+        Assert.Equal(new[] { "visible answer" }, answers);
+        Assert.Equal("visible transcript", result.Transcript);
+        Assert.Equal("visible answer", result.Answer.Text);
+        Assert.False(result.SpeechSucceeded);
+        Assert.NotNull(result.SpeechFailure);
+        Assert.Null(result.Audio);
+        Assert.Equal(0, playback.CallCount);
+        Assert.Single(turns.Calls);
+        Assert.Equal(
+            "Answer completed, but speech output failed: ElevenLabs rejected the API key. Save a valid key and try again.",
+            SpeechServiceException.FormatPartialSuccessForUser(result.SpeechFailure!));
+    }
+
+    [Fact]
+    public async Task VoiceTurn_PlaybackFailurePreservesVisibleTranscriptAnswerAndRetryAudio()
+    {
+        FakeSpeechToText speech = new("visible transcript");
+        FakeTurnService turns = new(new AssistantResponse("visible answer", "model", 0, 0, 0));
+        FakeTextToSpeech synthesis = new();
+        FailingOncePlayback playback = new();
+        using VoiceInteractionService voice = CreateVoice(speech, turns, synthesis, playback);
+        List<string> transcripts = new();
+        List<string> answers = new();
+
+        VoiceTurnResult result = await voice.RunVoiceTurnAsync(
+            new Recording(Encoding.ASCII.GetBytes("wave")),
+            null,
+            transcripts.Add,
+            answer => answers.Add(answer.Text),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(new[] { "visible transcript" }, transcripts);
+        Assert.Equal(new[] { "visible answer" }, answers);
+        Assert.False(result.SpeechSucceeded);
+        Assert.NotNull(result.Audio);
+        Assert.NotNull(result.SpeechFailure);
+        Assert.Single(turns.Calls);
+        Assert.Single(synthesis.Texts);
+
+        SpeechOutputResult retry = await voice.RetrySpeechAsync(
+            result.Answer.Text,
+            result.Audio,
+            null,
+            TestContext.Current.CancellationToken);
+
+        Assert.True(retry.Succeeded);
+        Assert.Same(result.Audio, retry.Audio);
+        Assert.Equal(1, speech.CallCount);
+        Assert.Single(turns.Calls);
+        Assert.Single(synthesis.Texts);
+        Assert.Equal(2, playback.AttemptCount);
+        result.Audio!.Dispose();
+    }
+
+    [Fact]
+    public async Task RetryAfterTtsFailureDoesNotCallAssemblyAiOrOpenAiAgain()
+    {
+        FakeSpeechToText speech = new("visible transcript");
+        FakeTurnService turns = new(new AssistantResponse("visible answer", "model", 0, 0, 0));
+        FailingOnceTextToSpeech synthesis = new();
+        FakePlayback playback = new();
+        using VoiceInteractionService voice = CreateVoice(speech, turns, synthesis, playback);
+
+        VoiceTurnResult first = await voice.RunVoiceTurnAsync(
+            new Recording(Encoding.ASCII.GetBytes("wave")),
+            null,
+            _ => { },
+            _ => { },
+            TestContext.Current.CancellationToken);
+        Assert.False(first.SpeechSucceeded);
+        Assert.Null(first.Audio);
+
+        SpeechOutputResult retry = await voice.RetrySpeechAsync(
+            first.Answer.Text,
+            reusableAudio: null,
+            progress: null,
+            TestContext.Current.CancellationToken);
+
+        Assert.True(retry.Succeeded);
+        Assert.Equal(1, speech.CallCount);
+        Assert.Single(turns.Calls);
+        Assert.Equal(2, synthesis.AttemptCount);
+        Assert.Equal(1, playback.CallCount);
+        retry.Audio!.Dispose();
     }
 
     [Fact]
@@ -361,6 +473,8 @@ public sealed class VoiceServicesTests
         Task<VoiceTurnResult> task = voice.RunVoiceTurnAsync(
             new Recording(Encoding.ASCII.GetBytes("wave")),
             null,
+            _ => { },
+            _ => { },
             cancellation.Token);
         await block.Entered.Task;
         cancellation.Cancel();
@@ -379,7 +493,7 @@ public sealed class VoiceServicesTests
             new FakePlayback());
         using CancellationTokenSource cancellation = new();
         Task<VoiceTurnResult> first = voice.RunVoiceTurnAsync(
-            new Recording(Encoding.ASCII.GetBytes("wave")), null, cancellation.Token);
+            new Recording(Encoding.ASCII.GetBytes("wave")), null, _ => { }, _ => { }, cancellation.Token);
         await block.Entered.Task;
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => voice.RunTranscriptionTestAsync(
@@ -523,6 +637,32 @@ public sealed class VoiceServicesTests
         }
     }
 
+    private sealed class FailingTextToSpeech : ITextToSpeechService
+    {
+        public Task<AudioPayload> SynthesizeAsync(string text, string apiKey, string voiceId, CancellationToken cancellationToken)
+            => Task.FromException<AudioPayload>(new SpeechServiceException(
+                "ElevenLabs rejected the API key. Save a valid key and try again.",
+                "elevenlabs",
+                "http",
+                401));
+    }
+
+    private sealed class FailingOnceTextToSpeech : ITextToSpeechService
+    {
+        public int AttemptCount { get; private set; }
+        public Task<AudioPayload> SynthesizeAsync(string text, string apiKey, string voiceId, CancellationToken cancellationToken)
+        {
+            AttemptCount++;
+            return AttemptCount == 1
+                ? Task.FromException<AudioPayload>(new SpeechServiceException(
+                    "ElevenLabs is temporarily unavailable. Try again later.",
+                    "elevenlabs",
+                    "http",
+                    503))
+                : Task.FromResult(new AudioPayload(new byte[] { 1, 2, 3 }, "audio/mpeg"));
+        }
+    }
+
     private class FakePlayback : IAudioPlaybackService
     {
         public int CallCount { get; private set; }
@@ -533,6 +673,23 @@ public sealed class VoiceServicesTests
         }
         public virtual void Stop() { }
         public virtual void Dispose() { }
+    }
+
+    private sealed class FailingOncePlayback : IAudioPlaybackService
+    {
+        public int AttemptCount { get; private set; }
+        public Task PlayAsync(AudioPayload audio, CancellationToken cancellationToken)
+        {
+            AttemptCount++;
+            return AttemptCount == 1
+                ? Task.FromException(new SpeechServiceException(
+                    "Audio playback failed. Check the default Windows output device.",
+                    "windows-audio",
+                    "playback"))
+                : Task.CompletedTask;
+        }
+        public void Stop() { }
+        public void Dispose() { }
     }
 
     private sealed class BlockingPoint

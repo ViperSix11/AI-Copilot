@@ -101,10 +101,13 @@ The application never writes credential values to its logs.
     must match the current map/grid/position.
 11. Move in Arma and repeat to prove the next voice turn uses a fresh snapshot.
 
-**Replay Last Answer** replays only the latest in-memory synthesis. **Cancel**
-stops recording, transcription, OpenAI/tool work, synthesis, or playback. Audio
-capture stops automatically at 15 seconds, and overlapping operations are
-rejected.
+The final transcript appears as soon as AssemblyAI succeeds, and the text
+answer appears as soon as OpenAI succeeds. A later speech failure leaves both
+visible and reports partial success. **Replay Last Answer** reuses retained
+audio after a playback failure or retries synthesis from the completed text
+answer without repeating AssemblyAI or OpenAI. **Cancel** stops recording,
+transcription, OpenAI/tool work, synthesis, or playback. Audio capture stops
+automatically at 15 seconds, and overlapping operations are rejected.
 
 The complete live gate, including credential/network failures and retention
 checks, is in

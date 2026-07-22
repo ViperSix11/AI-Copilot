@@ -115,4 +115,15 @@ public sealed record VoiceProviderSettings(
 public sealed record VoiceTurnResult(
     string Transcript,
     AssistantResponse Answer,
-    AudioPayload Audio);
+    AudioPayload? Audio,
+    Exception? SpeechFailure)
+{
+    public bool SpeechSucceeded => SpeechFailure is null;
+}
+
+public sealed record SpeechOutputResult(
+    AudioPayload? Audio,
+    Exception? Failure)
+{
+    public bool Succeeded => Failure is null;
+}

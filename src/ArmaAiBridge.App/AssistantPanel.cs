@@ -34,6 +34,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private CancellationTokenSource? _activeRequest;
     private Button? _heldButton;
     private AudioPayload? _lastAnswerAudio;
+    private string? _lastAnswerText;
     private bool _disposed;
 
     public AssistantPanel(
@@ -107,6 +108,10 @@ public sealed class AssistantPanel : UserControl, IDisposable
             if (_activeRequest is not null) return;
             _turns.ResetConversation();
             _conversation.Clear();
+            _lastAnswerText = null;
+            _lastAnswerAudio?.Dispose();
+            _lastAnswerAudio = null;
+            _replay.IsEnabled = false;
             _status.Text = "Conversation cleared.";
         };
         assistantActions.Children.Add(clear);
@@ -207,12 +212,23 @@ public sealed class AssistantPanel : UserControl, IDisposable
                         _status.Text = "AssemblyAI transcription completed. OpenAI and ElevenLabs were not contacted.";
                         break;
                     case CapturePurpose.AssistantTurn:
-                        VoiceTurnResult result = await _voice.RunVoiceTurnAsync(recording, progress, request.Token);
-                        Append("You", result.Transcript);
-                        Append("Papa Bear", result.Answer.Text);
-                        ReplaceLastAudio(result.Audio);
-                        _status.Text = FormatCompletion(result.Answer);
-                        _log.Info($"Spoken assistant turn completed: model={result.Answer.Model}, tools={result.Answer.ToolCalls}, inputTokens={result.Answer.InputTokens}, outputTokens={result.Answer.OutputTokens}.");
+                        VoiceTurnResult result = await _voice.RunVoiceTurnAsync(
+                            recording,
+                            progress,
+                            transcript => Dispatcher.Invoke(() => Append("You", transcript)),
+                            answer => Dispatcher.Invoke(() => CommitVisibleAnswer(answer.Text)),
+                            request.Token);
+                        if (result.Audio is not null) ReplaceLastAudio(result.Audio);
+                        if (result.SpeechFailure is null)
+                        {
+                            _status.Text = FormatCompletion(result.Answer);
+                        }
+                        else
+                        {
+                            _status.Text = SpeechServiceException.FormatPartialSuccessForUser(result.SpeechFailure);
+                            _log.Warn(SpeechServiceException.FormatForLog(result.SpeechFailure));
+                        }
+                        _log.Info($"Spoken assistant text completed: model={result.Answer.Model}, tools={result.Answer.ToolCalls}, inputTokens={result.Answer.InputTokens}, outputTokens={result.Answer.OutputTokens}.");
                         break;
                 }
             }
@@ -281,8 +297,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
             _activeRequest = new CancellationTokenSource();
             SetOperationBusy(true);
             Progress<VoiceStage> progress = new(SetVoiceStage);
-            AudioPayload audio = await _voice.RunVoiceTestAsync(progress, _activeRequest.Token);
-            ReplaceLastAudio(audio);
+            using AudioPayload audio = await _voice.RunVoiceTestAsync(progress, _activeRequest.Token);
             _status.Text = $"Played: “{VoiceInteractionService.VoiceTestPhrase}”";
         }
         catch (OperationCanceledException)
@@ -302,14 +317,27 @@ public sealed class AssistantPanel : UserControl, IDisposable
 
     private async void Replay_Click(object sender, RoutedEventArgs e)
     {
-        if (_activeRequest is not null || _lastAnswerAudio is null) return;
+        if (_activeRequest is not null || string.IsNullOrWhiteSpace(_lastAnswerText)) return;
         try
         {
             _activeRequest = new CancellationTokenSource();
             SetOperationBusy(true);
             Progress<VoiceStage> progress = new(SetVoiceStage);
-            await _voice.ReplayAsync(_lastAnswerAudio, progress, _activeRequest.Token);
-            _status.Text = "Last spoken answer replayed.";
+            SpeechOutputResult result = await _voice.RetrySpeechAsync(
+                _lastAnswerText,
+                _lastAnswerAudio,
+                progress,
+                _activeRequest.Token);
+            if (result.Audio is not null) ReplaceLastAudio(result.Audio);
+            if (result.Failure is null)
+            {
+                _status.Text = "Last text answer spoken successfully.";
+            }
+            else
+            {
+                _status.Text = SpeechServiceException.FormatPartialSuccessForUser(result.Failure);
+                _log.Warn(SpeechServiceException.FormatForLog(result.Failure));
+            }
         }
         catch (OperationCanceledException)
         {
@@ -379,10 +407,19 @@ public sealed class AssistantPanel : UserControl, IDisposable
 
     private void ReplaceLastAudio(AudioPayload audio)
     {
+        if (ReferenceEquals(_lastAnswerAudio, audio)) return;
         AudioPayload? previous = _lastAnswerAudio;
         _lastAnswerAudio = audio;
         previous?.Dispose();
-        _replay.IsEnabled = _activeRequest is null;
+        _replay.IsEnabled = _activeRequest is null && !string.IsNullOrWhiteSpace(_lastAnswerText);
+    }
+
+    private void CommitVisibleAnswer(string text)
+    {
+        Append("Papa Bear", text);
+        _lastAnswerText = text;
+        _lastAnswerAudio?.Dispose();
+        _lastAnswerAudio = null;
     }
 
     private void SetVoiceStage(VoiceStage stage)
@@ -411,7 +448,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
         _voiceTest.IsEnabled = !busy;
         _holdToTalk.IsEnabled = !busy;
         if (busy && _heldButton is not null) _heldButton.IsEnabled = true;
-        _replay.IsEnabled = !busy && _lastAnswerAudio is not null;
+        _replay.IsEnabled = !busy && !string.IsNullOrWhiteSpace(_lastAnswerText);
     }
 
     private void FinishOperation()
@@ -448,6 +485,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
         _voice.StopPlayback();
         _ = _capture.ReleaseAsync();
         _lastAnswerAudio?.Dispose();
+        _lastAnswerText = null;
         _voice.Dispose();
         _turns.Dispose();
         _queries.Dispose();
