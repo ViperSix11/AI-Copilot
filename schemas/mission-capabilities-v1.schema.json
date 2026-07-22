@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ViperSix11/ArmA-AI-Bridge/schemas/mission-capabilities-v1.schema.json",
+  "title": "ArmA AI Bridge mission capabilities v1",
+  "type": "object",
+  "required": ["schema", "messageId", "missionId", "sessionId", "timestamp", "sequence", "registryVersion", "capabilities"],
+  "properties": {
+    "schema": { "const": "arma-ai-bridge/arma3/mission-capabilities-v1" },
+    "messageId": { "$ref": "#/$defs/id" },
+    "missionId": { "$ref": "#/$defs/id" },
+    "sessionId": { "$ref": "#/$defs/id" },
+    "timestamp": { "type": "number", "minimum": 0 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "registryVersion": { "type": "integer", "minimum": 1 },
+    "capabilities": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "required": ["id", "capability", "enabled", "provider", "constraints"],
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "capability": { "enum": ["rotary_transport", "ground_transport", "medevac", "resupply", "reconnaissance", "vehicle_recovery", "other", "artillery", "cas", "marker_management", "task_management"] },
+          "enabled": { "type": "boolean" },
+          "provider": { "type": "string", "maxLength": 128 },
+          "constraints": {
+            "type": "object",
+            "required": ["maxConcurrent", "allowedRequesterSides", "maxRangeMeters", "maxPassengers", "supportsCasualties", "requiresConfirmation"],
+            "properties": {
+              "maxConcurrent": { "type": "integer", "minimum": 0, "maximum": 64 },
+              "allowedRequesterSides": {
+                "type": "array",
+                "maxItems": 4,
+                "uniqueItems": true,
+                "items": { "enum": ["WEST", "EAST", "GUER", "CIV"] }
+              },
+              "maxRangeMeters": { "type": "number", "minimum": 0, "maximum": 100000 },
+              "maxPassengers": { "type": "integer", "minimum": 0, "maximum": 256 },
+              "supportsCasualties": { "type": "boolean" },
+              "requiresConfirmation": { "type": "boolean" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128 }
+  },
+  "additionalProperties": false
+}

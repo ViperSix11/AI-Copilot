@@ -18,7 +18,7 @@ namespace
     constexpr std::size_t MaximumOutboundQueueSize = 256;
     constexpr std::size_t MaximumInboundQueueSize = 64;
     constexpr std::size_t MaximumInboundBufferSize = 1024 * 1024;
-    constexpr char Version[] = "0.2.0";
+    constexpr char Version[] = "0.3.0";
 
     struct OutboundMessage
     {
@@ -327,6 +327,11 @@ extern "C"
         else if (command.rfind("query-result|", 0) == 0)
         {
             Enqueue(command.substr(13), false);
+            CopyOutput(output, outputSize, "queued");
+        }
+        else if (command.rfind("event|", 0) == 0)
+        {
+            Enqueue(command.substr(6), false);
             CopyOutput(output, outputSize, "queued");
         }
         else

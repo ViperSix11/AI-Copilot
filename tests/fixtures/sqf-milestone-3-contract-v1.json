@@ -1,0 +1,30 @@
+{
+  "schema": "arma-ai-bridge/tests/sqf-milestone-3-contract-v1",
+  "files": [
+    {
+      "path": "arma3/addon-source/arma_ai_bridge_client/functions/fn_collectTelemetry.sqf",
+      "requiredTokens": ["\"missionId\"", "\"sessionId\"", "\"groupId\"", "AAB_fnc_getStableEntityId"],
+      "forbiddenTokens": ["getPlayerUID", "name player", "name _unit", "\"uid\""]
+    },
+    {
+      "path": "arma3/addon-source/arma_ai_bridge_client/functions/fn_collectFriendlyForces.sqf",
+      "requiredTokens": ["playerSide", "units _viewerSide", "AAB_supportAssets", "AAB_callsign", "crew _vehicle"],
+      "forbiddenTokens": ["allUnits", "allPlayers", "getPlayerUID", "profileName", "remoteExec", "setWaypoint", "doMove", "commandMove", "compile"]
+    },
+    {
+      "path": "arma3/addon-source/arma_ai_bridge_client/functions/fn_updateFriendlyForcePicture.sqf",
+      "requiredTokens": ["friendly-force-snapshot-v1", "friendly-force-delta-v1", "pageCount", "removedUnitIds", "AAB_lastFullReconciliationAt"],
+      "forbiddenTokens": ["remoteExec", "setWaypoint", "doMove", "commandMove"]
+    },
+    {
+      "path": "arma3/addon-source/arma_ai_bridge_client/functions/fn_collectMissionCapabilities.sqf",
+      "requiredTokens": ["AAB_missionCapabilities", "allowedRequesterSides", "requiresConfirmation"],
+      "forbiddenTokens": ["call compile", "remoteExec", "spawn _", "setWaypoint"]
+    },
+    {
+      "path": "arma3/addon-source/arma_ai_bridge_client/functions/fn_publishWorldEvent.sqf",
+      "requiredTokens": ["messageId", "missionId", "sessionId", "sequence", "event|"],
+      "forbiddenTokens": ["telemetry|"]
+    }
+  ]
+}

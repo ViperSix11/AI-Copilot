@@ -6,6 +6,8 @@
   "required": ["schema", "timestamp", "map", "player", "contacts", "sensorContacts"],
   "properties": {
     "schema": { "const": "arma-ai-bridge/arma3/telemetry-v1" },
+    "missionId": { "type": "string", "maxLength": 128 },
+    "sessionId": { "type": "string", "maxLength": 128 },
     "timestamp": { "type": "number" },
     "frame": { "type": "number" },
     "map": {
@@ -23,13 +25,21 @@
       "type": "object",
       "required": ["positionATL", "viewHeading"],
       "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "groupId": { "type": "string", "maxLength": 128 },
         "positionATL": { "$ref": "#/$defs/vector3" },
         "positionASL": { "$ref": "#/$defs/vector3" },
         "viewHeading": { "type": "number" }
       },
       "additionalProperties": true
     },
-    "vehicle": { "type": ["object", "null"] },
+    "vehicle": {
+      "type": ["object", "null"],
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 }
+      },
+      "additionalProperties": true
+    },
     "contacts": { "type": "array", "items": { "type": "object" } },
     "sensorContacts": { "type": "array", "items": { "type": "object" } }
   },

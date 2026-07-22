@@ -1,0 +1,85 @@
+{
+  "schema": "arma-ai-bridge/arma3/friendly-force-snapshot-v1",
+  "messageId": "message-000002",
+  "missionId": "m3-test-mission",
+  "sessionId": "source-session-a",
+  "timestamp": 11.0,
+  "sequence": 2,
+  "reconciliationId": "reconcile-000001",
+  "pageIndex": 0,
+  "pageCount": 1,
+  "groups": [
+    {
+      "id": "net:2:15",
+      "callsign": "Alpha 1-1",
+      "side": "WEST",
+      "leaderId": "net:2:31",
+      "unitIds": ["net:2:31", "net:2:32"],
+      "positionATL": [3400.0, 5600.0, 0.0],
+      "behaviour": "AWARE"
+    }
+  ],
+  "units": [
+    {
+      "id": "net:2:31",
+      "groupId": "net:2:15",
+      "callsign": "Falcon One",
+      "side": "WEST",
+      "class": "B_Soldier_F",
+      "role": "Rifleman",
+      "positionATL": [3400.0, 5600.0, 0.0],
+      "alive": true,
+      "lifeState": "HEALTHY",
+      "mobile": true,
+      "damage": 0.0,
+      "vehicleId": null,
+      "vehicleRole": "",
+      "medicalReadiness": "base-arma-healthy"
+    },
+    {
+      "id": "net:2:32",
+      "groupId": "net:2:15",
+      "callsign": "",
+      "side": "WEST",
+      "class": "B_medic_F",
+      "role": "Combat Life Saver",
+      "positionATL": [3402.0, 5601.0, 0.0],
+      "alive": true,
+      "lifeState": "HEALTHY",
+      "mobile": true,
+      "damage": 0.1,
+      "vehicleId": "net:2:70",
+      "vehicleRole": "cargo",
+      "medicalReadiness": "base-arma-wounded"
+    }
+  ],
+  "vehicles": [
+    {
+      "id": "net:2:70",
+      "side": "WEST",
+      "class": "B_MRAP_01_F",
+      "displayName": "Hunter",
+      "positionATL": [3403.0, 5602.0, 0.0],
+      "alive": true,
+      "mobile": true,
+      "damage": 0.05,
+      "fuel": 0.8,
+      "speedKph": 0.0,
+      "crewUnitIds": ["net:2:32"],
+      "cargoCapacity": 3,
+      "emptyCargoSeats": 2
+    }
+  ],
+  "assets": [
+    {
+      "id": "asset:eagle-one",
+      "kind": "rotary_transport",
+      "callsign": "Eagle One",
+      "provider": "mission-script",
+      "vehicleId": "net:2:70",
+      "status": "available",
+      "available": true,
+      "capacity": 8
+    }
+  ]
+}

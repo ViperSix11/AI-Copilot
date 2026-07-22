@@ -1,0 +1,25 @@
+{
+  "schema": "arma-ai-bridge/arma3/mission-capabilities-v1",
+  "messageId": "message-000004",
+  "missionId": "m3-test-mission",
+  "sessionId": "source-session-a",
+  "timestamp": 12.0,
+  "sequence": 4,
+  "registryVersion": 1,
+  "capabilities": [
+    {
+      "id": "capability:rotary-transport",
+      "capability": "rotary_transport",
+      "enabled": true,
+      "provider": "mission-script",
+      "constraints": {
+        "maxConcurrent": 1,
+        "allowedRequesterSides": ["WEST"],
+        "maxRangeMeters": 20000,
+        "maxPassengers": 8,
+        "supportsCasualties": false,
+        "requiresConfirmation": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "schema": "arma-ai-bridge/arma3/friendly-force-delta-v1",
+  "messageId": "message-000003",
+  "missionId": "m3-test-mission",
+  "sessionId": "source-session-a",
+  "timestamp": 12.0,
+  "sequence": 3,
+  "baseReconciliationId": "reconcile-000001",
+  "upsertGroups": [],
+  "upsertUnits": [
+    {
+      "id": "net:2:31",
+      "groupId": "net:2:15",
+      "callsign": "Falcon One",
+      "side": "WEST",
+      "class": "B_Soldier_F",
+      "role": "Rifleman",
+      "positionATL": [3500.0, 5700.0, 0.0],
+      "alive": true,
+      "lifeState": "HEALTHY",
+      "mobile": true,
+      "damage": 0.0,
+      "vehicleId": null,
+      "vehicleRole": "",
+      "medicalReadiness": "base-arma-healthy"
+    }
+  ],
+  "upsertVehicles": [],
+  "upsertAssets": [],
+  "removedGroupIds": [],
+  "removedUnitIds": ["net:2:32"],
+  "removedVehicleIds": [],
+  "removedAssetIds": []
+}

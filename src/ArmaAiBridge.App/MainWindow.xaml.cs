@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -270,7 +271,6 @@ public partial class MainWindow : Window
     {
         Dispatcher.Invoke(() =>
         {
-            RawTelemetryTextBox.Text = PrettyPrintJson(json);
             try
             {
                 using JsonDocument document = JsonDocument.Parse(json);
@@ -279,14 +279,25 @@ public partial class MainWindow : Window
 
                 if (schema == QueryResultSchema)
                 {
+                    RawTelemetryTextBox.Text = PrettyPrintJson(json);
                     HandleQueryResult(root, json);
                 }
                 else if (schema == TelemetrySchema)
                 {
+                    RawTelemetryTextBox.Text = RedactTelemetryForDisplay(root);
                     HandleTelemetry(root);
+                }
+                else if (TelemetryIngestService.IsWorldStateSchema(schema))
+                {
+                    RawTelemetryTextBox.Text = JsonSerializer.Serialize(new
+                    {
+                        schema,
+                        status = "Ingested into World State; source identifiers are hidden in this view."
+                    }, new JsonSerializerOptions { WriteIndented = true });
                 }
                 else
                 {
+                    RawTelemetryTextBox.Text = PrettyPrintJson(json);
                     _log.Warn($"Received bridge message with unknown schema '{schema}'.");
                 }
             }
@@ -432,6 +443,34 @@ public partial class MainWindow : Window
         catch (JsonException)
         {
             return json;
+        }
+    }
+
+    private static string RedactTelemetryForDisplay(JsonElement root)
+    {
+        JsonObject? message = JsonNode.Parse(root.GetRawText()) as JsonObject;
+        if (message is null) return "Telemetry received.";
+        message.Remove("missionId");
+        message.Remove("sessionId");
+        if (message["player"] is JsonObject player)
+        {
+            player.Remove("uid");
+            player.Remove("name");
+            player.Remove("id");
+            player.Remove("groupId");
+        }
+        if (message["vehicle"] is JsonObject vehicle) vehicle.Remove("id");
+        RedactArrayIds(message["contacts"] as JsonArray);
+        RedactArrayIds(message["sensorContacts"] as JsonArray);
+        return message.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static void RedactArrayIds(JsonArray? array)
+    {
+        if (array is null) return;
+        foreach (JsonNode? item in array)
+        {
+            if (item is JsonObject value) value.Remove("id");
         }
     }
 

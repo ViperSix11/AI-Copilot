@@ -1,5 +1,7 @@
 {
   "schema": "arma-ai-bridge/arma3/telemetry-v1",
+  "missionId": "sample-mission",
+  "sessionId": "sample-session",
   "timestamp": 123.45,
   "frame": 9001,
   "map": {
@@ -9,7 +11,8 @@
     "daytime": 14.5
   },
   "player": {
-    "name": "Bridge Test",
+    "id": "net:sample-player",
+    "groupId": "net:sample-group",
     "side": "WEST",
     "positionATL": [3400.1, 5600.2, 12.3],
     "positionASL": [3400.1, 5600.2, 42.3],

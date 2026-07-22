@@ -97,7 +97,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
             SetBusy(true); Append("You", question); _question.Clear();
             AssistantResponse response = await _assistant.AskAsync(
                 apiKey, _model.Text.Trim(), question, worldSnapshot,
-                _queries.QueryEnvironmentAsync, _activeRequest.Token);
+                ExecuteToolAsync, _activeRequest.Token);
             Append("Bridge", response.Text);
             _status.Text = $"{response.Model} · {response.ToolCalls} tool call(s) · {response.InputTokens} input / {response.OutputTokens} output tokens";
             _log.Info($"OpenAI assistant completed: model={response.Model}, tools={response.ToolCalls}, inputTokens={response.InputTokens}, outputTokens={response.OutputTokens}.");
@@ -119,6 +119,17 @@ public sealed class AssistantPanel : UserControl, IDisposable
         if (_conversation.Text.Length > 0) _conversation.AppendText(Environment.NewLine + Environment.NewLine);
         _conversation.AppendText($"{speaker}: {text}"); _conversation.ScrollToEnd();
     }
+
+    private Task<string> ExecuteToolAsync(
+        string name, JsonElement arguments, CancellationToken cancellationToken)
+        => name switch
+        {
+            "query_environment" => _queries.QueryEnvironmentAsync(arguments, cancellationToken),
+            "query_friendly_forces" => Task.FromResult(_snapshots.BuildFriendlyForces(arguments)),
+            "query_assets" => Task.FromResult(_snapshots.BuildAssets(arguments)),
+            "query_mission_capabilities" => Task.FromResult(_snapshots.BuildMissionCapabilities(arguments)),
+            _ => Task.FromException<string>(new InvalidOperationException("Unsupported local tool."))
+        };
 
     private void SetBusy(bool busy)
     {

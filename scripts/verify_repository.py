@@ -27,14 +27,31 @@ EXPECTED_PATHS = (
     "arma3/addon-source/arma_ai_bridge_client/functions/fn_executeQuery.sqf",
     "arma3/addon-source/arma_ai_bridge_client/functions/fn_queryEnvironment.sqf",
     "arma3/addon-source/arma_ai_bridge_client/functions/fn_sendQueryResult.sqf",
+    "arma3/addon-source/arma_ai_bridge_client/functions/fn_collectFriendlyForces.sqf",
+    "arma3/addon-source/arma_ai_bridge_client/functions/fn_collectMissionCapabilities.sqf",
+    "arma3/addon-source/arma_ai_bridge_client/functions/fn_getStableEntityId.sqf",
+    "arma3/addon-source/arma_ai_bridge_client/functions/fn_initialiseSession.sqf",
+    "arma3/addon-source/arma_ai_bridge_client/functions/fn_publishMissionCapabilities.sqf",
+    "arma3/addon-source/arma_ai_bridge_client/functions/fn_publishSessionHandshake.sqf",
+    "arma3/addon-source/arma_ai_bridge_client/functions/fn_publishWorldEvent.sqf",
+    "arma3/addon-source/arma_ai_bridge_client/functions/fn_updateFriendlyForcePicture.sqf",
     "native/ArmaAiBridge/ArmaAiBridge.cpp",
     "native/ArmaAiBridge/CMakeLists.txt",
     "schemas/telemetry-v1.schema.json",
     "schemas/command-v1.schema.json",
     "schemas/query-result-v1.schema.json",
+    "schemas/session-handshake-v1.schema.json",
+    "schemas/friendly-force-snapshot-v1.schema.json",
+    "schemas/friendly-force-delta-v1.schema.json",
+    "schemas/mission-capabilities-v1.schema.json",
     "samples/telemetry-v1.json",
     "samples/query-command-v1.json",
     "samples/query-result-v1.json",
+    "tests/fixtures/session-handshake-v1.json",
+    "tests/fixtures/friendly-force-snapshot-v1.json",
+    "tests/fixtures/friendly-force-delta-v1.json",
+    "tests/fixtures/mission-capabilities-v1.json",
+    "tests/fixtures/sqf-milestone-3-contract-v1.json",
     "src/ArmaAiBridge.App/ArmaAiBridge.App.csproj",
     "src/ArmaAiBridge.App/GlobalUsings.cs",
 )
@@ -122,6 +139,22 @@ def main() -> int:
             errors.append("Sample query result schema identifier does not match the JSON schema")
         if command_sample.get("requestId") != result_sample.get("requestId"):
             errors.append("Sample command and result requestId values do not correlate")
+
+        for name in (
+            "session-handshake-v1",
+            "friendly-force-snapshot-v1",
+            "friendly-force-delta-v1",
+            "mission-capabilities-v1",
+        ):
+            fixture = json.loads(texts[ROOT / f"tests/fixtures/{name}.json"])
+            schema = json.loads(texts[ROOT / f"schemas/{name}.schema.json"])
+            if fixture.get("schema") != schema["properties"]["schema"]["const"]:
+                errors.append(f"{name} fixture discriminator does not match its JSON schema")
+            missing = set(schema.get("required", [])) - set(fixture)
+            if missing:
+                errors.append(f"{name} fixture is missing required fields: {sorted(missing)}")
+            if schema.get("additionalProperties") is not False:
+                errors.append(f"{name} schema must reject additional top-level properties")
     except (KeyError, TypeError) as exc:
         errors.append(f"Message schema structure is incomplete: {exc}")
 
@@ -153,7 +186,12 @@ def main() -> int:
         errors.append("CMake output name does not match the SQF extension name")
 
     cpp = texts.get(ROOT / "native/ArmaAiBridge/ArmaAiBridge.cpp", "")
-    for required in ("GENERIC_READ | GENERIC_WRITE", 'command == "poll"', 'command.rfind("query-result|"'):
+    for required in (
+        "GENERIC_READ | GENERIC_WRITE",
+        'command == "poll"',
+        'command.rfind("query-result|"',
+        'command.rfind("event|"',
+    ):
         if required not in cpp:
             errors.append(f"Native duplex bridge is missing: {required}")
 
@@ -173,7 +211,16 @@ def main() -> int:
             errors.append(f"Workflow is missing current path/name: {required}")
 
     config = texts.get(ROOT / "arma3/addon-source/arma_ai_bridge_client/config.cpp", "")
-    for required in ("class AAB", "\\arma_ai_bridge_client\\functions", "class pollCommands", "class queryEnvironment"):
+    for required in (
+        "class AAB",
+        "\\arma_ai_bridge_client\\functions",
+        "class pollCommands",
+        "class queryEnvironment",
+        "class initialiseSession",
+        "class collectFriendlyForces",
+        "class updateFriendlyForcePicture",
+        "class collectMissionCapabilities",
+    ):
         if required not in config:
             errors.append(f"Arma CfgFunctions is missing: {required}")
 
@@ -183,6 +230,36 @@ def main() -> int:
     for obsolete in ("AAB_environmentCache", '"environment"'):
         if obsolete in collect_telemetry:
             errors.append(f"Continuous telemetry still references fixed environment data: {obsolete}")
+    for private_value in ("getPlayerUID", '"uid"', "name _unit", "name player"):
+        if private_value in collect_telemetry:
+            errors.append(f"Continuous telemetry exposes a private identity field: {private_value}")
+    for required in ('"missionId"', '"sessionId"', '"groupId"'):
+        if required not in collect_telemetry:
+            errors.append(f"Continuous telemetry is missing stable session identity: {required}")
+
+    friendly_sqf = texts.get(
+        ROOT / "arma3/addon-source/arma_ai_bridge_client/functions/fn_collectFriendlyForces.sqf", ""
+    )
+    for private_value in ("getPlayerUID", "profileName", "name player", "allPlayers"):
+        if private_value in friendly_sqf:
+            errors.append(f"Friendly-force collection exposes or broadens private data: {private_value}")
+    for forbidden_action in ("setWaypoint", "doMove", "commandMove", "remoteExec", "compile"):
+        if forbidden_action in friendly_sqf:
+            errors.append(f"Read-only friendly-force collection contains an action primitive: {forbidden_action}")
+
+    try:
+        sqf_contract = json.loads(texts[ROOT / "tests/fixtures/sqf-milestone-3-contract-v1.json"])
+        for rule in sqf_contract["files"]:
+            relative = rule["path"]
+            source = texts.get(ROOT / relative, "")
+            for required in rule.get("requiredTokens", []):
+                if required not in source:
+                    errors.append(f"SQF contract {relative} is missing: {required}")
+            for forbidden in rule.get("forbiddenTokens", []):
+                if forbidden.lower() in source.lower():
+                    errors.append(f"SQF contract {relative} contains forbidden token: {forbidden}")
+    except (KeyError, TypeError) as exc:
+        errors.append(f"SQF Milestone 3 contract fixture is incomplete: {exc}")
 
     query_sqf = texts.get(
         ROOT / "arma3/addon-source/arma_ai_bridge_client/functions/fn_queryEnvironment.sqf", ""
