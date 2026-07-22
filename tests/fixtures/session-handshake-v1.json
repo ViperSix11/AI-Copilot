@@ -1,0 +1,17 @@
+{
+  "schema": "arma-ai-bridge/arma3/session-handshake-v1",
+  "messageId": "message-000001",
+  "missionId": "m3-test-mission",
+  "sessionId": "source-session-a",
+  "timestamp": 10.0,
+  "sequence": 1,
+  "protocol": { "major": 1, "minor": 0 },
+  "world": { "name": "Altis", "sizeMeters": 30720 },
+  "viewer": { "side": "WEST", "visibility": "own-side" },
+  "features": [
+    { "name": "player-telemetry", "version": 1 },
+    { "name": "environment-query", "version": 1 },
+    { "name": "friendly-force-picture", "version": 1 },
+    { "name": "mission-capabilities", "version": 1 }
+  ]
+}

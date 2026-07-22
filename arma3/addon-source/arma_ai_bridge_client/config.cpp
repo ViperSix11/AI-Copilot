@@ -22,6 +22,14 @@ class CfgFunctions
             class collectTelemetry {};
             class collectContacts {};
             class collectSensorContacts {};
+            class getStableEntityId {};
+            class initialiseSession {};
+            class publishWorldEvent {};
+            class publishSessionHandshake {};
+            class collectFriendlyForces {};
+            class updateFriendlyForcePicture {};
+            class collectMissionCapabilities {};
+            class publishMissionCapabilities {};
             class sendTelemetry {};
             class pollCommands {};
             class executeQuery {};

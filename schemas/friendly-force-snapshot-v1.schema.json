@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ViperSix11/ArmA-AI-Bridge/schemas/friendly-force-snapshot-v1.schema.json",
+  "title": "ArmA AI Bridge friendly force snapshot v1",
+  "type": "object",
+  "required": ["schema", "messageId", "missionId", "sessionId", "timestamp", "sequence", "reconciliationId", "pageIndex", "pageCount", "groups", "units", "vehicles", "assets"],
+  "properties": {
+    "schema": { "const": "arma-ai-bridge/arma3/friendly-force-snapshot-v1" },
+    "messageId": { "$ref": "#/$defs/id" },
+    "missionId": { "$ref": "#/$defs/id" },
+    "sessionId": { "$ref": "#/$defs/id" },
+    "timestamp": { "type": "number", "minimum": 0 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "reconciliationId": { "$ref": "#/$defs/id" },
+    "pageIndex": { "type": "integer", "minimum": 0, "maximum": 63 },
+    "pageCount": { "type": "integer", "minimum": 1, "maximum": 64 },
+    "groups": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/group" } },
+    "units": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/unit" } },
+    "vehicles": { "type": "array", "maxItems": 512, "items": { "$ref": "#/$defs/vehicle" } },
+    "assets": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/asset" } }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "text": { "type": "string", "maxLength": 128 },
+    "vector3": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number" } },
+    "side": { "enum": ["WEST", "EAST", "GUER", "CIV"] },
+    "group": {
+      "type": "object",
+      "required": ["id", "callsign", "side", "leaderId", "unitIds", "positionATL", "behaviour"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "callsign": { "$ref": "#/$defs/text" },
+        "side": { "$ref": "#/$defs/side" },
+        "leaderId": { "$ref": "#/$defs/id" },
+        "unitIds": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/id" } },
+        "positionATL": { "$ref": "#/$defs/vector3" },
+        "behaviour": { "$ref": "#/$defs/text" }
+      },
+      "additionalProperties": false
+    },
+    "unit": {
+      "type": "object",
+      "required": ["id", "groupId", "callsign", "side", "class", "role", "positionATL", "alive", "lifeState", "mobile", "damage", "vehicleId", "vehicleRole", "medicalReadiness"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "groupId": { "$ref": "#/$defs/id" },
+        "callsign": { "$ref": "#/$defs/text" },
+        "side": { "$ref": "#/$defs/side" },
+        "class": { "$ref": "#/$defs/text" },
+        "role": { "$ref": "#/$defs/text" },
+        "positionATL": { "$ref": "#/$defs/vector3" },
+        "alive": { "type": "boolean" },
+        "lifeState": { "$ref": "#/$defs/text" },
+        "mobile": { "type": "boolean" },
+        "damage": { "type": "number", "minimum": 0, "maximum": 1 },
+        "vehicleId": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+        "vehicleRole": { "$ref": "#/$defs/text" },
+        "medicalReadiness": { "$ref": "#/$defs/text" }
+      },
+      "additionalProperties": false
+    },
+    "vehicle": {
+      "type": "object",
+      "required": ["id", "side", "class", "displayName", "positionATL", "alive", "mobile", "damage", "fuel", "speedKph", "crewUnitIds", "cargoCapacity", "emptyCargoSeats"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "side": { "$ref": "#/$defs/side" },
+        "class": { "$ref": "#/$defs/text" },
+        "displayName": { "$ref": "#/$defs/text" },
+        "positionATL": { "$ref": "#/$defs/vector3" },
+        "alive": { "type": "boolean" },
+        "mobile": { "type": "boolean" },
+        "damage": { "type": "number", "minimum": 0, "maximum": 1 },
+        "fuel": { "type": "number", "minimum": 0, "maximum": 1 },
+        "speedKph": { "type": "number" },
+        "crewUnitIds": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/id" } },
+        "cargoCapacity": { "type": "integer", "minimum": 0, "maximum": 256 },
+        "emptyCargoSeats": { "type": "integer", "minimum": 0, "maximum": 256 }
+      },
+      "additionalProperties": false
+    },
+    "asset": {
+      "type": "object",
+      "required": ["id", "kind", "callsign", "provider", "vehicleId", "status", "available", "capacity"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "enum": ["rotary_transport", "ground_transport", "medevac", "resupply", "reconnaissance", "vehicle_recovery", "other"] },
+        "callsign": { "$ref": "#/$defs/text" },
+        "provider": { "$ref": "#/$defs/text" },
+        "vehicleId": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+        "status": { "enum": ["available", "busy", "degraded", "unavailable", "unknown"] },
+        "available": { "type": "boolean" },
+        "capacity": { "type": "integer", "minimum": 0, "maximum": 256 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

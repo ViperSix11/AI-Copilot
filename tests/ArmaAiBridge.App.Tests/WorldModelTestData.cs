@@ -12,10 +12,16 @@ internal static class WorldModelTestData
         string group = "Alpha 1-1",
         object[]? contacts = null,
         object[]? sensorContacts = null,
-        object? vehicle = null)
+        object? vehicle = null,
+        string? missionId = null,
+        string? sessionId = null,
+        string? playerId = null,
+        string? groupId = null)
         => JsonSerializer.Serialize(new
         {
             schema = "arma-ai-bridge/arma3/telemetry-v1",
+            missionId,
+            sessionId,
             timestamp,
             frame,
             map = new { name = mapName, sizeMeters = mapSize, grid = "034056", daytime = 14.5 },
@@ -23,6 +29,8 @@ internal static class WorldModelTestData
             {
                 uid = "SECRET-PLAYER-UID",
                 name = "SECRET PLAYER NAME",
+                id = playerId,
+                groupId,
                 side = "WEST",
                 group,
                 positionATL = new[] { 3400.1, 5600.2, 12.3 },

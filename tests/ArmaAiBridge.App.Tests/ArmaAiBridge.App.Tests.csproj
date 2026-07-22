@@ -20,4 +20,13 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\ArmaAiBridge.App\ArmaAiBridge.App.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\fixtures\**\*.json"
+          Link="fixtures\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\schemas\*.schema.json"
+          Link="fixtures\schemas\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

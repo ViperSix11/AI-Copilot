@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ViperSix11/ArmA-AI-Bridge/schemas/friendly-force-delta-v1.schema.json",
+  "title": "ArmA AI Bridge friendly force delta v1",
+  "type": "object",
+  "required": ["schema", "messageId", "missionId", "sessionId", "timestamp", "sequence", "baseReconciliationId", "upsertGroups", "upsertUnits", "upsertVehicles", "upsertAssets", "removedGroupIds", "removedUnitIds", "removedVehicleIds", "removedAssetIds"],
+  "properties": {
+    "schema": { "const": "arma-ai-bridge/arma3/friendly-force-delta-v1" },
+    "messageId": { "$ref": "friendly-force-snapshot-v1.schema.json#/$defs/id" },
+    "missionId": { "$ref": "friendly-force-snapshot-v1.schema.json#/$defs/id" },
+    "sessionId": { "$ref": "friendly-force-snapshot-v1.schema.json#/$defs/id" },
+    "timestamp": { "type": "number", "minimum": 0 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "baseReconciliationId": { "type": "string", "maxLength": 128 },
+    "upsertGroups": { "type": "array", "maxItems": 256, "items": { "$ref": "friendly-force-snapshot-v1.schema.json#/$defs/group" } },
+    "upsertUnits": { "type": "array", "maxItems": 512, "items": { "$ref": "friendly-force-snapshot-v1.schema.json#/$defs/unit" } },
+    "upsertVehicles": { "type": "array", "maxItems": 256, "items": { "$ref": "friendly-force-snapshot-v1.schema.json#/$defs/vehicle" } },
+    "upsertAssets": { "type": "array", "maxItems": 128, "items": { "$ref": "friendly-force-snapshot-v1.schema.json#/$defs/asset" } },
+    "removedGroupIds": { "$ref": "#/$defs/ids" },
+    "removedUnitIds": { "$ref": "#/$defs/ids" },
+    "removedVehicleIds": { "$ref": "#/$defs/ids" },
+    "removedAssetIds": { "$ref": "#/$defs/ids" }
+  },
+  "$defs": {
+    "ids": {
+      "type": "array",
+      "maxItems": 512,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+    }
+  },
+  "additionalProperties": false
+}

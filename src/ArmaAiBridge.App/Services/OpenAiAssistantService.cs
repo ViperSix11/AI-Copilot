@@ -15,6 +15,7 @@ You are ArmA AI Bridge, a concise tactical assistant for the local player in Arm
 Answer in the user's language, use metric units, and distinguish measured facts from tactical interpretation.
 Treat the supplied provenance-aware world-state snapshot as the only current game state. Respect freshness, confidence, and position uncertainty. Never invent map objects, contacts, positions, visibility, routes, or threats.
 Use query_environment whenever a question depends on actual terrain objects. Use a circle for the general vicinity and a cone for ahead/in-view questions.
+Use query_friendly_forces for detailed own-side group, unit, or vehicle facts; query_assets for support-asset readiness; and query_mission_capabilities for mission-declared read-only capabilities. These tools never execute support.
 Choose context-aware ranges: about 300 m on foot, 800 m in a ground vehicle, up to 1500 m in aircraft; respect explicit distances within tool limits.
 Only discuss contacts present in player/group knowledge or current vehicle sensors. Never infer hidden enemies from terrain data.
 Keep ordinary answers to a few sentences unless more detail is requested.
@@ -47,8 +48,70 @@ Keep ordinary answers to a few sentences unless more detail is requested.
                 ["required"] = new[] { "shape", "direction", "rangeMeters", "angleDegrees", "categories", "maxResultsPerCategory" },
                 ["additionalProperties"] = false
             }
+        },
+        new Dictionary<string, object?>
+        {
+            ["type"] = "function",
+            ["name"] = "query_friendly_forces",
+            ["description"] = "Read a bounded privacy-safe snapshot of own-side groups, units, or vehicles from the local world model.",
+            ["strict"] = true,
+            ["parameters"] = new Dictionary<string, object?>
+            {
+                ["type"] = "object",
+                ["properties"] = new Dictionary<string, object?>
+                {
+                    ["entityType"] = Schema("string", enums: new[] { "group", "unit", "vehicle", "all" }),
+                    ["maxDistanceMeters"] = Schema("number", 100, 50000),
+                    ["includeStale"] = Schema("boolean"),
+                    ["limit"] = Schema("integer", 1, 100)
+                },
+                ["required"] = new[] { "entityType", "maxDistanceMeters", "includeStale", "limit" },
+                ["additionalProperties"] = false
+            }
+        },
+        new Dictionary<string, object?>
+        {
+            ["type"] = "function",
+            ["name"] = "query_assets",
+            ["description"] = "Read bounded mission-declared support-asset status from the local world model without executing support.",
+            ["strict"] = true,
+            ["parameters"] = new Dictionary<string, object?>
+            {
+                ["type"] = "object",
+                ["properties"] = new Dictionary<string, object?>
+                {
+                    ["kind"] = Schema("string", enums: new[] { "any", "rotary_transport", "ground_transport", "medevac", "resupply", "reconnaissance", "vehicle_recovery", "other" }),
+                    ["availableOnly"] = Schema("boolean"),
+                    ["maxDistanceMeters"] = Schema("number", 100, 50000),
+                    ["includeStale"] = Schema("boolean"),
+                    ["limit"] = Schema("integer", 1, 100)
+                },
+                ["required"] = new[] { "kind", "availableOnly", "maxDistanceMeters", "includeStale", "limit" },
+                ["additionalProperties"] = false
+            }
+        },
+        new Dictionary<string, object?>
+        {
+            ["type"] = "function",
+            ["name"] = "query_mission_capabilities",
+            ["description"] = "Read the typed mission capability registry from the local world model. No action is available.",
+            ["strict"] = true,
+            ["parameters"] = new Dictionary<string, object?>
+            {
+                ["type"] = "object",
+                ["properties"] = new Dictionary<string, object?>
+                {
+                    ["enabledOnly"] = Schema("boolean"),
+                    ["includeStale"] = Schema("boolean")
+                },
+                ["required"] = new[] { "enabledOnly", "includeStale" },
+                ["additionalProperties"] = false
+            }
         }
     };
+
+    private static readonly HashSet<string> AllowedToolNames = new(StringComparer.Ordinal)
+    { "query_environment", "query_friendly_forces", "query_assets", "query_mission_capabilities" };
 
     private readonly HttpClient _http;
     private readonly bool _ownsHttpClient;
@@ -75,9 +138,20 @@ Keep ordinary answers to a few sentences unless more detail is requested.
         _ownsHttpClient = ownsHttpClient;
     }
 
-    public async Task<AssistantResponse> AskAsync(
+    public Task<AssistantResponse> AskAsync(
         string apiKey, string model, string question, string worldSnapshotJson,
         Func<JsonElement, CancellationToken, Task<string>> queryEnvironment,
+        CancellationToken cancellationToken)
+        => AskAsync(
+            apiKey, model, question, worldSnapshotJson,
+            (name, arguments, token) => name == "query_environment"
+                ? queryEnvironment(arguments, token)
+                : Task.FromException<string>(new InvalidOperationException("The requested local tool is unavailable.")),
+            cancellationToken);
+
+    public async Task<AssistantResponse> AskAsync(
+        string apiKey, string model, string question, string worldSnapshotJson,
+        Func<string, JsonElement, CancellationToken, Task<string>> executeTool,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(apiKey)) throw new InvalidOperationException("Save an OpenAI API key first.");
@@ -133,14 +207,14 @@ Keep ordinary answers to a few sentences unless more detail is requested.
                     string result;
                     try
                     {
-                        if (name != "query_environment")
+                        if (!AllowedToolNames.Contains(name))
                         {
                             result = ToolError("unsupported_tool", "The requested tool is not available.");
                         }
                         else
                         {
                             using JsonDocument args = JsonDocument.Parse(ReadString(call, "arguments"));
-                            result = await queryEnvironment(args.RootElement.Clone(), cancellationToken).ConfigureAwait(false);
+                            result = await executeTool(name, args.RootElement.Clone(), cancellationToken).ConfigureAwait(false);
                         }
                     }
                     catch (JsonException)

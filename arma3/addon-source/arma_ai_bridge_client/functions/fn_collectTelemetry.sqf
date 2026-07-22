@@ -30,10 +30,10 @@ private _matchingMagazineCount = 0;
 
 private _playerData = createHashMapFromArray
 [
-    ["uid", getPlayerUID _unit],
-    ["name", name _unit],
+    ["id", [_unit, "unit"] call AAB_fnc_getStableEntityId],
     ["side", str (side _unit)],
     ["group", groupId (group _unit)],
+    ["groupId", [group _unit, "group"] call AAB_fnc_getStableEntityId],
     ["positionATL", getPosATL _unit],
     ["positionASL", getPosASL _unit],
     ["bodyHeading", getDir _unit],
@@ -57,6 +57,7 @@ if !(_vehicleObject isEqualTo _unit) then
 {
     _vehicleData = createHashMapFromArray
     [
+        ["id", [_vehicleObject, "vehicle"] call AAB_fnc_getStableEntityId],
         ["class", typeOf _vehicleObject],
         ["displayName", getText (configFile >> "CfgVehicles" >> (typeOf _vehicleObject) >> "displayName")],
         ["positionATL", getPosATL _vehicleObject],
@@ -79,6 +80,8 @@ private _mapData = createHashMapFromArray
 createHashMapFromArray
 [
     ["schema", "arma-ai-bridge/arma3/telemetry-v1"],
+    ["missionId", missionNamespace getVariable ["AAB_activeMissionId", ""]],
+    ["sessionId", missionNamespace getVariable ["AAB_sessionId", ""]],
     ["timestamp", time],
     ["frame", diag_frameNo],
     ["map", _mapData],

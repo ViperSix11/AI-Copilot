@@ -130,6 +130,29 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
         text.AppendLine($"Received UTC: {view.LastReceivedAtUtc:O}");
         text.AppendLine();
 
+        if (view.Protocol is not null)
+        {
+            text.AppendLine($"Protocol: {view.Protocol.Major}.{view.Protocol.Minor} / {view.Protocol.ViewerSide} / {view.Protocol.Visibility}");
+            text.AppendLine($"Features: {string.Join(", ", view.Protocol.Features.Select(item => $"{item.Name}@{item.Version}"))}");
+        }
+        else
+        {
+            text.AppendLine("Protocol: legacy telemetry (no handshake)");
+        }
+        WorldReconciliationState reconciliation = view.Reconciliation;
+        text.AppendLine(
+            $"Reconciliation: {(reconciliation.IsDegraded ? "degraded" : "healthy")} / " +
+            $"complete={reconciliation.HasCompleteReconciliation} / sequence={reconciliation.LastSequence} / " +
+            $"gap={reconciliation.SequenceGap} / pendingPages={reconciliation.PendingPageCount}");
+        text.AppendLine(
+            $"Last full reconciliation: " +
+            $"{(reconciliation.LastReconciliationId.Length == 0 ? "none" : reconciliation.LastReconciliationId)} / " +
+            $"{(reconciliation.LastReconciledAtUtc is null ? "never" : reconciliation.LastReconciledAtUtc.Value.ToString("O", CultureInfo.InvariantCulture))}");
+        text.AppendLine($"Capability registry: v{reconciliation.CapabilityRegistryVersion}");
+        if (reconciliation.DiagnosticCode.Length > 0)
+            text.AppendLine($"Reconciliation diagnostic: {reconciliation.DiagnosticCode}");
+        text.AppendLine();
+
         if (view.Map is not null)
         {
             text.AppendLine($"Map: {view.Map.Name} ({view.Map.SizeMeters:N0} m)");
@@ -150,6 +173,43 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
             : $"Vehicle: {view.Vehicle.DisplayName} / {view.Vehicle.Role} ({Describe(view.Vehicle.Metadata)})");
         text.AppendLine();
 
+        text.AppendLine($"Friendly groups: {FreshnessCounts(view.FriendlyGroups.Select(item => item.Metadata))}");
+        foreach (WorldFriendlyGroupState group in view.FriendlyGroups.Take(64))
+        {
+            text.AppendLine(
+                $"  {group.Alias} / {group.Callsign}: {group.UnitAliases.Count} units / " +
+                $"{Describe(group.Metadata)} / pos {Position(group.Metadata.Position)}");
+        }
+        text.AppendLine($"Friendly units: {FreshnessCounts(view.FriendlyUnits.Select(item => item.Metadata))}");
+        foreach (WorldFriendlyUnitState unit in view.FriendlyUnits.Take(128))
+        {
+            text.AppendLine(
+                $"  {unit.Alias} / {unit.Callsign}: {unit.Role} / {unit.LifeState} / " +
+                $"mobile={unit.Mobile} / {Describe(unit.Metadata)} / pos {Position(unit.Metadata.Position)}");
+        }
+        text.AppendLine($"Friendly vehicles: {FreshnessCounts(view.FriendlyVehicles.Select(item => item.Metadata))}");
+        foreach (WorldFriendlyVehicleState vehicle in view.FriendlyVehicles.Take(64))
+        {
+            text.AppendLine(
+                $"  {vehicle.Alias}: {vehicle.DisplayName} / mobile={vehicle.Mobile} / " +
+                $"fuel={vehicle.Fuel:N2} / {Describe(vehicle.Metadata)} / pos {Position(vehicle.Metadata.Position)}");
+        }
+        text.AppendLine($"Support assets: {FreshnessCounts(view.SupportAssets.Select(item => item.Metadata))}");
+        foreach (WorldSupportAssetState asset in view.SupportAssets.Take(64))
+        {
+            text.AppendLine(
+                $"  {asset.Alias} / {asset.Callsign}: {asset.Kind} / {asset.Status} / " +
+                $"available={asset.Available} / {Describe(asset.Metadata)}");
+        }
+        text.AppendLine($"Mission capabilities: {FreshnessCounts(view.Capabilities.Select(item => item.Metadata))}");
+        foreach (WorldCapabilityState capability in view.Capabilities.Take(64))
+        {
+            text.AppendLine(
+                $"  {capability.Alias}: {capability.Capability} / enabled={capability.Enabled} / " +
+                $"provider={capability.Provider} / {Describe(capability.Metadata)}");
+        }
+        text.AppendLine();
+
         foreach (WorldFreshness freshness in Enum.GetValues<WorldFreshness>())
         {
             int count = view.KnownContacts.Count(contact => contact.Metadata.FreshnessClass == freshness);
@@ -167,8 +227,10 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
         }
 
         text.AppendLine();
-        text.AppendLine("Identity limits: group identity is label-derived; contact identity source is not declared by telemetry-v1; vehicle identity is the current-slot only.");
-        text.AppendLine("Mission limit: telemetry-v1 has no explicit mission ID, so a same-map reset requires clock/frame evidence.");
+        text.AppendLine("Identity limits: raw engine IDs stay private store keys; diagnostics uses session aliases. Legacy current-group identity remains label-derived and current vehicle remains a slot.");
+        text.AppendLine(view.Protocol is null
+            ? "Mission limit: legacy telemetry has no explicit mission ID, so a same-map reset requires clock/frame evidence."
+            : "Mission lifecycle: the protocol handshake is authoritative; force identities are scoped to this local session.");
         return text.ToString();
     }
 
@@ -181,6 +243,14 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
         => position is null
             ? "unavailable"
             : string.Create(CultureInfo.InvariantCulture, $"{position.X:N1} / {position.Y:N1} / {position.Z:N1}");
+
+    private static string FreshnessCounts(IEnumerable<WorldEntityMetadata> metadata)
+    {
+        WorldEntityMetadata[] items = metadata.ToArray();
+        return $"{items.Length} total / " + string.Join(", ", Enum.GetValues<WorldFreshness>()
+            .Select(freshness =>
+                $"{freshness.ToString().ToLowerInvariant()}={items.Count(item => item.FreshnessClass == freshness)}"));
+    }
 
     public void Dispose()
     {

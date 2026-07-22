@@ -106,6 +106,60 @@ public sealed class OpenAiAssistantServiceTests
     }
 
     [Fact]
+    public async Task Milestone3Tools_AreStrictAndRouteToTheLocalWorldModel()
+    {
+        const string arguments =
+            "{\"kind\":\"any\",\"availableOnly\":true,\"maxDistanceMeters\":5000,\"includeStale\":false,\"limit\":20}";
+        string? toolOutput = null;
+        ScriptedHandler handler = new((requestNumber, request) =>
+        {
+            if (requestNumber == 1)
+            {
+                JsonElement[] tools = request.GetProperty("tools").EnumerateArray().ToArray();
+                Assert.Equal(
+                    new[] { "query_assets", "query_environment", "query_friendly_forces", "query_mission_capabilities" },
+                    tools.Select(item => item.GetProperty("name").GetString()).OrderBy(name => name).ToArray());
+                foreach (JsonElement tool in tools)
+                {
+                    Assert.True(tool.GetProperty("strict").GetBoolean());
+                    JsonElement parameters = tool.GetProperty("parameters");
+                    Assert.False(parameters.GetProperty("additionalProperties").GetBoolean());
+                    string[] properties = parameters.GetProperty("properties").EnumerateObject()
+                        .Select(property => property.Name).OrderBy(name => name).ToArray();
+                    string[] required = parameters.GetProperty("required").EnumerateArray()
+                        .Select(item => item.GetString()!).OrderBy(name => name).ToArray();
+                    Assert.Equal(properties, required);
+                }
+                return ToolResponse("rs_assets", "call_assets", arguments, "query_assets");
+            }
+
+            toolOutput = FindFunctionOutput(request, "call_assets");
+            return FinalResponse("Asset picture received.");
+        });
+        using HttpClient httpClient = Client(handler);
+        using OpenAiAssistantService service = new(httpClient);
+        string? routedName = null;
+
+        AssistantResponse response = await service.AskAsync(
+            "test-key",
+            "gpt-5-mini",
+            "What transport is ready?",
+            WorldSnapshot,
+            (name, args, _) =>
+            {
+                routedName = name;
+                Assert.Equal("any", args.GetProperty("kind").GetString());
+                return Task.FromResult("{\"schema\":\"arma-ai-bridge/world-snapshot-v1\",\"purpose\":\"assets\"}");
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("query_assets", routedName);
+        Assert.Contains("\"purpose\":\"assets\"", toolOutput, StringComparison.Ordinal);
+        Assert.Equal("Asset picture received.", response.Text);
+        Assert.Equal(1, response.ToolCalls);
+    }
+
+    [Fact]
     public async Task TwoSequentialToolCalls_PreserveEveryResponseItem()
     {
         ScriptedHandler handler = new((requestNumber, request) => requestNumber switch
@@ -388,7 +442,8 @@ public sealed class OpenAiAssistantServiceTests
         return item.GetProperty("output").GetString() ?? string.Empty;
     }
 
-    private static HttpResponseMessage ToolResponse(string reasoningId, string callId, string arguments) => Json(
+    private static HttpResponseMessage ToolResponse(
+        string reasoningId, string callId, string arguments, string name = "query_environment") => Json(
         HttpStatusCode.OK,
         JsonSerializer.Serialize(new
         {
@@ -407,7 +462,7 @@ public sealed class OpenAiAssistantServiceTests
                     id = $"fc_{callId}",
                     type = "function_call",
                     call_id = callId,
-                    name = "query_environment",
+                    name,
                     arguments
                 }
             },
