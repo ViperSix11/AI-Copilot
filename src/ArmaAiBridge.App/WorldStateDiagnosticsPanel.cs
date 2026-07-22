@@ -70,7 +70,7 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
         }
         Grid summaryPanel = Panel("Local world state and State Mirror", summaryContent);
         grid.Children.Add(summaryPanel);
-        Grid snapshotPanel = Panel("OpenAI current-situation snapshot (read only)", _snapshot);
+        Grid snapshotPanel = Panel("OpenAI context preview (no question; read only)", _snapshot);
         Grid.SetColumn(snapshotPanel, 2);
         grid.Children.Add(snapshotPanel);
         return grid;
@@ -164,6 +164,7 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
             text.AppendLine($"State Mirror: {mirror.Readiness.ToString().ToLowerInvariant()} / schema {mirror.SchemaVersion} / protocol v{mirror.ProtocolVersion}");
             text.AppendLine($"State session: {(mirror.ActiveSessionAlias.Length == 0 ? "none" : mirror.ActiveSessionAlias)} / baseline={(mirror.BaselineReady ? "ready" : "unavailable")}");
             text.AppendLine($"State sequence / receipt: {mirror.LastSequence} / {(mirror.LastSnapshotReceivedAtUtc is null ? "never" : mirror.LastSnapshotReceivedAtUtc.Value.ToString("O", CultureInfo.InvariantCulture))}");
+            text.AppendLine($"OpenAI context source: {(mirror.LastSequence > 0 ? "state-snapshot-v2" : "legacy-telemetry-v1")}");
             text.AppendLine($"State database: {mirror.DatabaseSizeBytes:N0} bytes / rows {string.Join(", ", mirror.RowCounts.Select(item => $"{item.Key}={item.Value}"))}");
             foreach (StateSectionMetadata section in mirror.Sections)
                 text.AppendLine($"  {section.Section}: {section.Readiness.ToString().ToLowerInvariant()} / age {section.AgeSeconds:N1}s / stale={section.IsStale}");

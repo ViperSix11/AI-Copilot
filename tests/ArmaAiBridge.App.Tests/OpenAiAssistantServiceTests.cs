@@ -37,6 +37,289 @@ public sealed class OpenAiAssistantServiceTests
     }
 
     [Fact]
+    public async Task IncompleteReasoningOnlyLiveShape_ReportsResponseBudgetInsteadOfMissingText()
+    {
+        ScriptedHandler handler = new((_, _) => Json(HttpStatusCode.OK, """
+        {
+          "status": "incomplete",
+          "incomplete_details": { "reason": "max_output_tokens" },
+          "model": "gpt-5-mini",
+          "output": [
+            { "id": "rs_live", "type": "reasoning", "summary": [], "encrypted_content": "opaque" }
+          ],
+          "usage": {
+            "input_tokens": 1840,
+            "output_tokens": 600,
+            "output_tokens_details": { "reasoning_tokens": 600 }
+          }
+        }
+        """));
+        using HttpClient httpClient = Client(handler);
+        using OpenAiAssistantService service = new(httpClient);
+
+        OpenAiAssistantException exception = await Assert.ThrowsAsync<OpenAiAssistantException>(
+            () => AskAsync(service, (_, _) => Task.FromResult("unused"), TestContext.Current.CancellationToken));
+
+        Assert.Equal("responses_incomplete", exception.Stage);
+        Assert.Equal("responses_incomplete_max_tokens", exception.ErrorCode);
+        Assert.Contains("response budget", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Missing final output text", OpenAiAssistantService.FormatFailureForLog(exception), StringComparison.Ordinal);
+        Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task Request_UsesBoundedCombinedOutputBudgetExplicitTextAndDefaultModel()
+    {
+        ScriptedHandler handler = new((requestNumber, request) =>
+        {
+            Assert.Equal(1, requestNumber);
+            Assert.Equal("gpt-5-mini", request.GetProperty("model").GetString());
+            Assert.Equal(1200, request.GetProperty("max_output_tokens").GetInt32());
+            Assert.Equal("text", request.GetProperty("text").GetProperty("format").GetProperty("type").GetString());
+            Assert.False(request.TryGetProperty("previous_response_id", out JsonElement _));
+            return FinalResponse("Ready.");
+        });
+        using HttpClient httpClient = Client(handler);
+        using OpenAiAssistantService service = new(httpClient);
+
+        AssistantResponse response = await service.AskAsync(
+            "test-key", "", "Status?", WorldSnapshot,
+            (_, _) => Task.FromResult("unused"), TestContext.Current.CancellationToken);
+
+        Assert.Equal("gpt-5-mini", response.Model);
+        Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task CompletedResponse_ConcatenatesEveryOutputTextPartInOrder()
+    {
+        ScriptedHandler handler = new((_, _) => Json(HttpStatusCode.OK, """
+        {
+          "status": "completed",
+          "model": "gpt-5-mini",
+          "output": [{
+            "type": "message", "status": "completed", "role": "assistant",
+            "content": [
+              { "type": "output_text", "text": "First line." },
+              { "type": "output_text", "text": "Second line." }
+            ]
+          }],
+          "usage": { "input_tokens": 4, "output_tokens": 6,
+            "output_tokens_details": { "reasoning_tokens": 2 } }
+        }
+        """));
+        using HttpClient httpClient = Client(handler);
+        using OpenAiAssistantService service = new(httpClient);
+
+        AssistantResponse response = await AskAsync(
+            service, (_, _) => Task.FromResult("unused"), TestContext.Current.CancellationToken);
+
+        Assert.Equal("First line.\nSecond line.", response.Text);
+        Assert.Equal(2, response.ReasoningTokens);
+    }
+
+    [Fact]
+    public async Task CompletedRefusal_IsAValidNormalizedFinalAnswer()
+    {
+        ScriptedHandler handler = new((_, _) => Json(HttpStatusCode.OK, """
+        {
+          "status": "completed", "model": "gpt-5-mini",
+          "output": [{ "type": "message", "status": "completed", "role": "assistant",
+            "content": [{ "type": "refusal", "refusal": "I cannot help with that. Out! Out." }] }],
+          "usage": { "input_tokens": 4, "output_tokens": 5 }
+        }
+        """));
+        using HttpClient httpClient = Client(handler);
+        using OpenAiAssistantService service = new(httpClient);
+
+        AssistantResponse response = await service.AskAsync(
+            "test-key", "gpt-5-mini", "Question", WorldSnapshot,
+            new ResponseProfileSettings { Terminator = "out" },
+            (_, _, _) => Task.FromResult("unused"), TestContext.Current.CancellationToken);
+
+        Assert.Equal("I cannot help with that. Out.", response.Text);
+        Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Theory]
+    [InlineData("max_output_tokens", "responses_incomplete_max_tokens", "response budget")]
+    [InlineData("max_tokens", "responses_incomplete_max_tokens", "response budget")]
+    [InlineData("content_filter", "responses_incomplete_content_filter", "could not complete")]
+    public async Task IncompleteResponses_MapDocumentedReasonsWithoutRetry(
+        string reason, string expectedCode, string expectedMessage)
+    {
+        ScriptedHandler handler = new((_, _) => Json(HttpStatusCode.OK, $$"""
+        {
+          "status": "incomplete", "incomplete_details": { "reason": "{{reason}}" },
+          "model": "gpt-5-mini", "output": [{ "type": "reasoning", "summary": [] }],
+          "usage": { "input_tokens": 10, "output_tokens": 1200,
+            "output_tokens_details": { "reasoning_tokens": 1200 } }
+        }
+        """));
+        using HttpClient httpClient = Client(handler);
+        using OpenAiAssistantService service = new(httpClient);
+
+        OpenAiAssistantException exception = await Assert.ThrowsAsync<OpenAiAssistantException>(
+            () => AskAsync(service, (_, _) => Task.FromResult("unused"), TestContext.Current.CancellationToken));
+
+        Assert.Equal(expectedCode, exception.ErrorCode);
+        Assert.Contains(expectedMessage, exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, handler.RequestCount);
+        string log = OpenAiAssistantService.FormatFailureForLog(exception);
+        Assert.Contains($"reason={reason}", log, StringComparison.Ordinal);
+        Assert.Contains("outputTypes=reasoning:1", log, StringComparison.Ordinal);
+        Assert.Contains("reasoningTokens=1200", log, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task IncompleteResponse_DoesNotExecuteIncidentalFunctionCall()
+    {
+        ScriptedHandler handler = new((_, _) => Json(HttpStatusCode.OK, """
+        {
+          "status": "incomplete", "incomplete_details": { "reason": "max_output_tokens" },
+          "model": "gpt-5-mini",
+          "output": [{
+            "type": "function_call", "call_id": "call_must_not_run",
+            "name": "query_environment", "arguments": "{}"
+          }]
+        }
+        """));
+        using HttpClient httpClient = Client(handler);
+        using OpenAiAssistantService service = new(httpClient);
+        int executions = 0;
+
+        OpenAiAssistantException exception = await Assert.ThrowsAsync<OpenAiAssistantException>(
+            () => AskAsync(service, (_, _) =>
+            {
+                executions++;
+                return Task.FromResult("must not run");
+            }, TestContext.Current.CancellationToken));
+
+        Assert.Equal("responses_incomplete_max_tokens", exception.ErrorCode);
+        Assert.Equal(0, executions);
+        Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task FailedResponse_UsesOnlySafeErrorMetadata()
+    {
+        ScriptedHandler handler = new((_, _) => Json(HttpStatusCode.OK, """
+        {
+          "status": "failed",
+          "error": { "message": "SECRET PROVIDER BODY CONTENT", "type": "server_error", "code": "generation_failed" },
+          "model": "gpt-5-mini",
+          "usage": { "input_tokens": 8, "output_tokens": 0 }
+        }
+        """));
+        using HttpClient httpClient = Client(handler);
+        using OpenAiAssistantService service = new(httpClient);
+
+        OpenAiAssistantException exception = await Assert.ThrowsAsync<OpenAiAssistantException>(
+            () => AskAsync(service, (_, _) => Task.FromResult("unused"), TestContext.Current.CancellationToken));
+
+        Assert.Equal("responses_failed", exception.Stage);
+        Assert.Equal("server_error", exception.ErrorType);
+        Assert.Equal("generation_failed", exception.ErrorCode);
+        Assert.DoesNotContain("SECRET PROVIDER BODY CONTENT", OpenAiAssistantService.FormatFailureForLog(exception), StringComparison.Ordinal);
+        Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task CompletedReasoningOnly_IsMalformedAndDiagnosticsContainNoContent()
+    {
+        const string secretReasoning = "SECRET REASONING CONTENT";
+        ScriptedHandler handler = new((_, _) => Json(HttpStatusCode.OK, $$"""
+        {
+          "status": "completed", "model": "gpt-5-mini",
+          "output": [{ "type": "reasoning", "summary": [{ "type": "summary_text", "text": "{{secretReasoning}}" }] }],
+          "usage": { "input_tokens": 12, "output_tokens": 7,
+            "output_tokens_details": { "reasoning_tokens": 7 } }
+        }
+        """));
+        using HttpClient httpClient = Client(handler);
+        using OpenAiAssistantService service = new(httpClient);
+
+        OpenAiAssistantException exception = await Assert.ThrowsAsync<OpenAiAssistantException>(
+            () => AskAsync(service, (_, _) => Task.FromResult("unused"), TestContext.Current.CancellationToken));
+        string log = OpenAiAssistantService.FormatFailureForLog(exception);
+
+        Assert.Equal("responses_completed_without_output", exception.ErrorCode);
+        Assert.Contains("status=completed", log, StringComparison.Ordinal);
+        Assert.Contains("outputTypes=reasoning:1", log, StringComparison.Ordinal);
+        Assert.DoesNotContain(secretReasoning, log, StringComparison.Ordinal);
+        Assert.DoesNotContain("summary_text", log, StringComparison.Ordinal);
+        Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task ReasoningAndUnknownItems_AreIgnoredWhenVisibleMessageFollows()
+    {
+        ScriptedHandler handler = new((_, _) => Json(HttpStatusCode.OK, """
+        {
+          "status": "completed", "model": "gpt-5-mini",
+          "output": [
+            { "type": "reasoning", "summary": [] },
+            { "type": "future_provider_item", "payload": "must not be forwarded" },
+            { "type": "message", "status": "completed", "content": [
+              { "type": "output_text", "text": "Visible answer." }
+            ] }
+          ],
+          "usage": { "input_tokens": 12, "output_tokens": 8,
+            "output_tokens_details": { "reasoning_tokens": 3 } }
+        }
+        """));
+        using HttpClient httpClient = Client(handler);
+        using OpenAiAssistantService service = new(httpClient);
+
+        AssistantResponse response = await AskAsync(
+            service, (_, _) => Task.FromResult("unused"), TestContext.Current.CancellationToken);
+
+        Assert.Equal("Visible answer.", response.Text);
+        Assert.Equal(3, response.ReasoningTokens);
+        Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task UnknownOnlyCompletedItem_IsSanitizedInDiagnosticsWithoutPayload()
+    {
+        const string secretPayload = "SECRET FUTURE PAYLOAD";
+        ScriptedHandler handler = new((_, _) => Json(HttpStatusCode.OK, $$"""
+        {
+          "status": "completed", "model": "gpt-5-mini",
+          "output": [{ "type": "Future Item/Unsafe", "payload": "{{secretPayload}}" }],
+          "usage": { "input_tokens": 1, "output_tokens": 1 }
+        }
+        """));
+        using HttpClient httpClient = Client(handler);
+        using OpenAiAssistantService service = new(httpClient);
+
+        OpenAiAssistantException exception = await Assert.ThrowsAsync<OpenAiAssistantException>(
+            () => AskAsync(service, (_, _) => Task.FromResult("unused"), TestContext.Current.CancellationToken));
+        string log = OpenAiAssistantService.FormatFailureForLog(exception);
+
+        Assert.Contains("outputTypes=future_item_unsafe:1", log, StringComparison.Ordinal);
+        Assert.DoesNotContain(secretPayload, log, StringComparison.Ordinal);
+        Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task CancelledResponse_IsTerminalAndDoesNotRetry()
+    {
+        ScriptedHandler handler = new((_, _) => Json(HttpStatusCode.OK, """
+        { "status": "cancelled", "model": "gpt-5-mini", "error": null, "output": [] }
+        """));
+        using HttpClient httpClient = Client(handler);
+        using OpenAiAssistantService service = new(httpClient);
+
+        OpenAiAssistantException exception = await Assert.ThrowsAsync<OpenAiAssistantException>(
+            () => AskAsync(service, (_, _) => Task.FromResult("unused"), TestContext.Current.CancellationToken));
+
+        Assert.Equal("responses_cancelled", exception.Stage);
+        Assert.Equal("responses_cancelled", exception.ErrorCode);
+        Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
     public async Task PositionQuestion_UsesOneResponseProfileAfterFactsAndNormalizesBeforeReturn()
     {
         ScriptedHandler handler = new((requestNumber, request) =>

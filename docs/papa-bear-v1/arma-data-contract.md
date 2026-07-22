@@ -31,20 +31,20 @@ Optional SQF collectors fail independently through an `isNil { code }`
 boundary, so one bad section cannot suppress publication. The required player
 cache must exist before the first useful snapshot is sent.
 
-Time/astronomy retains only mission date/time, moon facts, `sunOrMoon`, and the
-validated `lightDirection` plus bounded `starsVisibility` extracted from one
-`getLighting` call. The complete lighting array and ambient color/brightness
-values are not exported.
+Time/astronomy retains only mission date/time, time multiplier, moon phase and
+`sunOrMoon`. Release 0.8 does not collect or export `getLighting` derivatives,
+`lightDirection`, `starsVisibility` or `moonIntensity`. Environment
+`lightning` remains the separate thunderstorm-activity fact.
 
 ## Required player state
 
-- map/world and mission identifiers;
-- ATL/ASL position and terrain elevation;
-- body heading, velocity, stance, life state and damage;
-- velocity, stance, life state and damage;
-- current weapon, muzzle, magazine, ammunition and optic classes;
-- vehicle class, role and relevant vehicle status;
-- privacy-safe group reference.
+- map/world and mission identifiers in the session envelope;
+- ATL/ASL position and map grid;
+- side and privacy-safe group reference for local filtering/relationships.
+
+Body/view heading, velocity, stance, life state, damage and legacy player
+weapon placeholders are not canonical release 0.8 player facts. Loadout facts
+come only from the loadout section. There is no release 0.8 vehicle subsystem.
 
 Camera position, free-look direction, cursor target and unrestricted object
 state are intentionally excluded.
@@ -92,10 +92,11 @@ Active queries include:
 - `query_state`
 
 `query_state` accepts only a fixed section enum, `includeStale` and a capped
-limit. It cannot accept SQL, file paths, SQF or commands. Initial OpenAI context
-always contains a bounded base summary plus only deterministically selected
-question-relevant state. Full mirror rows and raw snapshot payloads never cross
-the prompt boundary.
+limit. It cannot accept SQL, file paths, SQF or commands. Once v2 is active,
+OpenAI context contains only explicit compact DTOs selected for the current
+question. There is no universal state summary; ordinary non-operational
+conversation receives no game-state payload. Legacy projection placeholders,
+full mirror rows and raw snapshot payloads never cross the prompt boundary.
 
 ## Action-command families
 

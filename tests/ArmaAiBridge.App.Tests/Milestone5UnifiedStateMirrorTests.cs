@@ -30,18 +30,17 @@ public sealed class Milestone5UnifiedStateMirrorTests
         JsonElement astronomySchema = root.GetProperty("$defs").GetProperty("timeAstronomy");
         string[] readyAstronomyFields = astronomySchema.GetProperty("allOf")[0].GetProperty("then").GetProperty("required")
             .EnumerateArray().Select(item => item.GetString()!).ToArray();
-        Assert.Contains("lightDirection", readyAstronomyFields);
-        Assert.Contains("starsVisibility", readyAstronomyFields);
-        Assert.Equal("#/$defs/vector", astronomySchema.GetProperty("properties").GetProperty("lightDirection").GetProperty("$ref").GetString());
-        Assert.Equal("#/$defs/unit", astronomySchema.GetProperty("properties").GetProperty("starsVisibility").GetProperty("$ref").GetString());
+        Assert.Equal(new[] { "missionDate", "daytime", "elapsedMissionTime", "timeMultiplier", "moonPhase", "sunOrMoon" }, readyAstronomyFields);
+        foreach (string removed in new[] { "getLighting", "lightDirection", "starsVisibility", "moonIntensity" })
+            Assert.False(astronomySchema.GetProperty("properties").TryGetProperty(removed, out _));
         StateSnapshotMessage parsed = StateSnapshotParser.Parse(fixture.RootElement, Start);
         Assert.Equal(42, parsed.Sequence);
         Assert.True(parsed.FullReconciliation);
         Assert.Equal(8, parsed.Sections.Count);
         Assert.Equal(38, parsed.Sections["environment"].SampledAtGameTime);
         StateTimeAstronomy astronomy = ReadyRepositoryTime(parsed);
-        Assert.Equal(new[] { 0.1, 0.2, -0.9 }, astronomy.LightDirection);
-        Assert.Equal(0.35, astronomy.StarsVisibility);
+        Assert.Equal(0.7, astronomy.MoonPhase);
+        Assert.Equal(0.5, astronomy.SunOrMoon);
     }
 
     [Fact]
@@ -59,13 +58,9 @@ public sealed class Milestone5UnifiedStateMirrorTests
         hidden["sections"]!["knownContacts"]!["contacts"]![0]!["actualPosition"] = new JsonArray(1, 2, 3);
         Assert.Equal("state_contact_invalid", ParseFailure(hidden));
 
-        JsonNode badDirection = SnapshotNode();
-        badDirection["sections"]!["timeAstronomy"]!["lightDirection"] = new JsonArray(1, 2);
-        Assert.Equal("state_array_invalid", ParseFailure(badDirection));
-
-        JsonNode badStars = SnapshotNode();
-        badStars["sections"]!["timeAstronomy"]!["starsVisibility"] = 1.01;
-        Assert.Equal("state_number_invalid", ParseFailure(badStars));
+        JsonNode removedLighting = SnapshotNode();
+        removedLighting["sections"]!["timeAstronomy"]!["lightDirection"] = new JsonArray(1, 2, 3);
+        Assert.Equal("state_time_unknown_field", ParseFailure(removedLighting));
 
         JsonNode failedAstronomy = SnapshotNode();
         failedAstronomy["sections"]!["timeAstronomy"] = new JsonObject { ["sampledAt"] = 40, ["readiness"] = "failed" };
@@ -158,7 +153,7 @@ public sealed class Milestone5UnifiedStateMirrorTests
     }
 
     [Fact]
-    public void FailedAstronomy_PreservesLastGoodLightingAsStaleAndAdvancesSequence()
+    public void FailedAstronomy_PreservesLastGoodTimeAsStaleAndAdvancesSequence()
     {
         using TempDatabase database = new();
         ManualTimeProvider time = new(Start);
@@ -170,8 +165,8 @@ public sealed class Milestone5UnifiedStateMirrorTests
         Assert.Equal(TelemetryIngestStatus.Applied, repository.ApplySnapshot(Parse(failed, time)).Status);
 
         StateTimeAstronomy stale = repository.GetTimeAstronomy()!;
-        Assert.Equal(good.LightDirection, stale.LightDirection);
-        Assert.Equal(good.StarsVisibility, stale.StarsVisibility);
+        Assert.Equal(good.MoonPhase, stale.MoonPhase);
+        Assert.Equal(good.SunOrMoon, stale.SunOrMoon);
         Assert.True(stale.Metadata.IsStale);
         Assert.Equal(StateSectionReadiness.Failed, stale.Metadata.Readiness);
         Assert.Equal(43, repository.GetDiagnostics().LastSequence);
@@ -278,8 +273,146 @@ public sealed class Milestone5UnifiedStateMirrorTests
         Assert.DoesNotContain("Clear hostile presence", snapshot, StringComparison.Ordinal);
         Assert.DoesNotContain("marker-objective", snapshot, StringComparison.Ordinal);
         using JsonDocument document = JsonDocument.Parse(snapshot);
-        Assert.Empty(document.RootElement.GetProperty("knownContacts").EnumerateArray());
+        Assert.False(document.RootElement.TryGetProperty("knownContacts", out _));
+        Assert.False(document.RootElement.TryGetProperty("player", out _));
+        Assert.False(document.RootElement.TryGetProperty("reconciliation", out _));
         Assert.Equal(new[] { "environment" }, document.RootElement.GetProperty("stateMirror").GetProperty("selectedSections").EnumerateArray().Select(item => item.GetString()).ToArray());
+    }
+
+    [Fact]
+    public void CanonicalV2PositionContext_HasNoLegacyProjectionOrDuplicateMeasuredPosition()
+    {
+        using JsonDocument document = JsonDocument.Parse(CanonicalSnapshot("Wo bin ich?"));
+        JsonElement root = document.RootElement;
+
+        Assert.Equal("current-situation", root.GetProperty("purpose").GetString());
+        Assert.True(root.TryGetProperty("interpretedLocation", out JsonElement location));
+        Assert.Equal("Stratis", location.GetProperty("worldName").GetString());
+        Assert.Equal("020056", location.GetProperty("grid").GetString());
+        Assert.False(location.TryGetProperty("measuredPosition", out _));
+        Assert.Equal(new[] { "position" }, SelectedSections(root));
+        Assert.Empty(root.GetProperty("stateMirror").GetProperty("selectedContext").EnumerateObject());
+
+        string json = root.GetRawText();
+        foreach (string forbidden in new[]
+        {
+            "bodyHeading", "viewHeading", "speedKph", "damage", "lifeState", "stance",
+            "matchingMagazineCount", "matchingMagazineRounds", "knownContacts", "vehicle",
+            "reconciliation", "friendlyForceSummary", "missionCapabilitySummary"
+        })
+            Assert.DoesNotContain($"\"{forbidden}\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExactCoordinateQuestion_AddsCanonicalMeasuredPositionOnlyOnce()
+    {
+        string json = CanonicalSnapshot("What are my exact coordinates?");
+        using JsonDocument document = JsonDocument.Parse(json);
+
+        Assert.True(document.RootElement.GetProperty("interpretedLocation").TryGetProperty("measuredPosition", out _));
+        Assert.Single(Regex.Matches(json, "\"measuredPosition\"", RegexOptions.CultureInvariant).Cast<Match>());
+        Assert.DoesNotContain("\"player\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CanonicalV2Context_IsStrictlyQuestionSpecificAndPreservesMeaningfulZeros()
+    {
+        using JsonDocument weather = JsonDocument.Parse(CanonicalSnapshot("Wie ist das Wetter und aus welcher Richtung kommt der Wind?", node =>
+        {
+            node["sections"]!["environment"]!["rain"] = 0;
+            node["sections"]!["environment"]!["fog"] = 0;
+        }));
+        JsonElement weatherContext = weather.RootElement.GetProperty("stateMirror").GetProperty("selectedContext");
+        Assert.Equal(0, weatherContext.GetProperty("environment").GetProperty("rain").GetDouble());
+        Assert.Equal(0, weatherContext.GetProperty("environment").GetProperty("fog").GetDouble());
+        Assert.False(weatherContext.TryGetProperty("loadout", out _));
+        Assert.False(weatherContext.TryGetProperty("contacts", out _));
+        Assert.False(weatherContext.TryGetProperty("tasks", out _));
+        Assert.False(weatherContext.TryGetProperty("markers", out _));
+        Assert.False(weather.RootElement.TryGetProperty("interpretedLocation", out _));
+
+        using JsonDocument ammunition = JsonDocument.Parse(CanonicalSnapshot("Wie viel Munition habe ich?"));
+        JsonElement ammunitionContext = ammunition.RootElement.GetProperty("stateMirror").GetProperty("selectedContext");
+        Assert.Equal(new[] { "loadout" }, SelectedSections(ammunition.RootElement));
+        Assert.Equal(27, ammunitionContext.GetProperty("loadout").GetProperty("loadedRounds").GetInt32());
+        Assert.Equal(0, ammunitionContext.GetProperty("loadout").GetProperty("mines").GetInt32());
+        Assert.False(ammunitionContext.TryGetProperty("environment", out _));
+        Assert.False(ammunitionContext.TryGetProperty("contacts", out _));
+        Assert.False(ammunition.RootElement.TryGetProperty("interpretedLocation", out _));
+    }
+
+    [Fact]
+    public void ContactContext_IsBoundedAndAuthoritativeZeroIsNotOmitted()
+    {
+        using JsonDocument current = JsonDocument.Parse(CanonicalSnapshot("Welche Feindkontakte sind bekannt?"));
+        JsonElement contacts = current.RootElement.GetProperty("stateMirror").GetProperty("selectedContext").GetProperty("contacts");
+        Assert.Equal(1, contacts.GetProperty("summary").GetProperty("knownContactCount").GetInt32());
+        Assert.Single(contacts.GetProperty("contacts").EnumerateArray());
+        Assert.False(current.RootElement.TryGetProperty("interpretedLocation", out _));
+
+        using JsonDocument empty = JsonDocument.Parse(CanonicalSnapshot("Welche Feindkontakte sind bekannt?", node =>
+            node["sections"]!["knownContacts"]!["contacts"] = new JsonArray()));
+        JsonElement emptyContacts = empty.RootElement.GetProperty("stateMirror").GetProperty("selectedContext").GetProperty("contacts");
+        Assert.Equal(0, emptyContacts.GetProperty("summary").GetProperty("knownContactCount").GetInt32());
+        Assert.False(emptyContacts.TryGetProperty("contacts", out _));
+    }
+
+    [Fact]
+    public void OrdinaryConversation_ReceivesNoArmaStateAndBroadSituationIsCompact()
+    {
+        string ordinary = CanonicalSnapshot("How do I bake a loaf of bread?");
+        using JsonDocument ordinaryDocument = JsonDocument.Parse(ordinary);
+        Assert.Equal("current-situation", ordinaryDocument.RootElement.GetProperty("purpose").GetString());
+        Assert.False(ordinaryDocument.RootElement.TryGetProperty("stateMirror", out _));
+        Assert.False(ordinaryDocument.RootElement.TryGetProperty("interpretedLocation", out _));
+        Assert.True(Encoding.UTF8.GetByteCount(ordinary) <= 160, $"Ordinary context bytes: {Encoding.UTF8.GetByteCount(ordinary)}");
+
+        string broad = CanonicalSnapshot("What is the current situation?");
+        using JsonDocument broadDocument = JsonDocument.Parse(broad);
+        string[] selected = SelectedSections(broadDocument.RootElement);
+        Assert.Equal(new[] { "position", "environment", "friendly_forces", "contacts", "tasks" }, selected);
+        Assert.True(Encoding.UTF8.GetByteCount(broad) <= 5000, $"Broad context bytes: {Encoding.UTF8.GetByteCount(broad)}");
+        Assert.DoesNotContain("marker-objective", broad, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompactContext_OmitsEmptyPlaceholdersRemovedAstronomyAndCompleteSnapshot()
+    {
+        string loadout = CanonicalSnapshot("What ammunition and equipment do I have?", node =>
+        {
+            node["sections"]!["loadout"]!["selectedWeapon"] = "";
+            node["sections"]!["loadout"]!["selectedWeaponDisplayName"] = "";
+        });
+        using JsonDocument document = JsonDocument.Parse(loadout);
+        JsonElement selected = document.RootElement.GetProperty("stateMirror").GetProperty("selectedContext").GetProperty("loadout");
+        Assert.False(selected.TryGetProperty("currentWeapon", out _));
+        Assert.False(selected.TryGetProperty("currentWeaponDisplayName", out _));
+        foreach (string removed in new[] { "getLighting", "lightDirection", "starsVisibility", "moonIntensity" })
+            Assert.DoesNotContain(removed, loadout, StringComparison.Ordinal);
+        Assert.DoesNotContain("state-snapshot-v2", loadout, StringComparison.Ordinal);
+        Assert.True(Encoding.UTF8.GetByteCount(loadout) <= 1600, $"Loadout context bytes: {Encoding.UTF8.GetByteCount(loadout)}");
+
+        using JsonDocument emptyTasks = JsonDocument.Parse(CanonicalSnapshot("What is our mission objective?", node =>
+            node["sections"]!["tasks"]!["tasks"] = new JsonArray()));
+        Assert.False(emptyTasks.RootElement.GetProperty("stateMirror").GetProperty("selectedContext")
+            .TryGetProperty("tasks", out _));
+        using JsonDocument emptyMarkers = JsonDocument.Parse(CanonicalSnapshot("Show me the map markers", node =>
+            node["sections"]!["markers"]!["markers"] = new JsonArray()));
+        Assert.False(emptyMarkers.RootElement.GetProperty("stateMirror").GetProperty("selectedContext")
+            .TryGetProperty("markers", out _));
+    }
+
+    [Fact]
+    public void NoQuestionDiagnosticsPreview_IsExplicitAndNeverShowsLegacyUnion()
+    {
+        using JsonDocument document = JsonDocument.Parse(CanonicalSnapshot(string.Empty));
+        JsonElement root = document.RootElement;
+        Assert.Equal("current-situation-preview", root.GetProperty("purpose").GetString());
+        Assert.Empty(SelectedSections(root));
+        Assert.Empty(root.GetProperty("stateMirror").GetProperty("selectedContext").EnumerateObject());
+        Assert.False(root.TryGetProperty("player", out _));
+        Assert.False(root.TryGetProperty("environment", out _));
+        Assert.False(root.TryGetProperty("reconciliation", out _));
     }
 
     [Fact]
@@ -320,7 +453,7 @@ public sealed class Milestone5UnifiedStateMirrorTests
         }
 
         string publisher = File.ReadAllText(Path.Combine(root, "arma3/addon-source/arma_ai_bridge_client/functions/fn_publishStateSnapshot.sqf"));
-        Assert.Single(Regex.Matches(publisher, @"\bgetLighting\b", RegexOptions.CultureInvariant).Cast<Match>());
+        Assert.Empty(Regex.Matches(publisher, @"\bgetLighting\b", RegexOptions.CultureInvariant).Cast<Match>());
         foreach ((string section, int cadence) in new[]
         {
             ("environment", 8), ("timeAstronomy", 8), ("loadout", 4),
@@ -331,7 +464,7 @@ public sealed class Milestone5UnifiedStateMirrorTests
     }
 
     [Fact]
-    public void DeprecatedSunDirection_IsAbsentFromRuntimeSchemaAndPayloadFixtures()
+    public void DeprecatedLightingFields_AreAbsentFromRuntimeSchemaAndPayloadFixtures()
     {
         string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../.."));
         foreach (string relative in new[]
@@ -343,7 +476,11 @@ public sealed class Milestone5UnifiedStateMirrorTests
             "src/ArmaAiBridge.App/Services/StateSnapshotParser.cs",
             "src/ArmaAiBridge.App/Services/SqliteStateRepository.cs"
         })
-            Assert.DoesNotContain("sunDirection", File.ReadAllText(Path.Combine(root, relative)), StringComparison.Ordinal);
+        {
+            string source = File.ReadAllText(Path.Combine(root, relative));
+            foreach (string removed in new[] { "sunDirection", "getLighting", "lightDirection", "starsVisibility", "moonIntensity" })
+                Assert.DoesNotContain(removed, source, StringComparison.Ordinal);
+        }
     }
 
     private static SqliteStateRepository ReadyRepository(string path, ManualTimeProvider time)
@@ -364,9 +501,7 @@ public sealed class Milestone5UnifiedStateMirrorTests
             value.GetProperty("missionDate").EnumerateArray().Select(item => item.GetInt32()).ToArray(),
             value.GetProperty("daytime").GetDouble(), value.GetProperty("elapsedMissionTime").GetDouble(),
             value.GetProperty("timeMultiplier").GetDouble(), value.GetProperty("moonPhase").GetDouble(),
-            value.GetProperty("moonIntensity").GetDouble(), value.GetProperty("sunOrMoon").GetDouble(),
-            value.GetProperty("lightDirection").EnumerateArray().Select(item => item.GetDouble()).ToArray(),
-            value.GetProperty("starsVisibility").GetDouble(),
+            value.GetProperty("sunOrMoon").GetDouble(),
             new StateSectionMetadata("timeAstronomy", StateSectionReadiness.Ready, 38, Start, 2, false));
     }
     private static StateSnapshotMessage Parse(JsonNode node, ManualTimeProvider time)
@@ -395,6 +530,33 @@ public sealed class Milestone5UnifiedStateMirrorTests
     });
     private static JsonElement Arguments(string json) => JsonDocument.Parse(json).RootElement.Clone();
     private static string Fixture(string name) => File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "fixtures", name));
+
+    private static string CanonicalSnapshot(string question, Action<JsonNode>? mutate = null)
+    {
+        using TempDatabase database = new();
+        ManualTimeProvider time = new(Start);
+        using SqliteStateRepository repository = new(database.Path, time);
+        WorldStateStore world = new(time);
+        using TelemetryIngestService legacy = new(world, time);
+        using StateMirrorIngestService mirror = new(repository, legacy, timeProvider: time);
+        string handshake = Handshake();
+        legacy.Ingest(handshake);
+        mirror.Ingest(handshake);
+        JsonNode snapshot = SnapshotNode();
+        mutate?.Invoke(snapshot);
+        Assert.Equal(TelemetryIngestStatus.Applied, mirror.Ingest(snapshot.ToJsonString()).Status);
+        WorldSnapshotBuilder builder = new(world, time, stateRepository: repository);
+        string result;
+        bool built = question.Length == 0
+            ? builder.TryBuildCurrentSituation(out result)
+            : builder.TryBuildCurrentSituation(question, out result);
+        Assert.True(built);
+        return result;
+    }
+
+    private static string[] SelectedSections(JsonElement root)
+        => root.GetProperty("stateMirror").GetProperty("selectedSections").EnumerateArray()
+            .Select(item => item.GetString()!).ToArray();
 
     private sealed class TempDatabase : IDisposable
     {

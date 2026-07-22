@@ -69,10 +69,16 @@ public static class StateSnapshotParser
                 RequiredNumber(section, "nextWeatherChange", -1, 1e12);
                 break;
             case "timeAstronomy":
-                ArrayLength(section, "missionDate", 5, 5); Vector(section, "lightDirection");
-                foreach (string field in new[] { "daytime", "elapsedMissionTime", "timeMultiplier", "moonPhase", "moonIntensity", "sunOrMoon" })
+                ArrayLength(section, "missionDate", 5, 5);
+                foreach (string field in new[] { "daytime", "elapsedMissionTime", "timeMultiplier", "moonPhase", "sunOrMoon" })
                     RequiredNumber(section, field, field == "moonPhase" ? -1 : 0, field == "elapsedMissionTime" ? 1e12 : 120);
-                RequiredNumber(section, "starsVisibility", 0, 1);
+                HashSet<string> timeFields = new(StringComparer.Ordinal)
+                {
+                    "sampledAt", "readiness", "missionDate", "daytime", "elapsedMissionTime",
+                    "timeMultiplier", "moonPhase", "sunOrMoon"
+                };
+                if (section.EnumerateObject().Any(property => !timeFields.Contains(property.Name)))
+                    throw Invalid("state_time_unknown_field");
                 break;
             case "loadout":
                 foreach (string field in new[] { "primaryWeapon", "launcher", "handgun", "selectedWeapon", "selectedWeaponDisplayName", "muzzle", "fireMode", "currentMagazine", "binocular", "uniformClass", "vestClass", "backpackClass", "loadoutHash" })

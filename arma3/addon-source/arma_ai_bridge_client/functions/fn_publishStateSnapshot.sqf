@@ -100,38 +100,6 @@ private _runSection =
     8,
 {
     private _missionDate = date;
-    private _lighting = getLighting;
-    private _lightDirection =
-        if (
-            _lighting isEqualType [] &&
-            { count _lighting >= 3 } &&
-            { (_lighting select 2) isEqualType [] } &&
-            { count (_lighting select 2) == 3 } &&
-            { ({ _x isEqualType 0 && { finite _x } && { abs _x <= 10000000 } } count (_lighting select 2)) == 3 }
-        )
-        then
-        {
-            _lighting select 2
-        }
-        else
-        {
-            [0, 0, -1]
-        };
-    private _starsVisibility =
-        if (
-            _lighting isEqualType [] &&
-            { count _lighting >= 4 } &&
-            { (_lighting select 3) isEqualType 0 } &&
-            { finite (_lighting select 3) }
-        )
-        then
-        {
-            ((_lighting select 3) max 0) min 1
-        }
-        else
-        {
-            0
-        };
     private _value = createHashMapFromArray
     [
         ["missionDate", _missionDate],
@@ -139,10 +107,7 @@ private _runSection =
         ["elapsedMissionTime", time],
         ["timeMultiplier", timeMultiplier],
         ["moonPhase", moonPhase _missionDate],
-        ["moonIntensity", moonIntensity],
-        ["sunOrMoon", sunOrMoon],
-        ["lightDirection", _lightDirection],
-        ["starsVisibility", _starsVisibility]
+        ["sunOrMoon", sunOrMoon]
     ];
     ["timeAstronomy", _value] call _finish;
     false

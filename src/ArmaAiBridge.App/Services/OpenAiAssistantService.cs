@@ -235,7 +235,7 @@ Do not add radio terminators yourself. The local application applies the selecte
             AddSensitiveJsonStrings(sensitiveValues, profilePrompt);
             foreach ((string _, string text) in _history) AddSensitiveValue(sensitiveValues, text);
             AddSensitiveJsonStrings(sensitiveValues, worldSnapshot);
-            int toolCalls = 0, inputTokens = 0, outputTokens = 0;
+            int toolCalls = 0, inputTokens = 0, outputTokens = 0, reasoningTokens = 0;
             string effectiveModel = string.IsNullOrWhiteSpace(model) ? "gpt-5-mini" : model.Trim();
 
             for (int round = 0; round < 4; round++)
@@ -244,60 +244,94 @@ Do not add radio terminators yourself. The local application applies the selecte
                     apiKey.Trim(), effectiveModel, input, sensitiveValues, cancellationToken).ConfigureAwait(false);
                 JsonElement root = response.RootElement;
                 effectiveModel = ReadString(root, "model", effectiveModel);
-                AddUsage(root, ref inputTokens, ref outputTokens);
-                if (!root.TryGetProperty("output", out JsonElement output) || output.ValueKind != JsonValueKind.Array)
-                    throw Failure("OpenAI returned an invalid response. Try again.", "response_parse", "Missing output array.");
-
-                List<JsonElement> items = output.EnumerateArray().Select(x => x.Clone()).ToList();
+                ParsedResponse parsed = ParseResponse(root);
+                inputTokens += parsed.Usage.InputTokens;
+                outputTokens += parsed.Usage.OutputTokens;
+                reasoningTokens += parsed.Usage.ReasoningTokens;
+                OpenAiResponseDiagnostics diagnostics = parsed.Diagnostics(
+                    effectiveModel, inputTokens, outputTokens, reasoningTokens, toolCalls);
+                List<JsonElement> items = parsed.Items.ToList();
                 foreach (JsonElement item in items) AddSensitiveJsonStrings(sensitiveValues, item);
-                List<JsonElement> calls = items.Where(x => ReadString(x, "type") == "function_call").ToList();
-                if (calls.Count == 0)
+                string terminalStatus = parsed.Status.Length == 0 ? "completed" : parsed.Status;
+                if (terminalStatus == "incomplete")
+                    throw IncompleteFailure(parsed.IncompleteReason, diagnostics);
+                if (terminalStatus == "failed")
                 {
-                    string answer = ExtractText(items);
-                    if (answer.Length == 0)
-                        throw Failure("OpenAI returned no answer. Try again.", "response_parse", "Missing final output text.");
+                    throw Failure("OpenAI could not complete this response. Please try again.",
+                        "responses_failed", "Provider response failed.", errorType: parsed.ErrorType,
+                        errorCode: parsed.ErrorCode.Length == 0 ? "responses_failed" : parsed.ErrorCode,
+                        responseDiagnostics: diagnostics);
+                }
+                if (terminalStatus == "cancelled")
+                    throw Failure("OpenAI cancelled the response. Please try again.",
+                        "responses_cancelled", "Response was cancelled.", errorCode: "responses_cancelled",
+                        responseDiagnostics: diagnostics);
+                if (terminalStatus != "completed")
+                    throw Failure("OpenAI returned an invalid response. Try again.",
+                        "response_parse", "Unknown response status.", errorCode: "responses_status_invalid",
+                        responseDiagnostics: diagnostics);
+
+                List<JsonElement> calls = parsed.FunctionCalls.ToList();
+                if (calls.Count > 0)
+                {
+                    if (round == 3)
+                        throw Failure("OpenAI exceeded three local tool rounds. Try a more specific question.",
+                            "tool_loop", "Tool round limit exceeded.", responseDiagnostics: diagnostics);
+                    foreach (JsonElement item in items) input.Add(item);
+                    foreach (JsonElement call in calls)
+                    {
+                        toolCalls++;
+                        string callId = ReadString(call, "call_id");
+                        string name = ReadString(call, "name");
+                        if (callId.Length == 0)
+                            throw Failure("OpenAI returned an invalid tool call. Try again.", "response_parse",
+                                "Function call is missing call_id.", responseDiagnostics: diagnostics);
+                        string result;
+                        try
+                        {
+                            if (!AllowedToolNames.Contains(name))
+                            {
+                                result = ToolError("unsupported_tool", "The requested tool is not available.");
+                            }
+                            else
+                            {
+                                using JsonDocument args = JsonDocument.Parse(ReadString(call, "arguments"));
+                                result = await executeTool(name, args.RootElement.Clone(), cancellationToken).ConfigureAwait(false);
+                            }
+                        }
+                        catch (JsonException)
+                        {
+                            result = ToolError("invalid_tool_arguments", "The tool arguments were invalid.");
+                        }
+                        catch (TimeoutException)
+                        {
+                            result = ToolError("tool_timeout", "The local Arma query timed out.");
+                        }
+                        catch (Exception exception) when (exception is not OperationCanceledException)
+                        {
+                            result = ToolError("tool_failed", "The local Arma query could not be completed.");
+                        }
+                        AddSensitiveValue(sensitiveValues, result);
+                        AddSensitiveJsonStrings(sensitiveValues, result);
+                        input.Add(FunctionOutput(callId, result));
+                    }
+                    continue;
+                }
+
+                if (parsed.OutputText.Length > 0)
+                    return Complete(parsed.OutputText);
+                if (parsed.Refusal.Length > 0)
+                    return Complete(parsed.Refusal);
+                throw Failure("OpenAI returned a malformed completed response. Please try again.",
+                    "response_parse", "Completed response contained no visible text, refusal, or function call.",
+                    errorCode: "responses_completed_without_output", responseDiagnostics: diagnostics);
+
+                AssistantResponse Complete(string answer)
+                {
                     string normalizedAnswer = ResponseTextNormalizer.Normalize(answer, normalizedProfile);
                     AddHistory(question.Trim(), normalizedAnswer);
-                    return new AssistantResponse(normalizedAnswer, effectiveModel, toolCalls, inputTokens, outputTokens);
-                }
-                if (round == 3)
-                    throw Failure("OpenAI exceeded three local tool rounds. Try a more specific question.", "tool_loop", "Tool round limit exceeded.");
-                foreach (JsonElement item in items) input.Add(item);
-                foreach (JsonElement call in calls)
-                {
-                    toolCalls++;
-                    string callId = ReadString(call, "call_id");
-                    string name = ReadString(call, "name");
-                    if (callId.Length == 0)
-                        throw Failure("OpenAI returned an invalid tool call. Try again.", "response_parse", "Function call is missing call_id.");
-                    string result;
-                    try
-                    {
-                        if (!AllowedToolNames.Contains(name))
-                        {
-                            result = ToolError("unsupported_tool", "The requested tool is not available.");
-                        }
-                        else
-                        {
-                            using JsonDocument args = JsonDocument.Parse(ReadString(call, "arguments"));
-                            result = await executeTool(name, args.RootElement.Clone(), cancellationToken).ConfigureAwait(false);
-                        }
-                    }
-                    catch (JsonException)
-                    {
-                        result = ToolError("invalid_tool_arguments", "The tool arguments were invalid.");
-                    }
-                    catch (TimeoutException)
-                    {
-                        result = ToolError("tool_timeout", "The local Arma query timed out.");
-                    }
-                    catch (Exception exception) when (exception is not OperationCanceledException)
-                    {
-                        result = ToolError("tool_failed", "The local Arma query could not be completed.");
-                    }
-                    AddSensitiveValue(sensitiveValues, result);
-                    AddSensitiveJsonStrings(sensitiveValues, result);
-                    input.Add(FunctionOutput(callId, result));
+                    return new AssistantResponse(normalizedAnswer, effectiveModel, toolCalls,
+                        inputTokens, outputTokens, reasoningTokens);
                 }
             }
             throw Failure("The assistant tool loop did not complete. Try again.", "tool_loop", "Tool loop ended unexpectedly.");
@@ -317,7 +351,14 @@ Do not add radio terminators yourself. The local application applies the selecte
         Dictionary<string, object?> body = new()
         {
             ["model"] = model, ["instructions"] = Instructions, ["input"] = input, ["tools"] = Tools,
-            ["tool_choice"] = "auto", ["parallel_tool_calls"] = false, ["max_output_tokens"] = 600, ["store"] = false,
+            ["tool_choice"] = "auto", ["parallel_tool_calls"] = false,
+            // Responses max_output_tokens includes both hidden reasoning and visible answer tokens.
+            ["max_output_tokens"] = 1200,
+            ["text"] = new Dictionary<string, object?>
+            {
+                ["format"] = new Dictionary<string, object?> { ["type"] = "text" }
+            },
+            ["store"] = false,
             // Manage context locally: request opaque reasoning and replay every output item unchanged.
             ["include"] = new[] { EncryptedReasoningInclude }
         };
@@ -410,16 +451,108 @@ Do not add radio terminators yourself. The local application applies the selecte
         if (min.HasValue) schema["minimum"] = min.Value; if (max.HasValue) schema["maximum"] = max.Value; if (enums is not null) schema["enum"] = enums;
         return schema;
     }
-    private static string ExtractText(IEnumerable<JsonElement> items) => string.Join("\n", items
-        .Where(x => ReadString(x, "type") == "message" && x.TryGetProperty("content", out _))
-        .SelectMany(x => x.GetProperty("content").EnumerateArray())
-        .Where(x => ReadString(x, "type") == "output_text")
-        .Select(x => ReadString(x, "text")).Where(x => x.Length > 0)).Trim();
-    private static void AddUsage(JsonElement root, ref int input, ref int output)
+    private static ParsedResponse ParseResponse(JsonElement root)
     {
-        if (!root.TryGetProperty("usage", out JsonElement usage)) return;
-        input += ReadInt(usage, "input_tokens"); output += ReadInt(usage, "output_tokens");
+        if (root.ValueKind != JsonValueKind.Object)
+            throw Failure("OpenAI returned an invalid response. Try again.",
+                "response_parse", "Response root was not an object.", errorCode: "responses_root_invalid");
+        string status = SafeEnum(ReadString(root, "status"));
+        string incompleteReason = root.TryGetProperty("incomplete_details", out JsonElement incomplete) &&
+                                  incomplete.ValueKind == JsonValueKind.Object
+            ? SafeEnum(ReadString(incomplete, "reason"))
+            : string.Empty;
+        string errorType = string.Empty;
+        string errorCode = string.Empty;
+        if (root.TryGetProperty("error", out JsonElement responseError) &&
+            responseError.ValueKind == JsonValueKind.Object)
+        {
+            errorType = SafeEnum(ReadString(responseError, "type"));
+            errorCode = SafeEnum(ReadString(responseError, "code"));
+        }
+        bool hasOutput = root.TryGetProperty("output", out JsonElement output) && output.ValueKind == JsonValueKind.Array;
+        if (!hasOutput && status is not ("failed" or "incomplete" or "cancelled"))
+        {
+            OpenAiResponseDiagnostics diagnostics = new(status, incompleteReason, string.Empty,
+                new Dictionary<string, int>(), Array.Empty<string>(), false, false, 0, 0, 0, 0);
+            throw Failure("OpenAI returned an invalid response. Try again.",
+                "response_parse", "Missing output array.", errorCode: "responses_output_missing",
+                responseDiagnostics: diagnostics);
+        }
+
+        List<JsonElement> items = new();
+        List<JsonElement> calls = new();
+        List<string> text = new();
+        List<string> refusals = new();
+        Dictionary<string, int> outputTypes = new(StringComparer.Ordinal);
+        List<string> messageStatuses = new();
+        IEnumerable<JsonElement> outputItems = hasOutput
+            ? output.EnumerateArray().ToArray()
+            : Array.Empty<JsonElement>();
+        foreach (JsonElement value in outputItems)
+        {
+            JsonElement item = value.Clone();
+            items.Add(item);
+            string type = item.ValueKind == JsonValueKind.Object ? SafeEnum(ReadString(item, "type")) : "invalid";
+            if (type.Length == 0) type = "unknown";
+            outputTypes[type] = outputTypes.GetValueOrDefault(type) + 1;
+            if (type == "function_call") calls.Add(item);
+            if (type != "message" || item.ValueKind != JsonValueKind.Object) continue;
+            string messageStatus = SafeEnum(ReadString(item, "status"));
+            if (messageStatus.Length > 0) messageStatuses.Add(messageStatus);
+            if (!item.TryGetProperty("content", out JsonElement content) || content.ValueKind != JsonValueKind.Array) continue;
+            foreach (JsonElement part in content.EnumerateArray())
+            {
+                if (part.ValueKind != JsonValueKind.Object) continue;
+                string contentType = SafeEnum(ReadString(part, "type"));
+                if (contentType == "output_text")
+                {
+                    string valueText = ReadString(part, "text").Trim();
+                    if (valueText.Length > 0) text.Add(valueText);
+                }
+                else if (contentType == "refusal")
+                {
+                    string refusal = ReadString(part, "refusal").Trim();
+                    if (refusal.Length > 0) refusals.Add(refusal);
+                }
+            }
+        }
+
+        ResponseUsage usage = ReadUsage(root);
+        return new ParsedResponse(status, incompleteReason, errorType, errorCode, items, calls,
+            string.Join("\n", text), string.Join("\n", refusals), outputTypes,
+            messageStatuses.Distinct(StringComparer.Ordinal).ToArray(), usage);
     }
+
+    private static ResponseUsage ReadUsage(JsonElement root)
+    {
+        if (!root.TryGetProperty("usage", out JsonElement usage) || usage.ValueKind != JsonValueKind.Object)
+            return new ResponseUsage(0, 0, 0);
+        int reasoning = usage.TryGetProperty("output_tokens_details", out JsonElement details) &&
+                        details.ValueKind == JsonValueKind.Object
+            ? ReadInt(details, "reasoning_tokens")
+            : 0;
+        return new ResponseUsage(ReadInt(usage, "input_tokens"), ReadInt(usage, "output_tokens"), reasoning);
+    }
+
+    private static OpenAiAssistantException IncompleteFailure(
+        string reason,
+        OpenAiResponseDiagnostics diagnostics)
+        => reason switch
+        {
+            "max_output_tokens" or "max_tokens" => Failure(
+                "OpenAI could not complete the answer within the response budget. Please try again.",
+                "responses_incomplete", "Response budget exhausted.",
+                errorCode: "responses_incomplete_max_tokens", responseDiagnostics: diagnostics),
+            "content_filter" => Failure(
+                "OpenAI could not complete this response.",
+                "responses_incomplete", "Response stopped by content filter.",
+                errorCode: "responses_incomplete_content_filter", responseDiagnostics: diagnostics),
+            _ => Failure(
+                "OpenAI could not complete this response. Please try again.",
+                "responses_incomplete", "Response was incomplete.",
+                errorCode: "responses_incomplete_other", responseDiagnostics: diagnostics)
+        };
+
     private static ApiError ReadApiError(string json, string apiKey, IReadOnlySet<string> sensitiveValues)
     {
         try
@@ -448,6 +581,24 @@ Do not add radio terminators yourself. The local application applies the selecte
         if (!string.IsNullOrWhiteSpace(failure.ErrorType)) fields.Add($"type={SanitizeField(failure.ErrorType)}");
         if (!string.IsNullOrWhiteSpace(failure.ErrorCode)) fields.Add($"code={SanitizeField(failure.ErrorCode)}");
         if (!string.IsNullOrWhiteSpace(failure.DiagnosticMessage)) fields.Add($"message={SanitizeField(failure.DiagnosticMessage)}");
+        if (failure.ResponseDiagnostics is { } diagnostics)
+        {
+            if (diagnostics.Status.Length > 0) fields.Add($"status={SafeEnum(diagnostics.Status)}");
+            if (diagnostics.IncompleteReason.Length > 0) fields.Add($"reason={SafeEnum(diagnostics.IncompleteReason)}");
+            if (diagnostics.EffectiveModel.Length > 0) fields.Add($"model={SafeEnum(diagnostics.EffectiveModel)}");
+            if (diagnostics.OutputTypeCounts.Count > 0)
+                fields.Add("outputTypes=" + string.Join("|", diagnostics.OutputTypeCounts
+                    .OrderBy(item => item.Key, StringComparer.Ordinal)
+                    .Select(item => $"{SafeEnum(item.Key)}:{item.Value}")));
+            if (diagnostics.MessageStatuses.Count > 0)
+                fields.Add("messageStatuses=" + string.Join("|", diagnostics.MessageStatuses.Select(SafeEnum)));
+            fields.Add($"hasOutputText={diagnostics.HasOutputText.ToString().ToLowerInvariant()}");
+            fields.Add($"hasRefusal={diagnostics.HasRefusal.ToString().ToLowerInvariant()}");
+            fields.Add($"inputTokens={diagnostics.InputTokens}");
+            fields.Add($"outputTokens={diagnostics.OutputTokens}");
+            fields.Add($"reasoningTokens={diagnostics.ReasoningTokens}");
+            fields.Add($"toolCalls={diagnostics.ToolCalls}");
+        }
         return $"OpenAI assistant failed: {string.Join(", ", fields)}.";
     }
 
@@ -458,8 +609,16 @@ Do not add radio terminators yourself. The local application applies the selecte
         int? httpStatus = null,
         string? errorType = null,
         string? errorCode = null,
+        OpenAiResponseDiagnostics? responseDiagnostics = null,
         Exception? innerException = null)
-        => new(userMessage, stage, httpStatus, errorType, errorCode, SanitizeField(diagnosticMessage), innerException);
+        => new(userMessage, stage, httpStatus, errorType, errorCode,
+            SanitizeField(diagnosticMessage), responseDiagnostics, innerException);
+
+    private static string SafeEnum(string value)
+    {
+        string sanitized = Regex.Replace(value.ToLowerInvariant(), @"[^a-z0-9_.-]", "_");
+        return sanitized.Length <= 80 ? sanitized : sanitized[..80];
+    }
 
     private static string SanitizeDiagnostic(string message, string apiKey, IReadOnlySet<string> sensitiveValues)
     {
@@ -518,6 +677,32 @@ Do not add radio terminators yourself. The local application applies the selecte
         => root.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.Number ? value.GetInt32() : 0;
 
     private sealed record ApiError(string Message, string Type, string Code);
+
+    private sealed record ResponseUsage(int InputTokens, int OutputTokens, int ReasoningTokens);
+
+    private sealed record ParsedResponse(
+        string Status,
+        string IncompleteReason,
+        string ErrorType,
+        string ErrorCode,
+        IReadOnlyList<JsonElement> Items,
+        IReadOnlyList<JsonElement> FunctionCalls,
+        string OutputText,
+        string Refusal,
+        IReadOnlyDictionary<string, int> OutputTypeCounts,
+        IReadOnlyList<string> MessageStatuses,
+        ResponseUsage Usage)
+    {
+        public OpenAiResponseDiagnostics Diagnostics(
+            string model,
+            int inputTokens,
+            int outputTokens,
+            int reasoningTokens,
+            int toolCalls)
+            => new(Status, IncompleteReason, model, OutputTypeCounts, MessageStatuses,
+                OutputText.Length > 0, Refusal.Length > 0,
+                inputTokens, outputTokens, reasoningTokens, toolCalls);
+    }
 
     public void Dispose()
     {

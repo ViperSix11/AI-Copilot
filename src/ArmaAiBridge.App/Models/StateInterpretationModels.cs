@@ -46,5 +46,4 @@ public sealed record ContactSummary(
 
 public sealed record StateContextSelection(
     IReadOnlyList<string> SelectedSections,
-    IReadOnlyDictionary<string, object?> BaseContext,
     IReadOnlyDictionary<string, object?> SelectedContext);

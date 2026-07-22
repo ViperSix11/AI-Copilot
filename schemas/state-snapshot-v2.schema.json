@@ -69,14 +69,13 @@
     "timeAstronomy": {
       "type": "object",
       "required": ["sampledAt", "readiness"],
-      "allOf": [{ "if": { "properties": { "readiness": { "enum": ["ready", "stale"] } } }, "then": { "required": ["missionDate", "daytime", "elapsedMissionTime", "timeMultiplier", "moonPhase", "moonIntensity", "sunOrMoon", "lightDirection", "starsVisibility"] } }],
+      "allOf": [{ "if": { "properties": { "readiness": { "enum": ["ready", "stale"] } } }, "then": { "required": ["missionDate", "daytime", "elapsedMissionTime", "timeMultiplier", "moonPhase", "sunOrMoon"] } }],
       "properties": {
         "sampledAt": { "type": "number", "minimum": 0 }, "readiness": { "$ref": "#/$defs/readiness" },
         "missionDate": { "type": "array", "minItems": 5, "maxItems": 5, "items": { "type": "integer" } },
         "daytime": { "type": "number", "minimum": 0, "maximum": 24 }, "elapsedMissionTime": { "type": "number", "minimum": 0 },
         "timeMultiplier": { "type": "number", "minimum": 0.1, "maximum": 120 }, "moonPhase": { "$ref": "#/$defs/unit" },
-        "moonIntensity": { "$ref": "#/$defs/unit" }, "sunOrMoon": { "$ref": "#/$defs/unit" },
-        "lightDirection": { "$ref": "#/$defs/vector" }, "starsVisibility": { "$ref": "#/$defs/unit" }
+        "sunOrMoon": { "$ref": "#/$defs/unit" }
       },
       "additionalProperties": false
     },

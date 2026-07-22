@@ -37,7 +37,7 @@ it does not call setters or execute mission actions.
 | --- | --- | --- |
 | player | [`getPosATL`](https://community.bohemia.net/wiki/getPosATL), [`getPosASL`](https://community.bohemia.net/wiki/getPosASL), [`mapGridPosition`](https://community.bohemia.net/wiki/mapGridPosition), [`side`](https://community.bohemia.net/wiki/side), [`group`](https://community.bohemia.net/wiki/group) | local player only |
 | weather | [`overcast`](https://community.bohemia.net/wiki/overcast), [`overcastForecast`](https://community.bohemia.net/wiki/overcastForecast), [`rain`](https://community.bohemia.net/wiki/rain), [`fog`](https://community.bohemia.net/wiki/fog), [`fogParams`](https://community.bohemia.net/wiki/fogParams), [`fogForecast`](https://community.bohemia.net/wiki/fogForecast), [`wind`](https://community.bohemia.net/wiki/wind), [`windDir`](https://community.bohemia.net/wiki/windDir), [`windStr`](https://community.bohemia.net/wiki/windStr), [`gusts`](https://community.bohemia.net/wiki/gusts), [`waves`](https://community.bohemia.net/wiki/waves), [`lightnings`](https://community.bohemia.net/wiki/lightnings), [`humidity`](https://community.bohemia.net/wiki/humidity), [`ambientTemperature`](https://community.bohemia.net/wiki/ambientTemperature), [`nextWeatherChange`](https://community.bohemia.net/wiki/nextWeatherChange) | client weather; forecast fog may differ by machine; temperature is unavailable before Arma 3 2.06 |
-| time/astronomy | [`date`](https://community.bohemia.net/wiki/date), [`daytime`](https://community.bohemia.net/wiki/daytime), [`time`](https://community.bohemia.net/wiki/time), [`timeMultiplier`](https://community.bohemia.net/wiki/timeMultiplier), [`moonPhase`](https://community.bohemia.net/wiki/moonPhase), [`moonIntensity`](https://community.bohemia.net/wiki/moonIntensity), [`sunOrMoon`](https://community.bohemia.net/wiki/sunOrMoon), [`getLighting`](https://community.bohemia.net/wiki/getLighting) | one `getLighting` call per sample; only its validated general light-direction vector and bounded stars-visibility scalar are retained; ambient color/brightness and the complete array are omitted |
+| time/astronomy | [`date`](https://community.bohemia.net/wiki/date), [`daytime`](https://community.bohemia.net/wiki/daytime), [`time`](https://community.bohemia.net/wiki/time), [`timeMultiplier`](https://community.bohemia.net/wiki/timeMultiplier), [`moonPhase`](https://community.bohemia.net/wiki/moonPhase), [`sunOrMoon`](https://community.bohemia.net/wiki/sunOrMoon) | mission time plus the minimal moon phase and sun-or-moon scalar used for deterministic daylight classification; no lighting-incidence or star-visibility collector |
 | loadout | [`primaryWeapon`](https://community.bohemia.net/wiki/primaryWeapon), [`secondaryWeapon`](https://community.bohemia.net/wiki/secondaryWeapon), [`handgunWeapon`](https://community.bohemia.net/wiki/handgunWeapon), [`currentWeapon`](https://community.bohemia.net/wiki/currentWeapon), [`currentMuzzle`](https://community.bohemia.net/wiki/currentMuzzle), [`currentWeaponMode`](https://community.bohemia.net/wiki/currentWeaponMode), [`currentMagazine`](https://community.bohemia.net/wiki/currentMagazine), [`ammo`](https://community.bohemia.net/wiki/ammo), weapon-item getters, [`magazinesAmmoFull`](https://community.bohemia.net/wiki/magazinesAmmoFull), [`assignedItems`](https://community.bohemia.net/wiki/assignedItems), container getters and [`hashValue`](https://community.bohemia.net/wiki/hashValue) | local player; arrays are capped and normalized |
 | groups/units | [`units`](https://community.bohemia.net/wiki/units), [`leader`](https://community.bohemia.net/wiki/leader), [`groupID`](https://community.bohemia.net/wiki/groupID), [`behaviour`](https://community.bohemia.net/wiki/behaviour), [`combatMode`](https://community.bohemia.net/wiki/combatMode), [`formation`](https://community.bohemia.net/wiki/formation), [`currentWaypoint`](https://community.bohemia.net/wiki/currentWaypoint), [`waypointPosition`](https://community.bohemia.net/wiki/waypointPosition), [`waypointType`](https://community.bohemia.net/wiki/waypointType), [`expectedDestination`](https://community.bohemia.net/wiki/expectedDestination), [`assignedTarget`](https://community.bohemia.net/wiki/assignedTarget), [`currentCommand`](https://community.bohemia.net/wiki/currentCommand), `alive`, `lifeState`, `canMove`, `damage` | own side or configured own group only; no opposing-unit enumeration |
 | contacts | [`targets`](https://community.bohemia.net/wiki/targets), [`targetKnowledge`](https://community.bohemia.net/wiki/targetKnowledge), [`getSensorTargets`](https://community.bohemia.net/wiki/getSensorTargets), [`local`](https://community.bohemia.net/wiki/local) | an eligible local unit represents each own-side group; groups with no local representative are omitted; the local player's vehicle sensors contribute only targets whose estimated state can be read through `targetKnowledge`; estimated position/error are exported, never hostile `getPos` |
@@ -123,12 +123,13 @@ Environment contains current/forecast overcast, rain, fog plus bounded
 `[value, decay, base]` fog parameters, forecast fog, horizontal wind vector,
 engine wind direction/strength, gusts, waves, lightning, humidity, optional
 ambient temperature and next weather-change game time. Time/astronomy contains
-mission date, daytime, elapsed mission time, multiplier, moon phase/intensity,
-sun-or-moon scalar, a bounded three-number general `lightDirection` and
-`starsVisibility` from zero through one. The latter two are extracted from one
-validated `getLighting` result. Invalid optional shapes use `[0,0,-1]` and `0`;
-a command/collector failure marks the whole time/astronomy section failed. The
-complete lighting array and ambient RGB/brightness values are never exported.
+only mission date, daytime, elapsed mission time, multiplier, moon phase and
+the sun-or-moon scalar used for deterministic daylight/darkness classification.
+`getLighting`, `lightDirection`, `starsVisibility` and `moonIntensity` are not
+part of the release 0.8 collector, wire contract, repository model or OpenAI
+context. A command/collector failure marks the whole time/astronomy section
+failed. Environment `lightning` remains because it describes thunderstorm
+activity, not general light incidence.
 
 ### Loadout
 
@@ -214,10 +215,38 @@ newest age, uncertainty and stale count; and the existing position relation.
 time/darkness, weapons/ammunition, friendly forces, contacts/enemies,
 tasks/objectives and markers. It performs no model call.
 
-Every turn receives only world, session readiness, interpreted position,
-environment summary, current-task summary, friendly/contact counts and section
-freshness. The selector may add one bounded relevant section. Full groups,
-contacts, tasks, markers and inventory never enter base context.
+Once a valid v2 snapshot is accepted, SQLite is the canonical dynamic-state
+authority. OpenAI receives explicit compact DTOs only for the domains selected
+by the current question. There is no universal state base: clearly ordinary
+conversation receives only the fixed snapshot schema/purpose envelope, while a
+broad situation question intentionally receives a bounded multi-domain summary.
+Position context appears once as `interpretedLocation`; weather, time, loadout,
+friendly forces, contacts, tasks and markers appear only under the matching
+selected-context key. Missing optional facts are omitted by schema-aware DTO
+construction; meaningful zero counts, zero ammunition, zero rain/fog and false
+booleans remain. Internal repository records, schema details, paths, raw IDs,
+empty placeholder strings and legacy compatibility projections are never
+serialized directly into the model context.
+
+The canonical v2 root is:
+
+```text
+schema
+purpose
+interpretedLocation                 # position questions only
+stateMirror:
+  selectedSections
+  selectedContext
+```
+
+An exact-coordinate question may add measured position once inside
+`interpretedLocation`; ordinary position questions use grid and named-location
+relations without duplicating coordinates. Before v2 is accepted, genuine
+legacy telemetry may use the bounded legacy snapshot path. The two sources are
+never mixed. Diagnostics labels the active source `state-snapshot-v2` or
+`legacy-telemetry-v1`; the engineering label is not ordinary Papa Bear speech.
+The right-hand World State view is an explicitly labelled no-question preview
+of the same compact eligible shape, not a union of all stored fields.
 
 ## Local tools
 
@@ -241,6 +270,34 @@ readiness and safe codes only. They must not contain prompts, transcripts,
 answers, tool payloads, raw IDs, task/marker text, loadouts, contact positions,
 database contents, API keys or voice IDs. Only retrieved minimized results enter
 OpenAI context.
+
+### Responses terminal-state contract
+
+Release 0.8 keeps non-streaming `gpt-5-mini`, `store:false`, locally replayed
+encrypted reasoning items and the existing bounded tool-continuation loop. A
+direct answer uses exactly one Responses request. The request explicitly uses
+`text.format.type=text` and `max_output_tokens=1200`; that bound includes both
+reasoning and visible output tokens. There is no automatic retry, background
+request, model switch or second interpreter request.
+
+The raw HTTP parser reads top-level `status`, `error` and
+`incomplete_details.reason`, then inspects every output item. Function calls
+continue through the existing validated local tool loop. Ordered non-empty
+`output_text` parts are concatenated. A documented `refusal` part is a valid
+final answer and follows the same normalizer, history, UI, TTS and replay path.
+Reasoning items are never visible answer text. Unknown item types are ignored
+except for sanitized type counts.
+
+`incomplete` with `max_output_tokens` or `max_tokens` maps to
+`responses_incomplete_max_tokens`; `content_filter` maps to
+`responses_incomplete_content_filter`. `failed` and `cancelled` use safe
+terminal failures. A response that claims `completed` but has no function call,
+visible text or refusal is malformed. Responses without `status` retain bounded
+compatibility with existing completed test fixtures. Safe diagnostics may
+contain status, incomplete reason, effective model, item-type counts, message
+statuses, presence flags and aggregate input/output/reasoning token counts.
+They never contain response bodies, IDs, reasoning, output/refusal text,
+questions, snapshots, profiles or tool payloads.
 
 Diagnostics shows session alias, database/baseline readiness, last sequence and
 receipt, per-section readiness/age, row counts, database size, schema versions
@@ -267,15 +324,26 @@ The Windows suite must prove:
 13. tasks/markers are client-scoped, bounded and absent from logs.
 14. typed repository and `query_state` validation reject arbitrary SQL/sections.
 15. German/English context selection chooses every required section.
-16. ordinary section questions use one Responses request and bounded context.
-17. raw IDs, paths, complete database and complete collections never enter
-    default OpenAI context.
+16. ordinary section questions use one Responses request and only their compact
+    selected context; non-operational questions receive no game-state payload.
+17. raw IDs, paths, complete database, complete collections, duplicate legacy
+    facts and synthetic zero/empty placeholders never enter canonical v2 OpenAI
+    context.
 18. profiles, terminators, visible/history/TTS/replay identity and every 0.7
     regression remain green.
 19. repository verifier, WPF win-x64, native x64, PBO and matching ZIP pass.
-20. active runtime/schema/payload fixtures contain no `sunDirection`; `getLighting`,
-    `lightDirection`, `starsVisibility` and per-section failure isolation are
-    contract-protected.
+20. active runtime/schema/payload fixtures contain no `sunDirection`,
+    `getLighting`, `lightDirection`, `starsVisibility` or `moonIntensity`;
+    per-section failure isolation remains contract-protected.
+21. completed text, multipart text, refusal, function continuation, incomplete,
+    failed, cancelled, reasoning-only, unknown-item and missing-status Responses
+    shapes are deterministic and content-redacted in diagnostics.
+22. the Responses budget is 1200, explicit text format is present, reasoning
+    usage is counted, direct answers do not retry and the default remains
+    `gpt-5-mini`.
+23. position/weather/time/loadout/force/contact/task/marker/general/situation
+    selection is schema-aware, preserves meaningful zeros and stays below
+    recorded compact serialized-size ceilings.
 
 ## Exact live acceptance
 
@@ -284,7 +352,7 @@ Use the extended Stratis mission and matching 0.8 app/DLL/PBO:
 1. Confirm one gazetteer and handshake feature `state-snapshot@2`.
 2. Confirm one snapshot about every four seconds, real section sample times and
    full reconciliation about every 30 seconds.
-3. Ask weather/wind, time/lighting and ammunition in German/English; confirm
+3. Ask weather/wind, time/darkness and ammunition in German/English; confirm
    local derivations and normally no tool call.
 4. With two WEST groups, confirm friendly counts/status/current waypoint.
 5. Let only the remote group know an EAST target. Confirm estimated
@@ -299,7 +367,7 @@ Use the extended Stratis mission and matching 0.8 app/DLL/PBO:
 12. Reset requires confirmation and preserves keys/profiles.
 13. Logs contain no protected content.
 
-Live regression for the release-blocking astronomy fault:
+Live regression for the release-blocking astronomy fault and its final cleanup:
 
 - before the fix, RPT repeats `Error Undefined variable in expression:
   sunDirection`, State Mirror sequence remains zero and World State waits for
@@ -307,10 +375,27 @@ Live regression for the release-blocking astronomy fault:
 - after the fix, that RPT error is absent, the handshake advertises
   `state-snapshot@2`, the first snapshot is accepted within approximately five
   seconds, sequence is greater than zero and all eight wrappers appear;
-- `timeAstronomy` is either ready with validated lighting fields or explicitly
-  failed without blocking the other sections or subsequent publications.
+- `timeAstronomy` is ready with only mission date/time, multiplier, moon phase
+  and `sunOrMoon`, or explicitly failed without blocking other sections;
+- runtime SQF, schema and payload contain no `getLighting`, `lightDirection`,
+  `starsVisibility` or `moonIntensity`.
 
-The draft PR remains unmerged until this gate passes. Official documentation
-cannot verify multiplayer locality coverage, third-party task/marker behavior,
-natural-language quality, provider latency/quotas, Windows audio or long-run
-database behavior; these remain live acceptance requirements.
+Live regression for the release-blocking Responses failure:
+
+- before the fix, `status=incomplete`, `reason=max_output_tokens` and a single
+  reasoning output item are misreported as `Missing final output text`;
+- after the fix, that shape reports `responses_incomplete_max_tokens`, includes
+  only safe status/type/token metadata and performs no automatic retry;
+- ask weather/wind, ammunition and position in the accepted State Mirror
+  session; each completed direct answer uses one Responses request and the same
+  normalized visible/spoken/replay text, while an incomplete result is precise
+  and redacted.
+
+The draft PR remains unmerged until this gate passes. Official OpenAI reference
+material documents terminal statuses, incomplete reasons, refusal/output text,
+explicit text format, combined visible/reasoning output limits and reasoning
+usage. It cannot verify this account's live `gpt-5-mini` completion quality,
+latency, quota behavior or exact mission-context token demand. Official Arma
+documentation likewise cannot verify multiplayer locality coverage,
+third-party task/marker behavior, Windows audio or long-run database behavior;
+these remain live acceptance requirements.

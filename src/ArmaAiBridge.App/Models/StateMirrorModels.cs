@@ -59,10 +59,7 @@ public sealed record StateTimeAstronomy(
     double ElapsedMissionTime,
     double TimeMultiplier,
     double MoonPhase,
-    double MoonIntensity,
     double SunOrMoon,
-    IReadOnlyList<double> LightDirection,
-    double StarsVisibility,
     StateSectionMetadata Metadata);
 
 public sealed record StateMagazine(string Class, string DisplayName, int Rounds, bool Loaded, string Container);

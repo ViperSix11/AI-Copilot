@@ -195,6 +195,9 @@ public sealed class WorldSnapshotBuilder
 
     private Dictionary<string, object?> BuildCurrentSituation(WorldStateView view, string question)
     {
+        if (_stateContextSelector is not null && _stateRepository!.GetDiagnostics().LastSequence > 0)
+            return BuildCanonicalCurrentSituation(view, question);
+
         MapGazetteerSnapshot gazetteer = _gazetteerStore?.GetSnapshot()
             ?? new MapGazetteerSnapshot(
                 MapGazetteerReadiness.Unavailable,
@@ -219,17 +222,70 @@ public sealed class WorldSnapshotBuilder
             ["missionCapabilitySummary"] = MissionCapabilitySummary(view),
             ["reconciliation"] = Reconciliation(view.Reconciliation)
         };
-        if (_stateContextSelector is not null)
+        return result;
+    }
+
+    private Dictionary<string, object?> BuildCanonicalCurrentSituation(WorldStateView view, string question)
+    {
+        StateContextSelection selection = _stateContextSelector!.Select(question);
+        bool preview = string.IsNullOrWhiteSpace(question);
+        Dictionary<string, object?> result = new()
         {
-            StateContextSelection selection = _stateContextSelector.Select(question);
+            ["schema"] = SnapshotSchema,
+            ["purpose"] = preview ? "current-situation-preview" : "current-situation"
+        };
+
+        if (preview)
+        {
+            result["stateMirror"] = new
+            {
+                selectedSections = Array.Empty<string>(),
+                selectedContext = new Dictionary<string, object?>()
+            };
+            return result;
+        }
+
+        if (selection.SelectedSections.Contains("position", StringComparer.Ordinal))
+        {
+            MapGazetteerSnapshot gazetteer = _gazetteerStore?.GetSnapshot()
+                ?? new MapGazetteerSnapshot(
+                    MapGazetteerReadiness.Unavailable,
+                    view.Map!.Name,
+                    view.Map.SizeMeters,
+                    Array.Empty<MapGazetteerLocation>(),
+                    "gazetteer_not_configured");
+            PositionInterpretation interpretation = _positionInterpreter.Interpret(view, gazetteer);
+            Dictionary<string, object?> location = new()
+            {
+                ["status"] = interpretation.Status,
+                ["worldName"] = interpretation.WorldName,
+                ["grid"] = interpretation.Grid,
+                ["informationAgeSeconds"] = interpretation.InformationAgeSeconds,
+                ["gazetteerReadiness"] = interpretation.GazetteerReadiness
+            };
+            if (RequestsExactCoordinates(question)) location["measuredPosition"] = interpretation.MeasuredPosition;
+            if (interpretation.PrimaryReference is not null) location["primaryReference"] = interpretation.PrimaryReference;
+            if (interpretation.AlternativeReferences.Count > 0)
+                location["alternativeReferences"] = interpretation.AlternativeReferences.Take(2).ToArray();
+            result["interpretedLocation"] = location;
+        }
+
+        if (selection.SelectedSections.Count > 0)
+        {
             result["stateMirror"] = new
             {
                 selectedSections = selection.SelectedSections,
-                baseContext = selection.BaseContext,
                 selectedContext = selection.SelectedContext
             };
         }
         return result;
+    }
+
+    private static bool RequestsExactCoordinates(string question)
+    {
+        string normalized = question.ToLowerInvariant();
+        return new[] { "coordinate", "coordinates", "koordinate", "koordinaten", "exact position", "genaue position" }
+            .Any(term => normalized.Contains(term, StringComparison.Ordinal));
     }
 
     private string BuildMirroredFriendlyForces(JsonElement arguments)
