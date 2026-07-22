@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ViperSix11/AI-Copilot/schemas/map-index-command-v1.schema.json",
+  "title": "ArmA AI Bridge map index command v1",
+  "type": "object",
+  "required": ["schema", "requestId", "command", "parameters"],
+  "properties": {
+    "schema": { "const": "arma-ai-bridge/map-index-command-v1" },
+    "requestId": { "$ref": "#/$defs/id" },
+    "command": { "enum": ["start", "cancel"] },
+    "parameters": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "command": { "const": "start" } } },
+      "then": {
+        "properties": {
+          "parameters": {
+            "type": "object",
+            "required": ["sessionId", "exportId", "fingerprint", "indexVersion", "startTileOrdinal", "tileSizeMeters", "terrainSampleSpacingMeters", "maxRecordsPerPage"],
+            "properties": {
+              "sessionId": { "$ref": "#/$defs/id" }, "exportId": { "$ref": "#/$defs/id" }, "fingerprint": { "$ref": "#/$defs/fingerprint" },
+              "indexVersion": { "const": 1 }, "startTileOrdinal": { "type": "integer", "minimum": 0, "maximum": 16384 },
+              "tileSizeMeters": { "type": "integer", "minimum": 256, "maximum": 1024 },
+              "terrainSampleSpacingMeters": { "type": "integer", "minimum": 32, "maximum": 256 },
+              "maxRecordsPerPage": { "type": "integer", "minimum": 16, "maximum": 96 }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "cancel" } } },
+      "then": {
+        "properties": {
+          "parameters": {
+            "type": "object", "required": ["sessionId", "exportId", "fingerprint"],
+            "properties": { "sessionId": { "$ref": "#/$defs/id" }, "exportId": { "$ref": "#/$defs/id" }, "fingerprint": { "$ref": "#/$defs/fingerprint" } },
+            "additionalProperties": false
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$" },
+    "fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

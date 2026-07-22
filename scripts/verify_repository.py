@@ -35,6 +35,10 @@ EXPECTED_PATHS = (
     "arma3/addon-source/arma_ai_bridge_client/functions/fn_publishSessionHandshake.sqf",
     "arma3/addon-source/arma_ai_bridge_client/functions/fn_publishWorldEvent.sqf",
     "arma3/addon-source/arma_ai_bridge_client/functions/fn_updateFriendlyForcePicture.sqf",
+    "arma3/addon-source/arma_ai_bridge_client/functions/fn_collectMapTile.sqf",
+    "arma3/addon-source/arma_ai_bridge_client/functions/fn_executeMapIndexCommand.sqf",
+    "arma3/addon-source/arma_ai_bridge_client/functions/fn_exportMapKnowledge.sqf",
+    "arma3/addon-source/arma_ai_bridge_client/functions/fn_publishMapManifest.sqf",
     "native/ArmaAiBridge/ArmaAiBridge.cpp",
     "native/ArmaAiBridge/CMakeLists.txt",
     "schemas/telemetry-v1.schema.json",
@@ -44,6 +48,10 @@ EXPECTED_PATHS = (
     "schemas/friendly-force-snapshot-v1.schema.json",
     "schemas/friendly-force-delta-v1.schema.json",
     "schemas/mission-capabilities-v1.schema.json",
+    "schemas/map-manifest-v1.schema.json",
+    "schemas/map-index-command-v1.schema.json",
+    "schemas/map-tile-v1.schema.json",
+    "schemas/map-index-progress-v1.schema.json",
     "samples/telemetry-v1.json",
     "samples/query-command-v1.json",
     "samples/query-result-v1.json",
@@ -52,6 +60,8 @@ EXPECTED_PATHS = (
     "tests/fixtures/friendly-force-delta-v1.json",
     "tests/fixtures/mission-capabilities-v1.json",
     "tests/fixtures/sqf-milestone-3-contract-v1.json",
+    "tests/fixtures/sqf-milestone-4-contract-v1.json",
+    "scripts/package_pbo.py",
     "src/ArmaAiBridge.App/ArmaAiBridge.App.csproj",
     "src/ArmaAiBridge.App/GlobalUsings.cs",
 )
@@ -145,6 +155,10 @@ def main() -> int:
             "friendly-force-snapshot-v1",
             "friendly-force-delta-v1",
             "mission-capabilities-v1",
+            "map-manifest-v1",
+            "map-tile-v1",
+            "map-index-progress-v1",
+            "map-index-command-v1",
         ):
             fixture = json.loads(texts[ROOT / f"tests/fixtures/{name}.json"])
             schema = json.loads(texts[ROOT / f"schemas/{name}.schema.json"])
@@ -206,6 +220,8 @@ def main() -> int:
         "native/ArmaAiBridge",
         "@Arma_AI_Bridge",
         "arma_ai_bridge_x64.dll",
+        "arma_ai_bridge_client.pbo",
+        "package-mod.ps1",
     ):
         if required not in workflow:
             errors.append(f"Workflow is missing current path/name: {required}")

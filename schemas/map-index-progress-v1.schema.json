@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ViperSix11/AI-Copilot/schemas/map-index-progress-v1.schema.json",
+  "title": "ArmA AI Bridge map index progress v1",
+  "type": "object",
+  "required": ["schema", "messageId", "missionId", "sessionId", "timestamp", "sequence", "exportId", "fingerprint", "indexVersion", "status", "completedTiles", "totalTiles", "nextTileOrdinal", "errorCode"],
+  "properties": {
+    "schema": { "const": "arma-ai-bridge/arma3/map-index-progress-v1" },
+    "messageId": { "$ref": "#/$defs/id" }, "missionId": { "$ref": "#/$defs/id" }, "sessionId": { "$ref": "#/$defs/id" },
+    "timestamp": { "type": "number", "minimum": 0 }, "sequence": { "type": "integer", "minimum": 1 },
+    "exportId": { "$ref": "#/$defs/id" }, "fingerprint": { "$ref": "#/$defs/fingerprint" }, "indexVersion": { "const": 1 },
+    "status": { "enum": ["started", "indexing", "completed", "cancelled", "failed"] },
+    "completedTiles": { "type": "integer", "minimum": 0, "maximum": 16384 }, "totalTiles": { "type": "integer", "minimum": 1, "maximum": 16384 },
+    "nextTileOrdinal": { "type": "integer", "minimum": 0, "maximum": 16384 },
+    "errorCode": { "enum": [null, "tile_page_limit_exceeded"] }
+  },
+  "additionalProperties": false,
+  "$defs": { "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$" }, "fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
+}

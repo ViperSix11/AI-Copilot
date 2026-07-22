@@ -16,6 +16,7 @@ Answer in the user's language, use metric units, and distinguish measured facts 
 Treat the supplied provenance-aware world-state snapshot as the only current game state. Respect freshness, confidence, and position uncertainty. Never invent map objects, contacts, positions, visibility, routes, or threats.
 Use query_environment whenever a question depends on actual terrain objects. Use a circle for the general vicinity and a cone for ahead/in-view questions.
 Use query_friendly_forces for detailed own-side group, unit, or vehicle facts; query_assets for support-asset readiness; and query_mission_capabilities for mission-declared read-only capabilities. These tools never execute support.
+Use find_nearest_locations for official nearby place names, find_locations_by_name for a named-place lookup, and query_map_area for bounded cached terrain, building, road, vegetation, or water facts. Treat partial map coverage as incomplete. These tools are read-only and never provide routes, landing zones, firing solutions, or actions.
 Choose context-aware ranges: about 300 m on foot, 800 m in a ground vehicle, up to 1500 m in aircraft; respect explicit distances within tool limits.
 Only discuss contacts present in player/group knowledge or current vehicle sensors. Never infer hidden enemies from terrain data.
 Keep ordinary answers to a few sentences unless more detail is requested.
@@ -107,11 +108,78 @@ Keep ordinary answers to a few sentences unless more detail is requested.
                 ["required"] = new[] { "enabledOnly", "includeStale" },
                 ["additionalProperties"] = false
             }
+        },
+        new Dictionary<string, object?>
+        {
+            ["type"] = "function",
+            ["name"] = "find_nearest_locations",
+            ["description"] = "Find bounded official named Arma map locations nearest to the current player using the local static index.",
+            ["strict"] = true,
+            ["parameters"] = new Dictionary<string, object?>
+            {
+                ["type"] = "object",
+                ["properties"] = new Dictionary<string, object?>
+                {
+                    ["maxDistanceMeters"] = Schema("number", 100, 50000),
+                    ["locationTypes"] = new Dictionary<string, object?>
+                    {
+                        ["type"] = "array", ["minItems"] = 0, ["maxItems"] = 16,
+                        ["items"] = Schema("string")
+                    },
+                    ["limit"] = Schema("integer", 1, 20)
+                },
+                ["required"] = new[] { "maxDistanceMeters", "locationTypes", "limit" },
+                ["additionalProperties"] = false
+            }
+        },
+        new Dictionary<string, object?>
+        {
+            ["type"] = "function",
+            ["name"] = "find_locations_by_name",
+            ["description"] = "Search official Arma map location names in the local static index.",
+            ["strict"] = true,
+            ["parameters"] = new Dictionary<string, object?>
+            {
+                ["type"] = "object",
+                ["properties"] = new Dictionary<string, object?>
+                {
+                    ["name"] = new Dictionary<string, object?> { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = 80 },
+                    ["limit"] = Schema("integer", 1, 20)
+                },
+                ["required"] = new[] { "name", "limit" },
+                ["additionalProperties"] = false
+            }
+        },
+        new Dictionary<string, object?>
+        {
+            ["type"] = "function",
+            ["name"] = "query_map_area",
+            ["description"] = "Read bounded cached map facts around the current player, including terrain, buildings, roads, vegetation, water, and named locations.",
+            ["strict"] = true,
+            ["parameters"] = new Dictionary<string, object?>
+            {
+                ["type"] = "object",
+                ["properties"] = new Dictionary<string, object?>
+                {
+                    ["radiusMeters"] = Schema("number", 100, 5000),
+                    ["categories"] = new Dictionary<string, object?>
+                    {
+                        ["type"] = "array", ["minItems"] = 1, ["maxItems"] = 6, ["uniqueItems"] = true,
+                        ["items"] = Schema("string", enums: new[] { "location", "terrain", "building", "road", "vegetation", "water" })
+                    },
+                    ["limitPerCategory"] = Schema("integer", 1, 25)
+                },
+                ["required"] = new[] { "radiusMeters", "categories", "limitPerCategory" },
+                ["additionalProperties"] = false
+            }
         }
     };
 
     private static readonly HashSet<string> AllowedToolNames = new(StringComparer.Ordinal)
-    { "query_environment", "query_friendly_forces", "query_assets", "query_mission_capabilities" };
+    {
+        "query_environment", "query_friendly_forces", "query_assets", "query_mission_capabilities",
+        "find_nearest_locations", "find_locations_by_name", "query_map_area"
+    };
 
     private readonly HttpClient _http;
     private readonly bool _ownsHttpClient;

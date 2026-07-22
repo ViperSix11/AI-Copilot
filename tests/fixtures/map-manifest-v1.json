@@ -1,0 +1,37 @@
+{
+  "schema": "arma-ai-bridge/arma3/map-manifest-v1",
+  "messageId": "message-000010",
+  "missionId": "m4-test",
+  "sessionId": "session-test",
+  "timestamp": 1,
+  "sequence": 10,
+  "indexVersion": 1,
+  "world": {
+    "name": "Stratis",
+    "sizeMeters": 1024,
+    "terrainInfo": [32, 32, 4, 256, 0],
+    "config": {
+      "class": "Stratis",
+      "description": "Stratis",
+      "mapSize": 1024,
+      "mapZone": 35,
+      "latitude": -35,
+      "longitude": 16,
+      "sourceAddons": ["A3_Map_Stratis"]
+    },
+    "gridReferences": [
+      { "position": [0, 0], "label": "000000" },
+      { "position": [512, 512], "label": "005005" },
+      { "position": [1000, 0], "label": "010000" },
+      { "position": [0, 1000], "label": "000010" }
+    ]
+  },
+  "product": {
+    "shortName": "Arma3", "version": 2.2, "build": 123456,
+    "buildType": "Stable", "platform": "Windows", "architecture": "x64", "branch": ""
+  },
+  "addons": [
+    { "prefix": "a3\\map_stratis\\", "version": "123456", "patched": false, "hash": "abc123" }
+  ],
+  "export": { "tileSizeMeters": 512, "terrainSampleSpacingMeters": 128, "totalTiles": 4, "maxRecordsPerPage": 96 }
+}

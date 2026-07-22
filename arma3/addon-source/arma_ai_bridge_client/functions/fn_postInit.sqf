@@ -12,6 +12,7 @@ if (!hasInterface) exitWith {};
     diag_log format ["[ArmA AI Bridge] Client bridge v0.3.0 starting. Bridge response: %1", _ping];
 
     call AAB_fnc_initialiseSession;
+    call AAB_fnc_publishMapManifest;
 
     addMissionEventHandler ["EntityCreated",
     {
@@ -65,6 +66,11 @@ if (!hasInterface) exitWith {};
                 call AAB_fnc_publishSessionHandshake;
             };
             call AAB_fnc_publishMissionCapabilities;
+            private _manifestCadence = if (missionNamespace getVariable ["AAB_mapExportActive", false]) then { 30 } else { 10 };
+            if ((_now - (missionNamespace getVariable ["AAB_lastMapManifestAt", -100])) >= _manifestCadence) then
+            {
+                call AAB_fnc_publishMapManifest;
+            };
             uiSleep 0.10;
         };
     };

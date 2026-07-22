@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ViperSix11/AI-Copilot/schemas/map-tile-v1.schema.json",
+  "title": "ArmA AI Bridge map tile page v1",
+  "type": "object",
+  "required": ["schema", "messageId", "missionId", "sessionId", "timestamp", "sequence", "exportId", "fingerprint", "indexVersion", "tile", "pageIndex", "pageCount", "records"],
+  "properties": {
+    "schema": { "const": "arma-ai-bridge/arma3/map-tile-v1" },
+    "messageId": { "$ref": "#/$defs/id" }, "missionId": { "$ref": "#/$defs/id" }, "sessionId": { "$ref": "#/$defs/id" },
+    "timestamp": { "type": "number", "minimum": 0 }, "sequence": { "type": "integer", "minimum": 1 },
+    "exportId": { "$ref": "#/$defs/id" }, "fingerprint": { "$ref": "#/$defs/fingerprint" }, "indexVersion": { "const": 1 },
+    "tile": {
+      "type": "object", "required": ["ordinal", "column", "row", "minX", "minY", "maxX", "maxY"],
+      "properties": {
+        "ordinal": { "type": "integer", "minimum": 0, "maximum": 16383 }, "column": { "type": "integer", "minimum": 0 }, "row": { "type": "integer", "minimum": 0 },
+        "minX": { "type": "number", "minimum": 0 }, "minY": { "type": "number", "minimum": 0 }, "maxX": { "type": "number", "minimum": 0 }, "maxY": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "pageIndex": { "type": "integer", "minimum": 0, "maximum": 255 }, "pageCount": { "type": "integer", "minimum": 1, "maximum": 256 },
+    "records": { "type": "array", "maxItems": 96, "items": { "oneOf": [
+      { "$ref": "#/$defs/location" }, { "$ref": "#/$defs/terrain" }, { "$ref": "#/$defs/building" }, { "$ref": "#/$defs/road" }, { "$ref": "#/$defs/vegetation" }, { "$ref": "#/$defs/water" }
+    ] } }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$" }, "fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "vector3": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number", "minimum": -50000, "maximum": 500000 } },
+    "location": { "type": "object", "required": ["kind", "name", "locationType", "positionASL"], "properties": { "kind": { "const": "location" }, "name": { "type": "string", "minLength": 1, "maxLength": 256 }, "locationType": { "type": "string", "minLength": 1, "maxLength": 64 }, "positionASL": { "$ref": "#/$defs/vector3" } }, "additionalProperties": false },
+    "terrain": { "type": "object", "required": ["kind", "positionASL", "slopeDegrees", "water"], "properties": { "kind": { "const": "terrain" }, "positionASL": { "$ref": "#/$defs/vector3" }, "slopeDegrees": { "type": "number", "minimum": 0, "maximum": 90 }, "water": { "type": "boolean" } }, "additionalProperties": false },
+    "building": { "type": "object", "required": ["kind", "class", "model", "terrainType", "positionASL"], "properties": { "kind": { "const": "building" }, "class": { "type": "string", "maxLength": 256 }, "model": { "type": "string", "maxLength": 384 }, "terrainType": { "type": "string", "minLength": 1, "maxLength": 64 }, "positionASL": { "$ref": "#/$defs/vector3" } }, "additionalProperties": false },
+    "road": { "type": "object", "required": ["kind", "roadType", "widthMeters", "pedestrian", "beginASL", "endASL", "bridge"], "properties": { "kind": { "const": "road" }, "roadType": { "type": "string", "minLength": 1, "maxLength": 64 }, "widthMeters": { "type": "number", "minimum": 0, "maximum": 100 }, "pedestrian": { "type": "boolean" }, "beginASL": { "$ref": "#/$defs/vector3" }, "endASL": { "$ref": "#/$defs/vector3" }, "bridge": { "type": "boolean" } }, "additionalProperties": false },
+    "vegetation": { "type": "object", "required": ["kind", "treeCount", "bushCount", "forestCount", "densityPerHectare"], "properties": { "kind": { "const": "vegetation" }, "treeCount": { "type": "integer", "minimum": 0 }, "bushCount": { "type": "integer", "minimum": 0 }, "forestCount": { "type": "integer", "minimum": 0 }, "densityPerHectare": { "type": "number", "minimum": 0 } }, "additionalProperties": false },
+    "water": { "type": "object", "required": ["kind", "classification", "waterSamples", "landSamples"], "properties": { "kind": { "const": "water" }, "classification": { "enum": ["land", "water", "coast"] }, "waterSamples": { "type": "integer", "minimum": 0 }, "landSamples": { "type": "integer", "minimum": 0 } }, "additionalProperties": false }
+  }
+}

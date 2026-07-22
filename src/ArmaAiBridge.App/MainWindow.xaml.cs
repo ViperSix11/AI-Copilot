@@ -22,6 +22,8 @@ public partial class MainWindow : Window
     private readonly WorldStateStore _worldStateStore;
     private readonly WorldSnapshotBuilder _worldSnapshotBuilder;
     private readonly TelemetryIngestService _telemetryIngestService;
+    private readonly MapKnowledgeService _mapKnowledgeService;
+    private readonly MapKnowledgeSnapshotBuilder _mapKnowledgeSnapshotBuilder;
     private long _snapshotCount;
     private string? _pendingRequestId;
 
@@ -33,6 +35,10 @@ public partial class MainWindow : Window
         _worldSnapshotBuilder = new WorldSnapshotBuilder(_worldStateStore);
         _telemetryIngestService = new TelemetryIngestService(
             _pipeServer, _worldStateStore, _log);
+        _mapKnowledgeService = new MapKnowledgeService(
+            new MapKnowledgeDatabase(), _pipeServer, _log);
+        _mapKnowledgeSnapshotBuilder = new MapKnowledgeSnapshotBuilder(
+            _mapKnowledgeService, _worldStateStore);
         _log.EntryWritten += OnLogEntryWritten;
         _pipeServer.ClientConnectionChanged += OnClientConnectionChanged;
         _pipeServer.MessageReceived += OnBridgeMessageReceived;
@@ -59,6 +65,8 @@ public partial class MainWindow : Window
     {
         _assistantPanel?.Dispose();
         _worldStateDiagnosticsPanel?.Dispose();
+        _mapKnowledgeDiagnosticsPanel?.Dispose();
+        _mapKnowledgeService.Dispose();
         _telemetryIngestService.Dispose();
         await _pipeServer.DisposeAsync();
     }
@@ -293,6 +301,14 @@ public partial class MainWindow : Window
                     {
                         schema,
                         status = "Ingested into World State; source identifiers are hidden in this view."
+                    }, new JsonSerializerOptions { WriteIndented = true });
+                }
+                else if (schema is MapKnowledgeProtocol.ManifestSchema or MapKnowledgeProtocol.TileSchema or MapKnowledgeProtocol.ProgressSchema)
+                {
+                    RawTelemetryTextBox.Text = JsonSerializer.Serialize(new
+                    {
+                        schema,
+                        status = "Ingested into local Map Knowledge; manifest inputs and raw tile data are hidden in this view."
                     }, new JsonSerializerOptions { WriteIndented = true });
                 }
                 else

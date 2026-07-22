@@ -27,5 +27,10 @@ missionNamespace setVariable ["AAB_lastHandshakeAt", -100];
 missionNamespace setVariable ["AAB_lastCapabilitiesAt", -100];
 missionNamespace setVariable ["AAB_lastCapabilitySignature", ""];
 missionNamespace setVariable ["AAB_lastReconciliationId", ""];
+missionNamespace setVariable ["AAB_lastMapManifestAt", -100];
+missionNamespace setVariable ["AAB_mapExportGeneration", 0];
+missionNamespace setVariable ["AAB_mapExportActive", false];
+missionNamespace setVariable ["AAB_mapExportId", ""];
+missionNamespace setVariable ["AAB_mapFingerprint", ""];
 
 call AAB_fnc_publishSessionHandshake

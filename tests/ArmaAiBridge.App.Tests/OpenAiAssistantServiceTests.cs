@@ -106,10 +106,10 @@ public sealed class OpenAiAssistantServiceTests
     }
 
     [Fact]
-    public async Task Milestone3Tools_AreStrictAndRouteToTheLocalWorldModel()
+    public async Task Milestone3And4Tools_AreStrictAndRouteLocally()
     {
         const string arguments =
-            "{\"kind\":\"any\",\"availableOnly\":true,\"maxDistanceMeters\":5000,\"includeStale\":false,\"limit\":20}";
+            "{\"radiusMeters\":500,\"categories\":[\"terrain\",\"road\"],\"limitPerCategory\":10}";
         string? toolOutput = null;
         ScriptedHandler handler = new((requestNumber, request) =>
         {
@@ -117,7 +117,11 @@ public sealed class OpenAiAssistantServiceTests
             {
                 JsonElement[] tools = request.GetProperty("tools").EnumerateArray().ToArray();
                 Assert.Equal(
-                    new[] { "query_assets", "query_environment", "query_friendly_forces", "query_mission_capabilities" },
+                    new[]
+                    {
+                        "find_locations_by_name", "find_nearest_locations", "query_assets", "query_environment",
+                        "query_friendly_forces", "query_map_area", "query_mission_capabilities"
+                    },
                     tools.Select(item => item.GetProperty("name").GetString()).OrderBy(name => name).ToArray());
                 foreach (JsonElement tool in tools)
                 {
@@ -130,11 +134,11 @@ public sealed class OpenAiAssistantServiceTests
                         .Select(item => item.GetString()!).OrderBy(name => name).ToArray();
                     Assert.Equal(properties, required);
                 }
-                return ToolResponse("rs_assets", "call_assets", arguments, "query_assets");
+                return ToolResponse("rs_map", "call_map", arguments, "query_map_area");
             }
 
-            toolOutput = FindFunctionOutput(request, "call_assets");
-            return FinalResponse("Asset picture received.");
+            toolOutput = FindFunctionOutput(request, "call_map");
+            return FinalResponse("Map area received.");
         });
         using HttpClient httpClient = Client(handler);
         using OpenAiAssistantService service = new(httpClient);
@@ -143,19 +147,19 @@ public sealed class OpenAiAssistantServiceTests
         AssistantResponse response = await service.AskAsync(
             "test-key",
             "gpt-5-mini",
-            "What transport is ready?",
+            "What is the terrain and road picture here?",
             WorldSnapshot,
             (name, args, _) =>
             {
                 routedName = name;
-                Assert.Equal("any", args.GetProperty("kind").GetString());
-                return Task.FromResult("{\"schema\":\"arma-ai-bridge/world-snapshot-v1\",\"purpose\":\"assets\"}");
+                Assert.Equal(500, args.GetProperty("radiusMeters").GetInt32());
+                return Task.FromResult("{\"schema\":\"arma-ai-bridge/map-knowledge-snapshot-v1\",\"purpose\":\"map-area\"}");
             },
             TestContext.Current.CancellationToken);
 
-        Assert.Equal("query_assets", routedName);
-        Assert.Contains("\"purpose\":\"assets\"", toolOutput, StringComparison.Ordinal);
-        Assert.Equal("Asset picture received.", response.Text);
+        Assert.Equal("query_map_area", routedName);
+        Assert.Contains("\"purpose\":\"map-area\"", toolOutput, StringComparison.Ordinal);
+        Assert.Equal("Map area received.", response.Text);
         Assert.Equal(1, response.ToolCalls);
     }
 

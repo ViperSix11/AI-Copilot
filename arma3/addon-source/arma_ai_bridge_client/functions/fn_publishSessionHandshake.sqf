@@ -5,7 +5,8 @@ private _features = [
     createHashMapFromArray [["name", "player-telemetry"], ["version", 1]],
     createHashMapFromArray [["name", "environment-query"], ["version", 1]],
     createHashMapFromArray [["name", "friendly-force-picture"], ["version", 1]],
-    createHashMapFromArray [["name", "mission-capabilities"], ["version", 1]]
+    createHashMapFromArray [["name", "mission-capabilities"], ["version", 1]],
+    createHashMapFromArray [["name", "static-map-export"], ["version", 1]]
 ];
 
 private _payload = createHashMapFromArray

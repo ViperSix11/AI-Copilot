@@ -8,4 +8,5 @@ public static class AppPaths
 
     public static string SettingsFile { get; } = Path.Combine(RootDirectory, "settings.json");
     public static string LogDirectory { get; } = Path.Combine(RootDirectory, "logs");
+    public static string MapKnowledgeDirectory { get; } = Path.Combine(RootDirectory, "MapKnowledge");
 }

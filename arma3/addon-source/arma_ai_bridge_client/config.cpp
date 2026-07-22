@@ -30,6 +30,10 @@ class CfgFunctions
             class updateFriendlyForcePicture {};
             class collectMissionCapabilities {};
             class publishMissionCapabilities {};
+            class publishMapManifest {};
+            class executeMapIndexCommand {};
+            class collectMapTile {};
+            class exportMapKnowledge {};
             class sendTelemetry {};
             class pollCommands {};
             class executeQuery {};

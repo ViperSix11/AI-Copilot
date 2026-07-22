@@ -1,0 +1,15 @@
+{
+  "schema": "arma-ai-bridge/map-index-command-v1",
+  "requestId": "map-index-test",
+  "command": "start",
+  "parameters": {
+    "sessionId": "session-test",
+    "exportId": "export-test",
+    "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "indexVersion": 1,
+    "startTileOrdinal": 0,
+    "tileSizeMeters": 512,
+    "terrainSampleSpacingMeters": 128,
+    "maxRecordsPerPage": 96
+  }
+}

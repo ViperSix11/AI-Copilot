@@ -13,6 +13,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private readonly LogService _log;
     private readonly ArmaQueryCoordinator _queries;
     private readonly WorldSnapshotBuilder _snapshots;
+    private readonly MapKnowledgeSnapshotBuilder _mapSnapshots;
     private readonly OpenAiAssistantService _assistant = new();
     private readonly TextBox _conversation = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly TextBox _question = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 76 };
@@ -27,11 +28,13 @@ public sealed class AssistantPanel : UserControl, IDisposable
         TelemetryPipeServer pipe,
         SettingsService settings,
         LogService log,
-        WorldSnapshotBuilder snapshots)
+        WorldSnapshotBuilder snapshots,
+        MapKnowledgeSnapshotBuilder mapSnapshots)
     {
         _settings = settings;
         _log = log;
         _snapshots = snapshots;
+        _mapSnapshots = mapSnapshots;
         _queries = new ArmaQueryCoordinator(pipe);
         Content = BuildUi();
         _ask.Click += Ask_Click;
@@ -128,6 +131,9 @@ public sealed class AssistantPanel : UserControl, IDisposable
             "query_friendly_forces" => Task.FromResult(_snapshots.BuildFriendlyForces(arguments)),
             "query_assets" => Task.FromResult(_snapshots.BuildAssets(arguments)),
             "query_mission_capabilities" => Task.FromResult(_snapshots.BuildMissionCapabilities(arguments)),
+            "find_nearest_locations" => Task.FromResult(_mapSnapshots.FindNearestLocations(arguments)),
+            "find_locations_by_name" => Task.FromResult(_mapSnapshots.FindLocationsByName(arguments)),
+            "query_map_area" => Task.FromResult(_mapSnapshots.QueryMapArea(arguments)),
             _ => Task.FromException<string>(new InvalidOperationException("Unsupported local tool."))
         };
 

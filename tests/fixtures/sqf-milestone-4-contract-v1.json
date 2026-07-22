@@ -1,0 +1,30 @@
+{
+  "schema": "arma-ai-bridge/tests/sqf-milestone-4-contract-v1",
+  "files": [
+    {
+      "path": "arma3/addon-source/arma_ai_bridge_client/functions/fn_publishSessionHandshake.sqf",
+      "requiredTokens": ["static-map-export", "environment-query", "friendly-force-picture", "mission-capabilities"],
+      "forbiddenTokens": ["getPlayerUID", "profileName"]
+    },
+    {
+      "path": "arma3/addon-source/arma_ai_bridge_client/functions/fn_publishMapManifest.sqf",
+      "requiredTokens": ["allAddonsInfo", "getTerrainInfo", "mapGridPosition", "configSourceAddonList", "map-manifest-v1"],
+      "forbiddenTokens": ["getPlayerUID", "profileName", "netId", "remoteExec", "call compile"]
+    },
+    {
+      "path": "arma3/addon-source/arma_ai_bridge_client/functions/fn_collectMapTile.sqf",
+      "requiredTokens": ["nearestLocations", "getTerrainHeightASL", "surfaceNormal", "nearestTerrainObjects", "nearRoads", "getRoadInfo", "surfaceIsWater", "uiSleep"],
+      "forbiddenTokens": ["allUnits", "allPlayers", "getPlayerUID", "netId", "remoteExec", "setWaypoint", "doMove", "commandMove", "call compile"]
+    },
+    {
+      "path": "arma3/addon-source/arma_ai_bridge_client/functions/fn_exportMapKnowledge.sqf",
+      "requiredTokens": ["map-tile-v1", "map-index-progress-v1", "pageCount", "uiSleep", "AAB_mapExportGeneration"],
+      "forbiddenTokens": ["remoteExec", "setWaypoint", "doMove", "commandMove", "support", "ace_", "ballistic", "voice", "call compile"]
+    },
+    {
+      "path": "arma3/addon-source/arma_ai_bridge_client/functions/fn_executeMapIndexCommand.sqf",
+      "requiredTokens": ["start", "cancel", "startTileOrdinal", "AAB_mapExportGeneration"],
+      "forbiddenTokens": ["compile", "preprocessFile", "remoteExec", "setWaypoint", "doMove"]
+    }
+  ]
+}

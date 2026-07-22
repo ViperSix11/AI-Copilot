@@ -28,10 +28,19 @@ dotnet publish (Join-Path $root "src\ArmaAiBridge.App\ArmaAiBridge.App.csproj") 
     -r win-x64 `
     --self-contained false `
     -o $appOut
+if ($LASTEXITCODE -ne 0) {
+    throw "Application publish failed with exit code $LASTEXITCODE."
+}
 
 Write-Host "Building Arma x64 extension..."
 cmake -S (Join-Path $root "native\ArmaAiBridge") -B $nativeBuild -A x64
+if ($LASTEXITCODE -ne 0) {
+    throw "Native extension configuration failed with exit code $LASTEXITCODE."
+}
 cmake --build $nativeBuild --config $Configuration
+if ($LASTEXITCODE -ne 0) {
+    throw "Native extension build failed with exit code $LASTEXITCODE."
+}
 
 $extension = Get-ChildItem -Path $nativeBuild -Recurse -Filter "arma_ai_bridge_x64.dll" | Select-Object -First 1
 if (-not $extension) { throw "Native extension output was not found." }

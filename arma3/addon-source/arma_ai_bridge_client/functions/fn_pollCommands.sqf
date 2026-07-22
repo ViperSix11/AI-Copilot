@@ -14,5 +14,11 @@ if (_parseFailed || { !(_command isEqualType createHashMap) }) exitWith
     false
 };
 
-[_command] call AAB_fnc_executeQuery;
+private _schema = _command getOrDefault ["schema", ""];
+switch (_schema) do
+{
+    case "arma-ai-bridge/command-v1": { [_command] call AAB_fnc_executeQuery; };
+    case "arma-ai-bridge/map-index-command-v1": { [_command] call AAB_fnc_executeMapIndexCommand; };
+    default { diag_log "[ArmA AI Bridge] Discarded command with unsupported schema."; };
+};
 true

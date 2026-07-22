@@ -1,0 +1,23 @@
+{
+  "schema": "arma-ai-bridge/arma3/map-tile-v1",
+  "messageId": "message-000011",
+  "missionId": "m4-test",
+  "sessionId": "session-test",
+  "timestamp": 2,
+  "sequence": 11,
+  "exportId": "export-test",
+  "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "indexVersion": 1,
+  "tile": { "ordinal": 0, "column": 0, "row": 0, "minX": 0, "minY": 0, "maxX": 512, "maxY": 512 },
+  "pageIndex": 0,
+  "pageCount": 1,
+  "records": [
+    { "kind": "location", "name": "Camp Maxwell", "locationType": "NameLocal", "positionASL": [100, 100, 12] },
+    { "kind": "terrain", "positionASL": [128, 128, 11], "slopeDegrees": 3, "water": false },
+    { "kind": "building", "class": "Land_Cargo_House_V1_F", "model": "a3\\structures_f\\mil\\cargo\\cargo_house_v1_f.p3d", "terrainType": "HOUSE", "positionASL": [120, 110, 12] },
+    { "kind": "road", "roadType": "ROAD", "widthMeters": 6, "pedestrian": false, "beginASL": [80, 80, 10], "endASL": [160, 80, 11], "bridge": false },
+    { "kind": "road", "roadType": "ROAD", "widthMeters": 6, "pedestrian": false, "beginASL": [160, 80, 11], "endASL": [160, 180, 12], "bridge": false },
+    { "kind": "vegetation", "treeCount": 20, "bushCount": 5, "forestCount": 0, "densityPerHectare": 0.95 },
+    { "kind": "water", "classification": "land", "waterSamples": 0, "landSamples": 16 }
+  ]
+}

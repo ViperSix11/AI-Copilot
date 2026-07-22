@@ -1,0 +1,16 @@
+{
+  "schema": "arma-ai-bridge/arma3/map-index-progress-v1",
+  "messageId": "message-000012",
+  "missionId": "m4-test",
+  "sessionId": "session-test",
+  "timestamp": 3,
+  "sequence": 12,
+  "exportId": "export-test",
+  "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "indexVersion": 1,
+  "status": "indexing",
+  "completedTiles": 1,
+  "totalTiles": 4,
+  "nextTileOrdinal": 1,
+  "errorCode": null
+}
