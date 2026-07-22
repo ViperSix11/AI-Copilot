@@ -31,6 +31,7 @@ class CfgFunctions
             class collectMissionCapabilities {};
             class publishMissionCapabilities {};
             class publishMapGazetteer {};
+            class publishStateSnapshot {};
             class sendTelemetry {};
             class pollCommands {};
             class executeQuery {};

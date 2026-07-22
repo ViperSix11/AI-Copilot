@@ -15,6 +15,7 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
     private readonly WorldStateStore _store;
     private readonly WorldSnapshotBuilder _snapshots;
     private readonly MapGazetteerStore? _gazetteerStore;
+    private readonly SqliteStateRepository? _stateRepository;
     private readonly DispatcherTimer _refreshTimer;
     private readonly TextBox _summary = ReadOnlyTextBox(wrap: true);
     private readonly TextBox _snapshot = ReadOnlyTextBox(wrap: false);
@@ -23,14 +24,17 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
     public WorldStateDiagnosticsPanel(
         WorldStateStore store,
         WorldSnapshotBuilder snapshots,
-        MapGazetteerStore? gazetteerStore = null)
+        MapGazetteerStore? gazetteerStore = null,
+        SqliteStateRepository? stateRepository = null)
     {
         _store = store;
         _snapshots = snapshots;
         _gazetteerStore = gazetteerStore;
+        _stateRepository = stateRepository;
         Content = BuildUi();
         _store.StateChanged += OnStateChanged;
         if (_gazetteerStore is not null) _gazetteerStore.Changed += OnGazetteerChanged;
+        if (_stateRepository is not null) _stateRepository.StateChanged += OnStateRepositoryChanged;
         _refreshTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
         {
             Interval = TimeSpan.FromSeconds(1)
@@ -47,7 +51,15 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        Grid summaryPanel = Panel("Local world state", _summary);
+        StackPanel summaryContent = new();
+        summaryContent.Children.Add(_summary);
+        if (_stateRepository is not null)
+        {
+            Button reset = new() { Content = "Reset Local State Cache...", Margin = new Thickness(0, 10, 0, 0), MinWidth = 190, HorizontalAlignment = HorizontalAlignment.Left };
+            reset.Click += ResetStateCache_Click;
+            summaryContent.Children.Add(reset);
+        }
+        Grid summaryPanel = Panel("Local world state and State Mirror", summaryContent);
         grid.Children.Add(summaryPanel);
         Grid snapshotPanel = Panel("OpenAI current-situation snapshot (read only)", _snapshot);
         Grid.SetColumn(snapshotPanel, 2);
@@ -106,11 +118,26 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
         _ = Dispatcher.BeginInvoke(Refresh, DispatcherPriority.Background);
     }
 
+    private void OnStateRepositoryChanged()
+    {
+        if (_disposed || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+        _ = Dispatcher.BeginInvoke(Refresh, DispatcherPriority.Background);
+    }
+
+    private void ResetStateCache_Click(object sender, RoutedEventArgs e)
+    {
+        if (_stateRepository is null) return;
+        MessageBoxResult result = MessageBox.Show(Window.GetWindow(this),
+            "Delete only the local State Mirror cache? API keys and response profiles are preserved.",
+            "Reset Local State Cache", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+        if (result == MessageBoxResult.Yes) _stateRepository.ResetCache();
+    }
+
     private void Refresh()
     {
         if (_disposed) return;
         WorldStateView view = _store.GetCurrentView();
-        _summary.Text = BuildSummary(view, _gazetteerStore?.GetDiagnostics());
+        _summary.Text = BuildSummary(view, _gazetteerStore?.GetDiagnostics(), _stateRepository?.GetDiagnostics());
         if (_snapshots.TryBuildCurrentSituation(out string json))
         {
             using JsonDocument document = JsonDocument.Parse(json);
@@ -124,10 +151,21 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
         }
     }
 
-    private static string BuildSummary(WorldStateView view, MapGazetteerDiagnostics? gazetteer)
+    private static string BuildSummary(WorldStateView view, MapGazetteerDiagnostics? gazetteer, StateRepositoryDiagnostics? mirror)
     {
         StringBuilder text = new();
         text.AppendLine($"Connection: {(view.IsConnected ? "connected" : "disconnected")}");
+        if (mirror is not null)
+        {
+            text.AppendLine($"State Mirror: {mirror.Readiness.ToString().ToLowerInvariant()} / schema {mirror.SchemaVersion} / protocol v{mirror.ProtocolVersion}");
+            text.AppendLine($"State session: {(mirror.ActiveSessionAlias.Length == 0 ? "none" : mirror.ActiveSessionAlias)} / baseline={(mirror.BaselineReady ? "ready" : "unavailable")}");
+            text.AppendLine($"State sequence / receipt: {mirror.LastSequence} / {(mirror.LastSnapshotReceivedAtUtc is null ? "never" : mirror.LastSnapshotReceivedAtUtc.Value.ToString("O", CultureInfo.InvariantCulture))}");
+            text.AppendLine($"State database: {mirror.DatabaseSizeBytes:N0} bytes / rows {string.Join(", ", mirror.RowCounts.Select(item => $"{item.Key}={item.Value}"))}");
+            foreach (StateSectionMetadata section in mirror.Sections)
+                text.AppendLine($"  {section.Section}: {section.Readiness.ToString().ToLowerInvariant()} / age {section.AgeSeconds:N1}s / stale={section.IsStale}");
+            if (mirror.DiagnosticCode.Length > 0) text.AppendLine($"State diagnostic: {mirror.DiagnosticCode}");
+            text.AppendLine();
+        }
         if (!view.HasTelemetry)
         {
             text.AppendLine("Session: waiting for telemetry");
@@ -242,7 +280,7 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
             {
                 text.AppendLine(
                     $"{contact.Alias}: {contact.Class} / {contact.PerceivedSide} / " +
-                    $"{Describe(contact.Metadata)} / pos {Position(contact.Metadata.Position)}");
+                    $"{Describe(contact.Metadata)} / position withheld in diagnostics");
             }
         }
 
@@ -279,5 +317,6 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
         _refreshTimer.Stop();
         _store.StateChanged -= OnStateChanged;
         if (_gazetteerStore is not null) _gazetteerStore.Changed -= OnGazetteerChanged;
+        if (_stateRepository is not null) _stateRepository.StateChanged -= OnStateRepositoryChanged;
     }
 }

@@ -1,6 +1,6 @@
 # Papa Bear v1 — architecture and milestone record
 
-Status: **version 0.8 Contextual Interpreter in draft; version 0.7 accepted live**.
+Status: **version 0.8 Unified State Mirror & Interpreter in draft; version 0.7 accepted live**.
 
 This directory records the current product boundaries, accepted milestones and
 future architecture decisions for Papa Bear. The repository is developed
@@ -24,9 +24,10 @@ The accepted 0.7 proof of concept answers a spoken question about the player’s
 current position using live Arma state and returns both visible text and spoken
 ElevenLabs audio.
 
-The 0.8 milestone adds local deterministic named-place interpretation to that
-accepted path. It reads only official active-world `Names` configuration, keeps
-the complete gazetteer local and uses the existing single Responses call.
+The 0.8 milestone adds one bounded selected-state snapshot, a local SQLite
+current-state mirror, deterministic context selection and interpretation,
+official named-place interpretation and response profiles. Complete collections
+stay local and the existing single Responses turn remains unchanged.
 
 ## Active architectural decisions
 
@@ -44,8 +45,8 @@ the complete gazetteer local and uses the existing single Responses call.
   exact final visible text.
 - Tools remain bounded, typed, locally validated and read-only until a later
   milestone explicitly introduces an authorized action.
-- ACE, ballistics, routes, support execution, persistent operational memory and full map indexing are
-  deferred and are not dependencies of the current POC.
+- ACE, ballistics, routes, support execution, observation-fusion memory, full
+  map indexing and proactive notifications are deferred.
 
 ## Active documents
 
@@ -64,8 +65,10 @@ the complete gazetteer local and uses the existing single Responses call.
 11. `codex-milestone-4a-voice-position-mvp.md` — the accepted push-to-talk
     position-answer proof of concept.
 
-12. `codex-milestone-5-contextual-interpreter.md` — release 0.8 bounded
-    named-location and deterministic spatial-language contract.
+12. `codex-milestone-5-unified-state-mirror.md` — complete release 0.8 state,
+    SQLite, interpretation, context-selection and diagnostics contract.
+13. `codex-milestone-5-contextual-interpreter.md` — subordinate Phase A
+    named-location, spatial-language and response-profile design.
 
 Other documents describe deferred designs or historical experiments. They are
 not automatically approved implementation scope. A later milestone must
@@ -85,6 +88,6 @@ explicitly reactivate them.
 
 ## Active product step
 
-Complete release 0.8 automated verification and the exact live Stratis plus
-alternate-map acceptance. No later tactical-awareness or execution milestone is
-active until it receives its own reviewed specification.
+Complete release 0.8 automated verification and the exact Unified State Mirror
+live gate. Release 0.9 is proactive state-change detection and radio
+notifications; it is not active until 0.8 is accepted.

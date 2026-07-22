@@ -180,7 +180,7 @@ public sealed class OpenAiAssistantServiceTests
             {
                 JsonElement[] tools = request.GetProperty("tools").EnumerateArray().ToArray();
                 Assert.Equal(
-                    new[] { "find_named_locations", "query_assets", "query_environment", "query_friendly_forces", "query_mission_capabilities" },
+                    new[] { "find_named_locations", "query_assets", "query_environment", "query_friendly_forces", "query_mission_capabilities", "query_state" },
                     tools.Select(item => item.GetProperty("name").GetString()).OrderBy(name => name).ToArray());
                 foreach (JsonElement tool in tools)
                 {

@@ -8,8 +8,8 @@ mission.
 
 **Current release: 0.8** (`0.8.0` assembly version).
 
-Version 0.8 adds deterministic contextual interpretation to the live-accepted
-voice proof of concept. A player can ask
+Version 0.8 adds a local SQLite Unified State Mirror and deterministic
+contextual interpretation to the live-accepted voice proof of concept. A player can ask
 by microphone, for example, “Papa Bear, welche Position habe ich?”, and receive
 a grounded text answer plus spoken output using the configured ElevenLabs
 voice.
@@ -43,13 +43,15 @@ separate conversation model.
 
 ### Arma bridge
 
-- 4 Hz player telemetry;
+- one bounded `state-snapshot-v2` envelope every four seconds, backed by
+  independently sampled 1/2/4/8-second SQF section caches;
 - loaded world and map size;
 - current map grid and player position;
 - body and view heading, speed, stance, damage and life state;
 - current weapon, magazine and ammunition state;
 - current vehicle, role, fuel, damage and speed;
-- perspective-bound player/group contacts and current vehicle sensor contacts;
+- side-wide contacts already known to local own-side representatives, including
+  estimated position and uncertainty but never hidden hostile truth;
 - mission/session handshake;
 - own-side groups, units and crewed vehicles with delta updates and periodic
   reconciliation;
@@ -73,6 +75,10 @@ separate conversation model.
 - ElevenLabs speech synthesis;
 - replay, cancellation and partial-success handling.
 - in-memory named-location gazetteer with atomic paged assembly;
+- mission-scoped SQLite current-state mirror with transactional snapshot ingest,
+  reconciliation metadata, staleness and explicit cache reset;
+- deterministic weather, loadout, force and contact summaries plus bilingual
+  question-aware context selection;
 - deterministic position containment, distance, bearing, cardinal direction,
   salience ranking and current/last-known interpretation;
 - local response profiles with deterministic final-text terminators.
@@ -87,6 +93,7 @@ query_friendly_forces(entityType, maxDistanceMeters, includeStale, limit)
 query_assets(kind, availableOnly, maxDistanceMeters, includeStale, limit)
 query_mission_capabilities(enabledOnly, includeStale)
 find_named_locations(query, maxDistanceMeters, limit)
+query_state(section, includeStale, limit)
 ```
 
 No tool can execute arbitrary SQF, C++, PowerShell or operating-system commands.
@@ -191,7 +198,6 @@ Version 0.8 does not provide:
 - always-on listening, wake words, VAD or a global push-to-talk hotkey;
 - streaming transcription or streaming speech output;
 - microphone/output-device selection in the UI;
-- side-wide enemy knowledge aggregation across all friendly groups;
 - proactive military contact reports;
 - player-reported observations or persistent operational memory;
 - persistent, runtime-object or full-static-map indexing;
@@ -204,7 +210,8 @@ These are follow-on capabilities, not dependencies of the accepted MVP.
 
 ## Roadmap status
 
-Release 0.8 Contextual Interpreter is the only active product milestone. The
+Release 0.8 Unified State Mirror & Interpreter is the only active product
+milestone. The
 following older proposals are retained as historical context only; none is an
 active dependency or authorized implementation scope.
 
@@ -268,8 +275,9 @@ application, native DLL, `mod.cpp` and PBO.
   ElevenLabs-only speech output, partial-success preservation, clean provider
   setup and verified matching Windows artifact.
 
-- **0.8** — bounded official named-location gazetteer, deterministic contextual
-  position interpretation, bounded location lookup and local response profiles.
+- **0.8** — bounded official named-location gazetteer, transactional SQLite
+  current-state mirror, deterministic contextual interpretation, strict
+  `query_state`, bounded location lookup and local response profiles.
 
 Detailed architectural records and milestone acceptance specifications are under
 [`docs/papa-bear-v1`](docs/papa-bear-v1/).

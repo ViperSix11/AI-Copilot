@@ -9,7 +9,7 @@ if (!hasInterface) exitWith {};
     missionNamespace setVariable ["AAB_contactCacheAt", -100];
 
     private _ping = "arma_ai_bridge" callExtension "ping";
-    diag_log format ["[ArmA AI Bridge] Client bridge v0.3.0 starting. Bridge response: %1", _ping];
+    diag_log format ["[ArmA AI Bridge] Client bridge v0.8.0 starting. Bridge response: %1", _ping];
 
     call AAB_fnc_initialiseSession;
 
@@ -39,27 +39,17 @@ if (!hasInterface) exitWith {};
     {
         while { true } do
         {
-            private _payload = call AAB_fnc_collectTelemetry;
-            [_payload] call AAB_fnc_sendTelemetry;
+            call AAB_fnc_publishStateSnapshot;
             uiSleep 0.25;
         };
     };
 
     [] spawn
     {
-        call AAB_fnc_updateFriendlyForcePicture;
         call AAB_fnc_publishMissionCapabilities;
-
         while { true } do
         {
             private _now = diag_tickTime;
-            private _lastEvaluation = missionNamespace getVariable ["AAB_lastForceEvaluationAt", -100];
-            private _dirty = missionNamespace getVariable ["AAB_forceDirty", false];
-            if ((_dirty && { (_now - _lastEvaluation) >= 0.25 }) || { (_now - _lastEvaluation) >= 1 }) then
-            {
-                call AAB_fnc_updateFriendlyForcePicture;
-            };
-
             if ((_now - (missionNamespace getVariable ["AAB_lastHandshakeAt", -100])) >= 30) then
             {
                 call AAB_fnc_publishSessionHandshake;

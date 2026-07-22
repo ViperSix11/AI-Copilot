@@ -32,5 +32,9 @@ missionNamespace setVariable ["AAB_gazetteerCache", []];
 missionNamespace setVariable ["AAB_gazetteerCacheError", ""];
 missionNamespace setVariable ["AAB_gazetteerBatchSequence", 0];
 missionNamespace setVariable ["AAB_gazetteerCollectionCount", 0];
+missionNamespace setVariable ["AAB_stateSectionCaches", createHashMap];
+missionNamespace setVariable ["AAB_stateLastSamples", createHashMap];
+missionNamespace setVariable ["AAB_lastStatePublishAt", -100];
+missionNamespace setVariable ["AAB_lastStateFullAt", -100];
 
 call AAB_fnc_publishSessionHandshake

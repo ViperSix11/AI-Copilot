@@ -1,0 +1,20 @@
+{
+  "schema": "arma-ai-bridge/tests/sqf-milestone-5-state-mirror-v2",
+  "files": [
+    {
+      "path": "arma3/addon-source/arma_ai_bridge_client/functions/fn_publishStateSnapshot.sqf",
+      "requiredTokens": ["state-snapshot-v2", "AAB_stateSectionCaches", "[\"player\", 1] call _due", "[\"friendlyForces\", 2] call _due", "[\"loadout\", 4] call _due", "[\"environment\", 8] call _due", "(_now - _lastPublish) < 4", "(_now - _lastFull) >= 30", "mapGridPosition", "ambientTemperature", "magazinesAmmoFull", "expectedDestination", "targetKnowledge", "getSensorTargets", "simpleTasks player", "allMapMarkers", "markerPolyline", "fullReconciliation", "uiSleep"],
+      "forbiddenTokens": ["allMissionObjects", "allUnits", " vehicles", "getPlayerUID", "profileName", "name player", "getPosATL _target", "getPosASL _target", "remoteExec", "compile", "setWaypoint", "doMove", "commandMove"]
+    },
+    {
+      "path": "arma3/addon-source/arma_ai_bridge_client/functions/fn_postInit.sqf",
+      "requiredTokens": ["AAB_fnc_publishStateSnapshot"],
+      "forbiddenTokens": ["AAB_fnc_sendTelemetry", "AAB_fnc_updateFriendlyForcePicture"]
+    },
+    {
+      "path": "arma3/addon-source/arma_ai_bridge_client/functions/fn_publishSessionHandshake.sqf",
+      "requiredTokens": ["state-snapshot", "version", "2"],
+      "forbiddenTokens": []
+    }
+  ]
+}

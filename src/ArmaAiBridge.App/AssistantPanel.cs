@@ -364,8 +364,8 @@ public sealed class AssistantPanel : UserControl, IDisposable
         catch { }
     }
 
-    private (bool Success, string Snapshot) BuildSnapshot()
-        => _snapshots.TryBuildCurrentSituation(out string snapshot)
+    private (bool Success, string Snapshot) BuildSnapshot(string question)
+        => _snapshots.TryBuildCurrentSituation(question, out string snapshot)
             ? (true, snapshot)
             : (false, string.Empty);
 
@@ -397,6 +397,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
             "query_assets" => Task.FromResult(_snapshots.BuildAssets(arguments)),
             "query_mission_capabilities" => Task.FromResult(_snapshots.BuildMissionCapabilities(arguments)),
             "find_named_locations" => Task.FromResult(_snapshots.BuildNamedLocations(arguments)),
+            "query_state" => Task.FromResult(_snapshots.BuildState(arguments)),
             _ => Task.FromException<string>(new InvalidOperationException("Unsupported local tool."))
         };
 

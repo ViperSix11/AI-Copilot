@@ -23,6 +23,7 @@ EXPECTED_PATHS = (
     ".github/workflows/build.yml",
     "docs/papa-bear-v1/codex-milestone-4a-voice-position-mvp.md",
     "docs/papa-bear-v1/codex-milestone-5-contextual-interpreter.md",
+    "docs/papa-bear-v1/codex-milestone-5-unified-state-mirror.md",
     "scripts/package_pbo.py",
     "arma3/@Arma_AI_Bridge/mod.cpp",
     "arma3/addon-source/arma_ai_bridge_client/config.cpp",
@@ -38,6 +39,7 @@ EXPECTED_PATHS = (
     "arma3/addon-source/arma_ai_bridge_client/functions/fn_publishSessionHandshake.sqf",
     "arma3/addon-source/arma_ai_bridge_client/functions/fn_publishWorldEvent.sqf",
     "arma3/addon-source/arma_ai_bridge_client/functions/fn_publishMapGazetteer.sqf",
+    "arma3/addon-source/arma_ai_bridge_client/functions/fn_publishStateSnapshot.sqf",
     "arma3/addon-source/arma_ai_bridge_client/functions/fn_updateFriendlyForcePicture.sqf",
     "native/ArmaAiBridge/ArmaAiBridge.cpp",
     "native/ArmaAiBridge/CMakeLists.txt",
@@ -49,6 +51,7 @@ EXPECTED_PATHS = (
     "schemas/friendly-force-delta-v1.schema.json",
     "schemas/mission-capabilities-v1.schema.json",
     "schemas/map-gazetteer-v1.schema.json",
+    "schemas/state-snapshot-v2.schema.json",
     "samples/telemetry-v1.json",
     "samples/query-command-v1.json",
     "samples/query-result-v1.json",
@@ -57,8 +60,10 @@ EXPECTED_PATHS = (
     "tests/fixtures/friendly-force-delta-v1.json",
     "tests/fixtures/mission-capabilities-v1.json",
     "tests/fixtures/map-gazetteer-v1.json",
+    "tests/fixtures/state-snapshot-v2.json",
     "tests/fixtures/sqf-milestone-3-contract-v1.json",
     "tests/fixtures/sqf-milestone-5-context-v1.json",
+    "tests/fixtures/sqf-milestone-5-state-mirror-v2.json",
     "src/ArmaAiBridge.App/ArmaAiBridge.App.csproj",
     "src/ArmaAiBridge.App/GlobalUsings.cs",
 )
@@ -153,6 +158,7 @@ def main() -> int:
             "friendly-force-delta-v1",
             "mission-capabilities-v1",
             "map-gazetteer-v1",
+            "state-snapshot-v2",
         ):
             fixture = json.loads(texts[ROOT / f"tests/fixtures/{name}.json"])
             schema = json.loads(texts[ROOT / f"schemas/{name}.schema.json"])
@@ -231,6 +237,7 @@ def main() -> int:
         "class updateFriendlyForcePicture",
         "class collectMissionCapabilities",
         "class publishMapGazetteer",
+        "class publishStateSnapshot",
     ):
         if required not in config:
             errors.append(f"Arma CfgFunctions is missing: {required}")
@@ -285,6 +292,20 @@ def main() -> int:
                     errors.append(f"SQF contract {relative} contains forbidden token: {forbidden}")
     except (KeyError, TypeError) as exc:
         errors.append(f"SQF Milestone 5 contract fixture is incomplete: {exc}")
+
+    try:
+        sqf_contract = json.loads(texts[ROOT / "tests/fixtures/sqf-milestone-5-state-mirror-v2.json"])
+        for rule in sqf_contract["files"]:
+            relative = rule["path"]
+            source = texts.get(ROOT / relative, "")
+            for required in rule.get("requiredTokens", []):
+                if required not in source:
+                    errors.append(f"SQF contract {relative} is missing: {required}")
+            for forbidden in rule.get("forbiddenTokens", []):
+                if forbidden.lower() in source.lower():
+                    errors.append(f"SQF contract {relative} contains forbidden token: {forbidden}")
+    except (KeyError, TypeError) as exc:
+        errors.append(f"SQF Milestone 5 State Mirror contract fixture is incomplete: {exc}")
 
     query_sqf = texts.get(
         ROOT / "arma3/addon-source/arma_ai_bridge_client/functions/fn_queryEnvironment.sqf", ""

@@ -8,4 +8,6 @@ public static class AppPaths
 
     public static string SettingsFile { get; } = Path.Combine(RootDirectory, "settings.json");
     public static string LogDirectory { get; } = Path.Combine(RootDirectory, "logs");
+    public static string StateMirrorDirectory { get; } = Path.Combine(RootDirectory, "state");
+    public static string StateMirrorDatabase { get; } = Path.Combine(StateMirrorDirectory, "state-mirror.sqlite3");
 }

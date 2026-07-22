@@ -21,9 +21,11 @@ public partial class MainWindow : Window
     private readonly TelemetryPipeServer _pipeServer;
     private readonly WorldStateStore _worldStateStore;
     private readonly MapGazetteerStore _mapGazetteerStore;
+    private readonly SqliteStateRepository _stateRepository;
     private readonly WorldSnapshotBuilder _worldSnapshotBuilder;
     private readonly TelemetryIngestService _telemetryIngestService;
     private readonly MapGazetteerCoordinator _mapGazetteerCoordinator;
+    private readonly StateMirrorIngestService _stateMirrorIngestService;
     private long _snapshotCount;
     private string? _pendingRequestId;
 
@@ -33,12 +35,15 @@ public partial class MainWindow : Window
         _pipeServer = new TelemetryPipeServer(_log);
         _worldStateStore = new WorldStateStore();
         _mapGazetteerStore = new MapGazetteerStore();
+        _stateRepository = new SqliteStateRepository();
         _worldSnapshotBuilder = new WorldSnapshotBuilder(
-            _worldStateStore, gazetteerStore: _mapGazetteerStore);
+            _worldStateStore, gazetteerStore: _mapGazetteerStore, stateRepository: _stateRepository);
         _telemetryIngestService = new TelemetryIngestService(
             _pipeServer, _worldStateStore, _log);
         _mapGazetteerCoordinator = new MapGazetteerCoordinator(
             _pipeServer, _worldStateStore, _mapGazetteerStore, _log);
+        _stateMirrorIngestService = new StateMirrorIngestService(
+            _pipeServer, _stateRepository, _telemetryIngestService, _mapGazetteerStore, _log);
         _log.EntryWritten += OnLogEntryWritten;
         _pipeServer.ClientConnectionChanged += OnClientConnectionChanged;
         _pipeServer.MessageReceived += OnBridgeMessageReceived;
@@ -66,7 +71,9 @@ public partial class MainWindow : Window
         _assistantPanel?.Dispose();
         _worldStateDiagnosticsPanel?.Dispose();
         _mapGazetteerCoordinator.Dispose();
+        _stateMirrorIngestService.Dispose();
         _telemetryIngestService.Dispose();
+        _stateRepository.Dispose();
         await _pipeServer.DisposeAsync();
     }
 
@@ -339,6 +346,17 @@ public partial class MainWindow : Window
                     {
                         schema,
                         status = "Ingested into World State; source identifiers are hidden in this view."
+                    }, new JsonSerializerOptions { WriteIndented = true });
+                }
+                else if (schema == StateSnapshotParser.Schema)
+                {
+                    StateRepositoryDiagnostics status = _stateRepository.GetDiagnostics();
+                    RawTelemetryTextBox.Text = JsonSerializer.Serialize(new
+                    {
+                        schema,
+                        status = status.Readiness.ToString().ToLowerInvariant(),
+                        sequence = status.LastSequence,
+                        message = "Snapshot ingested into the local State Mirror; content and source identifiers are hidden."
                     }, new JsonSerializerOptions { WriteIndented = true });
                 }
                 else if (schema == MapGazetteerStore.Schema)

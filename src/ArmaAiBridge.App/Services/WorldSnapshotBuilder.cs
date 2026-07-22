@@ -10,18 +10,25 @@ public sealed class WorldSnapshotBuilder
     private readonly WorldStateStore _store;
     private readonly MapGazetteerStore? _gazetteerStore;
     private readonly PositionInterpretationService _positionInterpreter;
+    private readonly IStateRepository? _stateRepository;
+    private readonly StateContextSelector? _stateContextSelector;
+    private readonly StateQueryService? _stateQuery;
     private readonly TimeProvider _timeProvider;
 
     public WorldSnapshotBuilder(
         WorldStateStore store,
         TimeProvider? timeProvider = null,
         MapGazetteerStore? gazetteerStore = null,
-        PositionInterpretationService? positionInterpreter = null)
+        PositionInterpretationService? positionInterpreter = null,
+        IStateRepository? stateRepository = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _timeProvider = timeProvider ?? TimeProvider.System;
         _gazetteerStore = gazetteerStore;
         _positionInterpreter = positionInterpreter ?? new PositionInterpretationService();
+        _stateRepository = stateRepository;
+        _stateContextSelector = stateRepository is null ? null : new StateContextSelector(stateRepository);
+        _stateQuery = stateRepository is null ? null : new StateQueryService(stateRepository);
     }
 
     public bool TryBuildCurrentSituation(out string json)
@@ -32,7 +39,19 @@ public sealed class WorldSnapshotBuilder
             json = string.Empty;
             return false;
         }
-        json = Serialize(BuildCurrentSituation(view));
+        json = Serialize(BuildCurrentSituation(view, string.Empty));
+        return true;
+    }
+
+    public bool TryBuildCurrentSituation(string question, out string json)
+    {
+        WorldStateView view = _store.GetCurrentView();
+        if (!view.HasTelemetry || view.Map is null || view.Player is null)
+        {
+            json = string.Empty;
+            return false;
+        }
+        json = Serialize(BuildCurrentSituation(view, question));
         return true;
     }
 
@@ -41,7 +60,7 @@ public sealed class WorldSnapshotBuilder
         WorldStateView view = _store.GetCurrentView();
         if (!view.HasTelemetry || view.Map is null || view.Player is null)
             throw new InvalidOperationException("No world-state telemetry is available yet.");
-        return Serialize(BuildCurrentSituation(view));
+        return Serialize(BuildCurrentSituation(view, string.Empty));
     }
 
     public string BuildKnownContacts()
@@ -64,6 +83,8 @@ public sealed class WorldSnapshotBuilder
 
     public string BuildFriendlyForces(JsonElement arguments)
     {
+        if (_stateRepository is not null && _stateRepository.GetDiagnostics().LastSequence > 0)
+            return BuildMirroredFriendlyForces(arguments);
         WorldStateView view = RequireWorldState();
         string entityType = ReadEnum(arguments, "entityType", "group", "unit", "vehicle", "all");
         double maxDistance = ReadNumber(arguments, "maxDistanceMeters", 100, 50000);
@@ -168,7 +189,11 @@ public sealed class WorldSnapshotBuilder
         return _positionInterpreter.FindNamedLocations(view, gazetteer, arguments);
     }
 
-    private Dictionary<string, object?> BuildCurrentSituation(WorldStateView view)
+    public string BuildState(JsonElement arguments)
+        => _stateQuery?.Query(arguments)
+            ?? throw new InvalidOperationException("The local State Mirror is not available.");
+
+    private Dictionary<string, object?> BuildCurrentSituation(WorldStateView view, string question)
     {
         MapGazetteerSnapshot gazetteer = _gazetteerStore?.GetSnapshot()
             ?? new MapGazetteerSnapshot(
@@ -178,7 +203,7 @@ public sealed class WorldSnapshotBuilder
                 Array.Empty<MapGazetteerLocation>(),
                 "gazetteer_not_configured");
         PositionInterpretation interpretation = _positionInterpreter.Interpret(view, gazetteer);
-        return new()
+        Dictionary<string, object?> result = new()
         {
             ["schema"] = SnapshotSchema,
             ["purpose"] = "current-situation",
@@ -189,11 +214,44 @@ public sealed class WorldSnapshotBuilder
             ["interpretedLocation"] = interpretation,
             ["group"] = view.Group is null ? null : Group(view.Group),
             ["vehicle"] = view.Vehicle is null ? null : Vehicle(view.Vehicle),
-            ["knownContacts"] = Contacts(view.KnownContacts),
+            ["knownContacts"] = _stateRepository is null ? Contacts(view.KnownContacts) : Array.Empty<object>(),
             ["friendlyForceSummary"] = FriendlyForceSummary(view),
             ["missionCapabilitySummary"] = MissionCapabilitySummary(view),
             ["reconciliation"] = Reconciliation(view.Reconciliation)
         };
+        if (_stateContextSelector is not null)
+        {
+            StateContextSelection selection = _stateContextSelector.Select(question);
+            result["stateMirror"] = new
+            {
+                selectedSections = selection.SelectedSections,
+                baseContext = selection.BaseContext,
+                selectedContext = selection.SelectedContext
+            };
+        }
+        return result;
+    }
+
+    private string BuildMirroredFriendlyForces(JsonElement arguments)
+    {
+        string entityType = ReadEnum(arguments, "entityType", "group", "unit", "vehicle", "all");
+        _ = ReadNumber(arguments, "maxDistanceMeters", 100, 50000);
+        bool includeStale = ReadBoolean(arguments, "includeStale");
+        int limit = (int)ReadNumber(arguments, "limit", 1, 100, integer: true);
+        IReadOnlyList<StateFriendlyGroup> groups = entityType is "group" or "all"
+            ? _stateRepository!.GetFriendlyGroups(limit, includeStale) : Array.Empty<StateFriendlyGroup>();
+        IReadOnlyList<StateFriendlyUnit> units = entityType is "unit" or "all"
+            ? _stateRepository!.GetFriendlyUnits(limit, includeStale) : Array.Empty<StateFriendlyUnit>();
+        return Serialize(new Dictionary<string, object?>
+        {
+            ["schema"] = SnapshotSchema,
+            ["purpose"] = "friendly-forces",
+            ["generatedAtUtc"] = _timeProvider.GetUtcNow().ToString("O", CultureInfo.InvariantCulture),
+            ["query"] = new { entityType, includeStale, limit },
+            ["groups"] = groups,
+            ["units"] = units,
+            ["vehicles"] = Array.Empty<object>()
+        });
     }
 
     private static Dictionary<string, object?> Session(WorldStateView view)

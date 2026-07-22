@@ -11,7 +11,8 @@ hold push-to-talk (maximum 15 seconds)
 → OpenAI completed-utterance transcription
 → visible final transcript
 → shared AssistantTurnService
-→ fresh minimized snapshot with local interpretedLocation
+→ fresh minimized snapshot with interpreted location, bounded base state and
+  deterministic question-relevant State Mirror sections
 → one OpenAI Responses/tool loop
 → locally normalized final visible answer
 → ElevenLabs synthesis of that exact text
@@ -25,8 +26,9 @@ misdescribe STT as part of Responses.
 
 ## Shared turn behavior
 
-- typed and spoken input use the same current world snapshot, position
-  interpreter, response profile, OpenAI history and strict tool dispatcher;
+- typed and spoken input use the same current world snapshot, deterministic
+  state selector and interpreters, response profile, OpenAI history and strict
+  tool dispatcher;
 - response profiles are local style data and cannot override immutable rules;
 - the final assistant answer is normalized once before it enters assistant
   history, the UI, ElevenLabs or replay;

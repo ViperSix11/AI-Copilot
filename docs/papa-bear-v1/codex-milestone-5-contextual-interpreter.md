@@ -1,4 +1,7 @@
-# Codex Milestone 5: Contextual Interpreter
+# Codex Milestone 5 Phase A: Contextual Interpreter
+
+> This is the preserved subordinate Phase A design. The complete release 0.8
+> boundary is `codex-milestone-5-unified-state-mirror.md`.
 
 ## Objective and release boundary
 
@@ -10,15 +13,17 @@ final visible text.
 
 The product version is `0.8` and the assembly version is `0.8.0`.
 
-This milestone adds only an official named-location gazetteer, local position
+Phase A adds only an official named-location gazetteer, local position
 interpretation, one bounded gazetteer read tool, and a response-style profile.
 It preserves the accepted 0.7 voice pipeline, stateless tool loop, partial
 success, replay, Milestones 1–3 world state, native transport, and PBO
 packaging. It does not add another model request.
 
-Explicitly out of scope are full static-map indexing, runtime terrain-object
-scans, SQLite, operational memory, broader hostile-contact aggregation,
-proactive contact reports, empty-object perception, player-report memory, ACE,
+Explicitly out of Phase A are full static-map indexing, runtime terrain-object
+scans and observation-fusion operational memory. SQLite current-state mirroring,
+selected weather/loadout/task/marker state and own-side contact aggregation are
+defined by the parent release specification. Still deferred are proactive
+contact reports, empty-object perception, player-report memory, ACE,
 ballistics, routes, landing-zone analysis, support execution, always-on audio,
 wake words, VAD, and streaming STT/TTS.
 
