@@ -95,6 +95,23 @@ public sealed class Release08ContactPatchTests
     }
 
     [Fact]
+    public void ContactAnnouncements_GroupCompatibleTracksIntoOneRadioMessage()
+    {
+        ContactAnnouncementDetector detector = new();
+        MissionContactTrack[] stale = Enumerable.Range(0, 4)
+            .Select(index => Track($"contact-{index}", "hostile", "last-known", 6250 + index * 5, 5550 + index * 5))
+            .ToArray();
+        Assert.Empty(detector.Evaluate("session-a", 1, stale, "Alpha 1-1"));
+
+        MissionContactTrack[] current = stale.Select(track => track with { Status = "current" }).ToArray();
+        ContactAnnouncement announcement = Assert.Single(
+            detector.Evaluate("session-a", 2, current, "Alpha 1-1"));
+
+        Assert.Equal("reacquired", announcement.Kind);
+        Assert.Contains("Enemy infantry group reacquired, four contacts, grid 062055", announcement.VisibleText, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void OrdinaryHostileQuestion_ContainsCountsButNoPlayerRelativeFacts()
     {
         using TestDatabase database = new();
