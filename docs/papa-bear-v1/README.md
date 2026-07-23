@@ -19,7 +19,8 @@ Papa Bear is a local AI radio assistant for Arma 3. The current application:
 - receives perspective-bound Arma telemetry through the SQF addon, native x64
   extension and local Named Pipe;
 - maintains a privacy-minimized local world model;
-- supports typed and push-to-talk questions through one shared assistant path;
+- supports typed, push-to-talk and explicitly enabled voice-activated questions
+  through one shared assistant path;
 - uses OpenAI audio transcription and OpenAI Responses;
 - uses ElevenLabs exclusively for Papa Bear speech output;
 - exposes only locally validated, read-only tools;
@@ -48,6 +49,9 @@ configurable global press-and-hold PTT.
 - One encrypted OpenAI key is used for transcription and Responses.
 - ElevenLabs is the only speech-output provider in the active product.
 - Failed TTS or playback must never discard a completed transcript or answer.
+- Always-on microphone mode is off by default, has no wake word, performs voice
+  activity detection locally, uploads no silence, and pauses capture while Papa
+  Bear handles or speaks a turn.
 - Arma supplies measured facts; local services calculate spatial relations; one
   existing Responses request supplies natural language; ElevenLabs speaks the
   final visible answer with only deterministic speech pronunciation of numbers,

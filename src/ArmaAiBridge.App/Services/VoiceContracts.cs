@@ -11,6 +11,7 @@ public enum UserTurnSource
 public enum VoiceStage
 {
     Ready,
+    Listening,
     Recording,
     Transcribing,
     Thinking,
@@ -59,6 +60,11 @@ public interface IMicrophoneCaptureSession : IAsyncDisposable
 public interface IMicrophoneCaptureService
 {
     Task<IMicrophoneCaptureSession> StartAsync(CancellationToken cancellationToken);
+}
+
+public interface IVoiceActivatedMicrophoneCaptureService
+{
+    Task<IAudioRecording> CaptureUtteranceAsync(CancellationToken cancellationToken);
 }
 
 public interface ISpeechToTextService
