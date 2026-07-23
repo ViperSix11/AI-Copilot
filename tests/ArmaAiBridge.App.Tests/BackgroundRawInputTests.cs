@@ -190,7 +190,9 @@ public sealed class BackgroundRawInputTests
     private static string RepositoryRoot()
     {
         DirectoryInfo? directory = new(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "AGENTS.md"))) directory = directory.Parent;
+        while (directory is not null && !File.Exists(Path.Combine(
+                   directory.FullName, "src", "ArmaAiBridge.App", "ArmaAiBridge.App.csproj")))
+            directory = directory.Parent;
         return directory?.FullName ?? throw new DirectoryNotFoundException();
     }
 

@@ -188,7 +188,8 @@ public sealed class Release08InputTests
     private static string RepositoryRoot()
     {
         DirectoryInfo? directory = new(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "AGENTS.md")))
+        while (directory is not null && !File.Exists(Path.Combine(
+                   directory.FullName, "src", "ArmaAiBridge.App", "ArmaAiBridge.App.csproj")))
             directory = directory.Parent;
         return directory?.FullName ?? throw new DirectoryNotFoundException("Repository root not found.");
     }
