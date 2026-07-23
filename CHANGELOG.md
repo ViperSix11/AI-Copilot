@@ -102,8 +102,7 @@ Release PR: [#12](https://github.com/ViperSix11/AI-Copilot/pull/12)
 - Deterministic Release suite: 271 tests at release closeout.
 - WPF `win-x64`, native x64, and 22-file Addon Builder PBO builds passed.
 - GitHub Actions Windows build passed for the release-closeout commit.
-- Full live 0.8 acceptance remains the explicit manual gate recorded in
-  `docs/papa-bear-v1/release-0.8-tactical-memory.md`.
+- Full live 0.8 acceptance remains an explicit manual gate.
 
 ### Internal 0.8 patch chronology
 

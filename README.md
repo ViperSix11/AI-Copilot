@@ -216,8 +216,7 @@ Provider credentials are encrypted with Windows DPAPI for the current user.
 - `store: false` is used for Responses requests; it is not a provider-wide Zero
   Data Retention agreement.
 
-See [`privacy-and-fair-play.md`](docs/papa-bear-v1/privacy-and-fair-play.md) and
-[`release-0.8-tactical-memory.md`](docs/papa-bear-v1/release-0.8-tactical-memory.md)
+See [`privacy-and-fair-play.md`](docs/papa-bear-v1/privacy-and-fair-play.md)
 for the exact boundaries.
 
 ## Deliberate non-goals
@@ -266,15 +265,12 @@ matching development artifact upload.
 - Release 0.8 deterministic and Windows CI coverage is green.
 - Full live 0.8 acceptance, including the newest Bullseye, fallback,
   reacquisition, always-on microphone, and reset scenarios, remains a manual
-  gate. Follow the exact checklist in
-  [`release-0.8-tactical-memory.md`](docs/papa-bear-v1/release-0.8-tactical-memory.md).
+  gate.
 
 ## Documentation
 
 - [Papa Bear v1 index](docs/papa-bear-v1/README.md)
-- [Release 0.8 active contract](docs/papa-bear-v1/release-0.8-tactical-memory.md)
 - [Arma data contract](docs/papa-bear-v1/arma-data-contract.md)
-- [Implementation roadmap](docs/papa-bear-v1/implementation-roadmap.md)
 - [Voice architecture](docs/papa-bear-v1/voice-architecture.md)
 - [World model](docs/papa-bear-v1/world-model.md)
 - [Privacy and fair play](docs/papa-bear-v1/privacy-and-fair-play.md)
