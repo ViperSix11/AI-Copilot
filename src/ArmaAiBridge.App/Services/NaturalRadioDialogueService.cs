@@ -190,15 +190,7 @@ public sealed partial class NaturalRadioDialogueService
 
         if (_last.AwaitingCopy)
         {
-            plan = new NaturalRadioPlan(
-                new[]
-                {
-                    new RadioTransmission(
-                        "Confirm receipt, say negative, or ask me to repeat the last information.")
-                },
-                true,
-                "radio-followup-awaiting-copy");
-            return true;
+            _last = _last with { AwaitingCopy = false, CreatedAtUtc = _timeProvider.GetUtcNow() };
         }
 
         return false;
@@ -323,13 +315,13 @@ public sealed partial class NaturalRadioDialogueService
     [GeneratedRegex(@"\b(?:contact|enemy|hostile|under fire|incoming|urgent|danger close|attack|engage|wounded|casualt|reacquired)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex UrgentRegex();
 
-    [GeneratedRegex(@"^(?:copy|copied|roger|affirmative|yes|received|i copy|got it)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^(?:copy|copied|roger|affirmative|yes|received|i copy|got it|proceed|continue|go ahead)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex AffirmativeRegex();
 
     [GeneratedRegex(@"^(?:negative|no|did not copy|didn't copy)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex NegativeRegex();
 
-    [GeneratedRegex(@"^(?:repeat|repeat that|please repeat(?: that)?|say again|say that again|come again|can you repeat(?: that)?)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^(?:repeat|repeat that|please repeat(?: that)?|say again|say that again|come again|can you repeat(?: that)?|(?:state\s+)?(?:the\s+)?(?:last|previous)\s+information)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex RepeatRegex();
 
     [GeneratedRegex(@"^(?:(?:papa bear[,.]?\s*)?(?:copy|roger|be advised|message received|i have new information|stand by)[,.:—-]?\s*)+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]

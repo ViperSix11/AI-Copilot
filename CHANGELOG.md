@@ -28,6 +28,12 @@ pull requests, first-parent history, and the authoritative documents under
   conversational cadence.
 - Every ElevenLabs payload converts grouped numbers, integers and decimals to
   English words and applies a final no-digit safeguard.
+- Pending receipt checks no longer block substantive questions or reports;
+  natural repeat references and continuation replies are handled locally.
+- Compatible contact tracks that render to the same rounded tactical position
+  are announced once as a counted group instead of repeated verbatim calls.
+- Enemy `last known position` questions now retrieve the newest eligible
+  contact locations even when those contacts are still current.
 
 ### Boundaries
 
@@ -39,7 +45,7 @@ pull requests, first-parent history, and the authoritative documents under
 ### Local validation
 
 - Repository verifier: 175 UTF-8 files.
-- Deterministic Release suite: 292 tests.
+- Deterministic Release suite: 299 tests.
 - WPF `win-x64`, native x64 and 22-file Addon Builder PBO builds passed.
 - GitHub Actions and live Arma acceptance remain pending.
 

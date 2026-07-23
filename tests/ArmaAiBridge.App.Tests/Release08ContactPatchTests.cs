@@ -135,6 +135,39 @@ public sealed class Release08ContactPatchTests
     }
 
     [Fact]
+    public void ContactAnnouncements_GroupDistinctVehicleTracksWithTheSameRadioPosition()
+    {
+        ContactAnnouncementDetector detector = new(new FixedPositionReporter(), new ManualTimeProvider(Start));
+        Assert.Empty(detector.Evaluate("session-a", 1, [], "Alpha 1-2"));
+        MissionContactTrack first = Track("vehicle-a", "hostile", "current", 1000, 1000) with
+        {
+            ContactType = "ground-vehicle",
+            Description = "hostile vehicle"
+        };
+        MissionContactTrack second = Track("vehicle-b", "hostile", "current", 1200, 1200) with
+        {
+            ContactType = "ground-vehicle",
+            Description = "hostile vehicle"
+        };
+        MissionContactTrack aircraft = Track("aircraft-a", "unknown", "current", 1400, 1400) with
+        {
+            ContactType = "air",
+            Description = "unknown aircraft"
+        };
+
+        IReadOnlyList<ContactAnnouncement> announcements =
+            detector.Evaluate("session-a", 2, [first, second, aircraft], "Alpha 1-2");
+
+        Assert.Equal(2, announcements.Count);
+        Assert.Contains(announcements, item =>
+            item.VisibleText ==
+            "Alpha 1-2, enemy vehicle group, two vehicles, 600 metres northeast of Bullseye Alpha.");
+        Assert.Contains(announcements, item =>
+            item.VisibleText ==
+            "Alpha 1-2, unknown aircraft, 600 metres northeast of Bullseye Alpha.");
+    }
+
+    [Fact]
     public void ContactAnnouncements_DoNotCallABriefLastKnownFlickerAReacquisition()
     {
         ManualTimeProvider time = new(Start);
@@ -158,6 +191,25 @@ public sealed class Release08ContactPatchTests
         foreach (string forbidden in new[] { "metres from your position", "bearing", "rangeFromPlayer", "bearingFromPlayer", "direction" })
             Assert.DoesNotContain(forbidden, evidence.ModelContext, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("reported by", evidence.ModelContext, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void LastKnownEnemyPositionQuestion_SelectsTheNewestContactPosition()
+    {
+        using TestDatabase database = new();
+        ManualTimeProvider time = new(Start);
+        using SqliteStateRepository repository = Ready(database.Path, time, "EAST", "hostile");
+        string snapshot = JsonSerializer.Serialize(
+            new TacticalSnapshotBuilder(repository, repository, time)
+                .Build("Can you give me the last known position of the enemies?"));
+
+        TacticalEvidenceReport evidence = TacticalEvidencePipeline.Build(
+            snapshot,
+            "Can you give me the last known position of the enemies?");
+
+        Assert.Contains("hostile infantry", evidence.ModelContext, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("grid 025064", evidence.ModelContext, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("status current", evidence.ModelContext, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

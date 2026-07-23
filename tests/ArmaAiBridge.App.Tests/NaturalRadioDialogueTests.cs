@@ -104,6 +104,8 @@ public sealed class NaturalRadioDialogueTests
     [InlineData("roger")]
     [InlineData("affirmative")]
     [InlineData("received")]
+    [InlineData("proceed")]
+    [InlineData("go ahead")]
     public void CopyResponses_CloseTheOpenConfirmationState(string response)
     {
         NaturalRadioDialogueService service = new(_ => 0);
@@ -138,15 +140,18 @@ public sealed class NaturalRadioDialogueTests
         Assert.Contains("clarified", Assert.Single(followUp.Transmissions).Text, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void RepeatRequest_UsesSimplerWordingAndKeepsConfirmationOpen()
+    [Theory]
+    [InlineData("say again")]
+    [InlineData("the last information")]
+    [InlineData("state the last information")]
+    public void RepeatRequest_UsesSimplerWordingAndKeepsConfirmationOpen(string request)
     {
         NaturalRadioDialogueService service = new(_ => 0);
         string original =
             "Alpha 1-1, be advised, enemy infantry is six hundred metres northeast of Bullseye Alpha. A hostile vehicle is nearby.";
         service.Plan("Hostile situation?", original, "Alpha 1-1", acknowledgementAlreadyEmitted: false);
 
-        Assert.True(service.TryHandleFollowUp("say again", "Alpha 1-1", out NaturalRadioPlan repeat));
+        Assert.True(service.TryHandleFollowUp(request, "Alpha 1-1", out NaturalRadioPlan repeat));
 
         string repeated = Assert.Single(repeat.Transmissions).Text;
         Assert.StartsWith("Alpha 1-1, say again:", repeated, StringComparison.Ordinal);
@@ -157,7 +162,7 @@ public sealed class NaturalRadioDialogueTests
     }
 
     [Fact]
-    public void OpenConfirmation_RemainsOpenForAnUnrecognizedReply()
+    public void SubstantiveFollowUp_LeavesReceiptStateAndContinuesNormalPipeline()
     {
         NaturalRadioDialogueService service = new(_ => 0);
         service.Plan(
@@ -166,13 +171,11 @@ public sealed class NaturalRadioDialogueTests
             "Alpha 1-1",
             acknowledgementAlreadyEmitted: false);
 
-        Assert.True(service.TryHandleFollowUp(
-            "Tell me something else",
+        Assert.False(service.TryHandleFollowUp(
+            "Where are the enemies right now?",
             "Alpha 1-1",
-            out NaturalRadioPlan followUp));
-
-        Assert.True(followUp.AwaitingCopyConfirmation);
-        Assert.Contains("Confirm receipt", Assert.Single(followUp.Transmissions).Text, StringComparison.Ordinal);
+            out _));
+        Assert.False(service.TryHandleFollowUp("copy", "Alpha 1-1", out _));
     }
 
     [Fact]
@@ -233,6 +236,36 @@ public sealed class NaturalRadioDialogueTests
         Assert.Equal(1, assistant.Calls);
         Assert.Equal("local", repeat.Model);
         Assert.Contains("say again", repeat.Text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SubstantiveFollowUp_AfterCopyRequestCallsOpenAiAgain()
+    {
+        FakeAssistant assistant = new(
+            "Enemy infantry has been reported northeast of Bullseye Alpha. A hostile vehicle is nearby.");
+        NaturalRadioDialogueService dialogue = new(_ => 0);
+        using AssistantTurnService turns = new(
+            assistant,
+            () => (true, "{}"),
+            _ => Task.FromResult(("key", "model", ResponseProfilePolicy.Defaults())),
+            (_, _, _) => Task.FromResult("unused"),
+            () => "Alpha 1-1",
+            radioDialogue: dialogue);
+
+        AssistantResponse first = await turns.SubmitUserTurnAsync(
+            "Any hostile activity?",
+            UserTurnSource.Typed,
+            TestContext.Current.CancellationToken);
+        Assert.True(first.AwaitingCopyConfirmation);
+
+        AssistantResponse followUp = await turns.SubmitUserTurnAsync(
+            "Where are the enemies right now?",
+            UserTurnSource.Spoken,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, assistant.Calls);
+        Assert.NotEqual("local", followUp.Model);
+        Assert.DoesNotContain("Confirm receipt", followUp.Text, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

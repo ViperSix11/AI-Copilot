@@ -62,21 +62,42 @@ When Papa Bear asks `Do you copy?`, `Confirm you received that.` or `Copy?`, the
 exchange remains locally open for five minutes.
 
 - `copy`, `copied`, `roger`, `affirmative`, `yes`, `received`, `I copy` and
-  `got it` confirm receipt and close the state;
+  `got it`, plus the continuation replies `proceed`, `continue` and `go ahead`,
+  confirm receipt and close the state;
 - `negative`, `no`, `did not copy` and `didn't copy` reject receipt and close
   the state with a concise clarification invitation;
 - `repeat`, `repeat that`, `please repeat`, `say again`, `say that again`,
   `come again` and `can you repeat that` repeat the last relevant content with
-  deterministic filler removal and a `say again` lead-in.
+  deterministic filler removal and a `say again` lead-in. Natural references
+  such as `the last information` and `state the last information` are also
+  repeat requests.
 
 A repeat is handled locally and does not call OpenAI or re-read the game
 snapshot. A spoken repeat still requires the normal completed-utterance
 transcription so the application can know what the player said. If the prior
 exchange requested receipt, the simplified repeat keeps that state open.
 
-The state clears when the player callsign changes, the five-minute window
+The receipt state is never a modal conversation lock. Any new substantive
+question, report or otherwise unrecognized utterance implicitly leaves the
+receipt exchange and continues through the normal snapshot and OpenAI path.
+The state also clears when the player callsign changes, the five-minute window
 expires, or the conversation is explicitly cleared. It contains completed
 answer text only and is never written to the application log.
+
+## Proactive-announcement presentation deduplication
+
+Track identity and world-model state remain unchanged. Before speaking,
+compatible new or reacquired tracks that resolve to the same tactical
+classification and exact rendered position phrase are presented as one
+counted group announcement. This prevents multiple distinct tracks inside one
+rounded Bullseye phrase from producing indistinguishable repeated calls while
+keeping differently classified contacts, such as an unknown aircraft, in a
+separate announcement.
+
+A request for an enemy's `last known position` selects the newest eligible
+contact positions, including contacts whose status is still current. Papa Bear
+reports a current position as current rather than incorrectly treating
+`last-known` as a required database status.
 
 ## Speech output
 
@@ -108,7 +129,12 @@ Tests must prove:
 9. multiple calls synthesize and play sequentially with one bounded pause;
 10. a later-call speech failure preserves all visible text;
 11. ElevenLabs input contains no digits, including `1,000`, `25` and `3.5`;
-12. existing position, privacy, memory, PTT, always-on microphone, partial
+12. a substantive new question leaves a pending receipt state and reaches
+    OpenAI, while `the last information` repeats locally;
+13. distinct compatible tracks with the same rendered tactical position
+    produce one counted announcement without absorbing a different contact
+    classification;
+14. existing position, privacy, memory, PTT, always-on microphone, partial
     success and tool-loop tests remain green.
 
 ## Live acceptance
@@ -126,20 +152,27 @@ Use a current Arma session with a dynamic group callsign.
 4. When Papa Bear asks for receipt, answer `copy`, `yes`, `negative`, `no` and
    `repeat` in separate trials. Verify the state resolves or repeats as
    documented without another Responses request for the follow-up.
-5. Request repetition and verify the relevant fact is retained but filler and
+5. While a receipt request is open, ask a new substantive question such as
+   `Where are the enemies right now?`. Verify Papa Bear answers it instead of
+   repeating a confirmation instruction.
+6. Request repetition using both `repeat` and `the last information`. Verify
+   the relevant fact is retained but filler and
    sentence shape differ.
-6. Change groups while a receipt request is open. Verify the old exchange
+7. Cause two compatible vehicle tracks to resolve to the same rounded tactical
+   position. Verify one counted vehicle-group call is emitted, while an
+   aircraft with a different classification still gets its own call.
+8. Change groups while a receipt request is open. Verify the old exchange
    cannot be repeated under the new callsign.
-7. Include ranges `1,000`, `25` and `3.5` in a test answer and verify speech
+9. Include ranges `1,000`, `25` and `3.5` in a test answer and verify speech
    says `one thousand`, `twenty-five` and `three point five`.
-8. Disable ElevenLabs or force playback failure during the second call. Verify
+10. Disable ElevenLabs or force playback failure during the second call. Verify
    all visible text remains and the safe partial-success status is shown.
-9. Inspect logs and confirm no transcript, answer, transmission text, prompt,
+11. Inspect logs and confirm no transcript, answer, transmission text, prompt,
    snapshot, audio or provider body was written.
 
 ## Implementation validation status
 
-Local Windows closeout passed the 175-file UTF-8 repository verifier, all 292
+Local Windows closeout passed the 175-file UTF-8 repository verifier, all 299
 deterministic Release tests, WPF `win-x64` publish, native x64 rebuild and the
 official 22-file Addon Builder PBO build. GitHub Actions and the live acceptance
 steps above remain pending and must not be inferred from local automation.

@@ -87,39 +87,67 @@ public sealed class ContactAnnouncementDetector
         IReadOnlyList<TransitionedContact> transitions,
         string? playerCallsign)
     {
-        List<List<TransitionedContact>> groups = new();
-        foreach (TransitionedContact transition in transitions.OrderBy(item => item.Track.TrackId, StringComparer.Ordinal))
+        PositionedTransition[] positioned = transitions
+            .Select(transition => new PositionedTransition(
+                transition,
+                _positionReports.Describe(transition.Track.EstimatedPosition)))
+            .OrderBy(item => item.Transition.Track.TrackId, StringComparer.Ordinal)
+            .ToArray();
+        List<List<PositionedTransition>> groups = new();
+        foreach (PositionedTransition transition in positioned)
         {
-            List<TransitionedContact>? group = groups.FirstOrDefault(candidate => candidate.All(item =>
-                item.Kind == transition.Kind &&
-                item.Track.Relationship == transition.Track.Relationship &&
-                Math.Abs((item.Track.LastObservedAtUtc - transition.Track.LastObservedAtUtc).TotalSeconds) <= 120 &&
-                Distance(item.Track.EstimatedPosition, transition.Track.EstimatedPosition) <= 40));
-            if (group is null) groups.Add(group = new List<TransitionedContact>());
+            List<PositionedTransition>? group = groups.FirstOrDefault(candidate => candidate.All(item =>
+                item.Transition.Kind == transition.Transition.Kind &&
+                item.Transition.Track.Relationship == transition.Transition.Track.Relationship &&
+                Math.Abs((item.Transition.Track.LastObservedAtUtc -
+                          transition.Transition.Track.LastObservedAtUtc).TotalSeconds) <= 120 &&
+                (Distance(
+                     item.Transition.Track.EstimatedPosition,
+                     transition.Transition.Track.EstimatedPosition) <= 40 ||
+                 (ContactNoun(item.Transition.Track.ContactType) ==
+                  ContactNoun(transition.Transition.Track.ContactType) &&
+                  string.Equals(
+                      item.Position.Text,
+                      transition.Position.Text,
+                      StringComparison.Ordinal)))));
+            if (group is null) groups.Add(group = new List<PositionedTransition>());
             group.Add(transition);
         }
 
         string callsign = SafeCallsign(playerCallsign);
         return groups.Select(group =>
         {
-            TransitionedContact first = group[0];
+            PositionedTransition first = group[0];
             WorldPosition center = new(
-                group.Average(item => item.Track.EstimatedPosition.X),
-                group.Average(item => item.Track.EstimatedPosition.Y),
-                group.Average(item => item.Track.EstimatedPosition.Z));
-            TacticalPositionDescription position = _positionReports.Describe(center);
-            string classification = first.Track.Relationship == "unknown" ? "unknown" : "enemy";
-            string subject = ContactSubject(group);
-            string body = first.Kind == "reacquired"
+                group.Average(item => item.Transition.Track.EstimatedPosition.X),
+                group.Average(item => item.Transition.Track.EstimatedPosition.Y),
+                group.Average(item => item.Transition.Track.EstimatedPosition.Z));
+            TacticalPositionDescription position = group.All(item =>
+                    string.Equals(item.Position.Text, first.Position.Text, StringComparison.Ordinal))
+                ? first.Position
+                : _positionReports.Describe(center);
+            string classification = first.Transition.Track.Relationship == "unknown" ? "unknown" : "enemy";
+            string subject = ContactSubject(group.Select(item => item.Transition).ToArray());
+            string body = first.Transition.Kind == "reacquired"
                 ? $"Previously reported {classification} {subject} reacquired, {position.Text}."
                 : $"{Capitalize(classification)} {subject}, {position.Text}.";
             string visible = callsign.Length == 0 ? body : $"{callsign}, {LowercaseFirst(body)}";
-            return new ContactAnnouncement(first.Track.TrackId, first.Kind, position.Grid, visible);
+            return new ContactAnnouncement(
+                first.Transition.Track.TrackId,
+                first.Transition.Kind,
+                position.Grid,
+                visible);
         }).ToArray();
     }
 
     private static string ContactSubject(IReadOnlyList<TransitionedContact> group)
     {
+        string[] nouns = group.Select(item => ContactNoun(item.Track.ContactType))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (group.Count > 1 && nouns.Length == 1 && nouns[0] != "infantry")
+            return $"{nouns[0]} group, {CountWord(group.Count)} {Plural(nouns[0])}";
+
         string[] subjects = group.GroupBy(item => ContactNoun(item.Track.ContactType), StringComparer.Ordinal)
             .OrderBy(item => item.Key, StringComparer.Ordinal)
             .Select(item => item.Key == "infantry" && item.Count() > 1
@@ -174,6 +202,9 @@ public sealed class ContactAnnouncementDetector
 
     private sealed record TrackState(string Status, DateTimeOffset? LostSinceUtc);
     private sealed record TransitionedContact(MissionContactTrack Track, string Kind);
+    private sealed record PositionedTransition(
+        TransitionedContact Transition,
+        TacticalPositionDescription Position);
     private sealed class GridOnlyPositionReporter : ITacticalPositionReporter
     {
         public TacticalPositionDescription Describe(WorldPosition target)
