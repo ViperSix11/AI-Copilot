@@ -295,7 +295,12 @@ public sealed class SqliteStateRepository : IStateRepository, IMissionMemoryRepo
                 Text(root, "alias"), Text(root, "groupAlias"), Text(root, "class"), Text(root, "displayRole"),
                 Vector(root, "position"), Boolean(root, "alive"), Text(root, "lifeState"), Boolean(root, "mobile"),
                 Number(root, "damage"), Text(root, "currentCommand"), Text(root, "assignedTargetAlias"),
-                Text(root, "vehicleAlias"), Text(root, "vehicleRole"), metadata)).ToArray();
+                Text(root, "vehicleAlias"), Text(root, "vehicleRole"), metadata,
+                Strings(root, "weaponClasses"), Strings(root, "magazineClasses"),
+                Strings(root, "itemClasses"), Strings(root, "vehicleWeaponCargo"),
+                Strings(root, "vehicleMagazineCargo"), Strings(root, "vehicleItemCargo"),
+                Strings(root, "vehicleBackpackCargo"),
+                Integer(root, "vehicleTransportCapacity"))).ToArray();
         }
     }
 
@@ -526,7 +531,22 @@ public sealed class SqliteStateRepository : IStateRepository, IMissionMemoryRepo
                 ["damage"] = Number(item, "damage"), ["currentCommand"] = Text(item, "currentCommand"),
                 ["assignedTargetAlias"] = Alias("contact", Text(item, "assignedTargetSourceId")),
                 ["vehicleAlias"] = Alias("vehicle", Text(item, "vehicleSourceId")),
-                ["vehicleRole"] = Text(item, "vehicleRole")
+                ["vehicleRole"] = Text(item, "vehicleRole"),
+                ["weaponClasses"] = new JsonArray(
+                    Strings(item, "weaponClasses").Select(value => (JsonNode?)value).ToArray()),
+                ["magazineClasses"] = new JsonArray(
+                    Strings(item, "magazineClasses").Select(value => (JsonNode?)value).ToArray()),
+                ["itemClasses"] = new JsonArray(
+                    Strings(item, "itemClasses").Select(value => (JsonNode?)value).ToArray()),
+                ["vehicleWeaponCargo"] = new JsonArray(
+                    Strings(item, "vehicleWeaponCargo").Select(value => (JsonNode?)value).ToArray()),
+                ["vehicleMagazineCargo"] = new JsonArray(
+                    Strings(item, "vehicleMagazineCargo").Select(value => (JsonNode?)value).ToArray()),
+                ["vehicleItemCargo"] = new JsonArray(
+                    Strings(item, "vehicleItemCargo").Select(value => (JsonNode?)value).ToArray()),
+                ["vehicleBackpackCargo"] = new JsonArray(
+                    Strings(item, "vehicleBackpackCargo").Select(value => (JsonNode?)value).ToArray()),
+                ["vehicleTransportCapacity"] = Integer(item, "vehicleTransportCapacity")
             };
             InsertEntity(tx, "friendly_units", Alias("unit", raw), HashId("unit", raw), value);
         }

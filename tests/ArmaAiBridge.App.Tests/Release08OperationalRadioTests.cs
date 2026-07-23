@@ -129,14 +129,14 @@ public sealed class Release08OperationalRadioTests
             Assert.Contains("earlier conversation history", instructions, StringComparison.Ordinal);
             Assert.Contains("omit direct callsign address", instructions, StringComparison.Ordinal);
             string content = request.GetProperty("input").EnumerateArray().Last().GetProperty("content").GetString()!;
-            Assert.Contains("Callsign: Alpha 1-1.", content, StringComparison.Ordinal);
+            Assert.Contains("Current group callsign: Alpha 1-1.", content, StringComparison.Ordinal);
             Assert.DoesNotContain("\"groupCallsign\"", content, StringComparison.Ordinal);
             return Task.FromResult(FinalResponse("Papa Bear. Copy."));
         });
         using HttpClient client = new(handler) { BaseAddress = new Uri("https://api.openai.test/v1/") };
         using AssistantTurnService turns = new(
             new OpenAiAssistantService(client),
-            _ => (true, """{"schema":"arma-ai-bridge/tactical-snapshot-v2","player":{"groupCallsign":"Alpha 1-1"}}"""),
+            _ => (true, """{"schema":"arma-ai-bridge/context-seed-state-v1","player":{"groupCallsign":"Alpha 1-1"}}"""),
             _ => Task.FromResult(("test-key", "gpt-5-mini", new ResponseProfileSettings())),
             (_, _, _) => Task.FromResult("unused"),
             acknowledgementDelay: TimeSpan.Zero);
@@ -147,7 +147,7 @@ public sealed class Release08OperationalRadioTests
 
         Assert.Equal("Alpha 1-1, Papa Bear. Copy.", response.Text);
         Assert.Equal("Alpha 1-1", response.GroupCallsign);
-        Assert.Equal(0, response.RequestMetrics!.SelectedToolCount);
+        Assert.Equal(9, response.RequestMetrics!.SelectedToolCount);
     }
 
     [Fact]
@@ -167,7 +167,7 @@ public sealed class Release08OperationalRadioTests
         using HttpClient client = new(handler) { BaseAddress = new Uri("https://api.openai.test/v1/") };
         using AssistantTurnService turns = new(
             new OpenAiAssistantService(client),
-            _ => (true, """{"schema":"arma-ai-bridge/tactical-snapshot-v2","player":{"groupCallsign":"Alpha 1-1"}}"""),
+            _ => (true, """{"schema":"arma-ai-bridge/context-seed-state-v1","player":{"groupCallsign":"Alpha 1-1"}}"""),
             _ => Task.FromResult(("test-key", "gpt-5-mini", new ResponseProfileSettings())),
             (_, _, _) => Task.FromResult("unused"),
             acknowledgementWait: (duration, token) =>
@@ -200,7 +200,7 @@ public sealed class Release08OperationalRadioTests
         using HttpClient client = new(handler) { BaseAddress = new Uri("https://api.openai.test/v1/") };
         using AssistantTurnService turns = new(
             new OpenAiAssistantService(client),
-            _ => (true, """{"schema":"arma-ai-bridge/tactical-snapshot-v2","player":{"groupCallsign":"Alpha 1-1"}}"""),
+            _ => (true, """{"schema":"arma-ai-bridge/context-seed-state-v1","player":{"groupCallsign":"Alpha 1-1"}}"""),
             _ => Task.FromResult(("test-key", "gpt-5-mini", new ResponseProfileSettings())),
             (_, _, _) => Task.FromResult("unused"));
         int acknowledgements = 0;
@@ -224,7 +224,7 @@ public sealed class Release08OperationalRadioTests
         using HttpClient client = new(handler) { BaseAddress = new Uri("https://api.openai.test/v1/") };
         using AssistantTurnService turns = new(
             new OpenAiAssistantService(client),
-            _ => (true, """{"schema":"arma-ai-bridge/tactical-snapshot-v2","player":{"groupCallsign":"Alpha 1-1"}}"""),
+            _ => (true, """{"schema":"arma-ai-bridge/context-seed-state-v1","player":{"groupCallsign":"Alpha 1-1"}}"""),
             _ => Task.FromResult(("test-key", "gpt-5-mini", new ResponseProfileSettings())),
             (_, _, _) => Task.FromResult("unused"),
             acknowledgementDelay: TimeSpan.Zero);
@@ -260,7 +260,7 @@ public sealed class Release08OperationalRadioTests
         using HttpClient client = new(handler) { BaseAddress = new Uri("https://api.openai.test/v1/") };
         using AssistantTurnService turns = new(
             new OpenAiAssistantService(client),
-            _ => (true, """{"schema":"arma-ai-bridge/tactical-snapshot-v2","player":{"groupCallsign":"Alpha 1-1"}}"""),
+            _ => (true, """{"schema":"arma-ai-bridge/context-seed-state-v1","player":{"groupCallsign":"Alpha 1-1"}}"""),
             _ => Task.FromResult(("test-key", "gpt-5-mini", new ResponseProfileSettings())),
             (_, _, _) => Task.FromResult("unused"),
             acknowledgementDelay: TimeSpan.Zero);
@@ -286,7 +286,7 @@ public sealed class Release08OperationalRadioTests
     [Fact]
     public async Task TurnFreezesSnapshotAndCallsignBeforeTheProviderRequestCompletes()
     {
-        string snapshot = """{"schema":"arma-ai-bridge/tactical-snapshot-v2","player":{"groupCallsign":"Alpha 1-1"}}""";
+        string snapshot = """{"schema":"arma-ai-bridge/context-seed-state-v1","player":{"groupCallsign":"Alpha 1-1"}}""";
         TaskCompletionSource<HttpResponseMessage> responseGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
         CapturingHandler handler = new((_, request) =>
         {
@@ -308,7 +308,7 @@ public sealed class Release08OperationalRadioTests
             "Situation?", UserTurnSource.Typed, value => acknowledgement = value,
             TestContext.Current.CancellationToken);
         await handler.Started.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
-        snapshot = """{"schema":"arma-ai-bridge/tactical-snapshot-v2","player":{"groupCallsign":"Bravo 2-3"}}""";
+        snapshot = """{"schema":"arma-ai-bridge/context-seed-state-v1","player":{"groupCallsign":"Bravo 2-3"}}""";
         responseGate.SetResult(FinalResponse("Alpha 1-1, current picture follows."));
         AssistantResponse answer = await turn;
 
@@ -317,23 +317,14 @@ public sealed class Release08OperationalRadioTests
     }
 
     [Fact]
-    public async Task HistoryIsAtMostThreePairsFourThousandCharactersAndContainsNoPriorStateBlock()
+    public async Task ConversationHistory_IsNotForwardedUntilTheModelRequestsIt()
     {
         CapturingHandler handler = new((requestNumber, request) =>
         {
-            if (requestNumber == 5)
-            {
-                JsonElement[] input = request.GetProperty("input").EnumerateArray().ToArray();
-                JsonElement[] history = input[..^1];
-                Assert.True(history.Length <= 6);
-                Assert.True(history.Sum(item => item.GetProperty("content").GetString()!.Length) <= 4000);
-                Assert.All(history, item => Assert.DoesNotContain(
-                    "LOCALLY INTERPRETED TACTICAL CONTEXT",
-                    item.GetProperty("content").GetString()!,
-                    StringComparison.Ordinal));
-                Assert.Contains("LOCALLY INTERPRETED TACTICAL CONTEXT",
-                    input[^1].GetProperty("content").GetString()!, StringComparison.Ordinal);
-            }
+            JsonElement[] input = request.GetProperty("input").EnumerateArray().ToArray();
+            Assert.Single(input);
+            Assert.Contains("CONTEXT-ON-DEMAND INTERACTION", input[0].GetProperty("content").GetString()!, StringComparison.Ordinal);
+            Assert.DoesNotContain(new string('A', 900), input[0].GetProperty("content").GetString()!, StringComparison.Ordinal);
             return Task.FromResult(FinalResponse(new string('A', 900)));
         });
         using HttpClient client = new(handler) { BaseAddress = new Uri("https://api.openai.test/v1/") };
@@ -342,7 +333,7 @@ public sealed class Release08OperationalRadioTests
         {
             await service.AskAsync(
                 "test-key", "gpt-5-mini", $"Operational question {index}: {new string('Q', 850)}",
-                """{"schema":"arma-ai-bridge/tactical-snapshot-v2","player":{"groupCallsign":"Alpha 1-1"}}""",
+                """{"schema":"arma-ai-bridge/context-seed-state-v1","player":{"groupCallsign":"Alpha 1-1"}}""",
                 (_, _, _) => Task.FromResult("unused"), TestContext.Current.CancellationToken);
         }
         Assert.Equal(5, handler.RequestCount);

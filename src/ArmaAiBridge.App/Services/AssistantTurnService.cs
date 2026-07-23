@@ -12,6 +12,7 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
     private readonly Func<CancellationToken, Task<(string ApiKey, string Model, ResponseProfileSettings Profile)>> _settingsFactory;
     private readonly Func<string, JsonElement, CancellationToken, Task<string>> _executeTool;
     private readonly Func<string> _currentGroupCallsignFactory;
+    private readonly Action<string, UserTurnSource>? _playerMessageRecorder;
     private Func<string, (bool Handled, string Response)>? _localTurnHandler;
     private readonly RadioAcknowledgementService _acknowledgements;
     private readonly NaturalRadioDialogueService _radioDialogue;
@@ -31,7 +32,8 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
         TimeProvider? timeProvider = null,
         TimeSpan? acknowledgementDelay = null,
         Func<TimeSpan, CancellationToken, Task>? acknowledgementWait = null,
-        NaturalRadioDialogueService? radioDialogue = null)
+        NaturalRadioDialogueService? radioDialogue = null,
+        Action<string, UserTurnSource>? playerMessageRecorder = null)
     {
         _assistant = assistant ?? throw new ArgumentNullException(nameof(assistant));
         ArgumentNullException.ThrowIfNull(snapshotFactory);
@@ -39,6 +41,7 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
         _settingsFactory = settingsFactory ?? throw new ArgumentNullException(nameof(settingsFactory));
         _executeTool = executeTool ?? throw new ArgumentNullException(nameof(executeTool));
         _currentGroupCallsignFactory = currentGroupCallsignFactory ?? (() => string.Empty);
+        _playerMessageRecorder = playerMessageRecorder;
         _acknowledgements = acknowledgements ?? new RadioAcknowledgementService();
         _radioDialogue = radioDialogue ?? new NaturalRadioDialogueService(timeProvider: timeProvider);
         _timeProvider = timeProvider ?? TimeProvider.System;
@@ -56,13 +59,15 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
         TimeProvider? timeProvider = null,
         TimeSpan? acknowledgementDelay = null,
         Func<TimeSpan, CancellationToken, Task>? acknowledgementWait = null,
-        NaturalRadioDialogueService? radioDialogue = null)
+        NaturalRadioDialogueService? radioDialogue = null,
+        Action<string, UserTurnSource>? playerMessageRecorder = null)
     {
         _assistant = assistant ?? throw new ArgumentNullException(nameof(assistant));
         _snapshotFactory = snapshotFactory ?? throw new ArgumentNullException(nameof(snapshotFactory));
         _settingsFactory = settingsFactory ?? throw new ArgumentNullException(nameof(settingsFactory));
         _executeTool = executeTool ?? throw new ArgumentNullException(nameof(executeTool));
         _currentGroupCallsignFactory = currentGroupCallsignFactory ?? (() => string.Empty);
+        _playerMessageRecorder = playerMessageRecorder;
         _acknowledgements = acknowledgements ?? new RadioAcknowledgementService();
         _radioDialogue = radioDialogue ?? new NaturalRadioDialogueService(timeProvider: timeProvider);
         _timeProvider = timeProvider ?? TimeProvider.System;
@@ -109,6 +114,7 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             string normalizedText = text.Trim();
+            _playerMessageRecorder?.Invoke(normalizedText, source);
             string immediateCallsign = _currentGroupCallsignFactory().Trim();
             if (_radioDialogue.TryHandleFollowUp(normalizedText, immediateCallsign, out NaturalRadioPlan followUp))
             {
@@ -231,6 +237,63 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
             acknowledgementCancellation.Cancel();
             await ObserveAcknowledgementAsync(acknowledgementDelivery, cancellationToken).ConfigureAwait(false);
             return final;
+        }
+        finally
+        {
+            _turnGate.Release();
+        }
+    }
+
+    public async Task<AssistantResponse> SubmitNormalizedEventAsync(
+        string normalizedEventJson,
+        CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (string.IsNullOrWhiteSpace(normalizedEventJson))
+            throw new InvalidOperationException("The normalized event is unavailable.");
+        if (!await _turnGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+            throw new InvalidOperationException("An assistant turn is already active.");
+        try
+        {
+            (bool success, string snapshot) = _snapshotFactory(string.Empty);
+            if (!success)
+                throw new InvalidOperationException("No local Arma world state is available yet.");
+            string groupCallsign = ReadSnapshotCallsign(snapshot);
+            if (groupCallsign.Length == 0) groupCallsign = _currentGroupCallsignFactory();
+            (string apiKey, string model, ResponseProfileSettings profile) =
+                await _settingsFactory(cancellationToken).ConfigureAwait(false);
+            AssistantResponse response = await _assistant.AskEventAsync(
+                apiKey,
+                model,
+                normalizedEventJson,
+                snapshot,
+                profile,
+                _executeTool,
+                cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(response.Text))
+                return response with
+                {
+                    GroupCallsign = groupCallsign,
+                    Transmissions = Array.Empty<RadioTransmission>(),
+                    AwaitingCopyConfirmation = false
+                };
+
+            string finalText = RadioFinalResponsePolicy.EnsureCurrentCallsign(
+                response.Text,
+                groupCallsign);
+            NaturalRadioPlan radioPlan = _radioDialogue.Plan(
+                string.Empty,
+                finalText,
+                groupCallsign,
+                acknowledgementAlreadyEmitted: false,
+                profile);
+            return response with
+            {
+                Text = finalText,
+                GroupCallsign = groupCallsign,
+                Transmissions = radioPlan.Transmissions,
+                AwaitingCopyConfirmation = radioPlan.AwaitingCopyConfirmation
+            };
         }
         finally
         {

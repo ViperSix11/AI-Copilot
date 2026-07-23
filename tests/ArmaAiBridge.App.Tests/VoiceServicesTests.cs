@@ -548,7 +548,7 @@ public sealed class VoiceServicesTests
         using HttpClient client = new(handler) { BaseAddress = new Uri("https://api.openai.test/v1/") };
         using AssistantTurnService turns = new(
             new OpenAiAssistantService(client),
-            () => (true, """{"schema":"arma-ai-bridge/tactical-snapshot-v2","player":{"side":"WEST"},"environment":{},"time":{},"friendlyForces":{},"enemyContacts":{},"markers":{},"retrievedMemory":{},"lore":{},"modelPayloadTruncated":false,"includedCounts":{}}"""),
+            () => (true, """{"schema":"arma-ai-bridge/context-seed-state-v1","player":{"side":"WEST"}}"""),
             _ => Task.FromResult(("openai-key", "gpt-5-mini", new ResponseProfileSettings { Terminator = "over" })),
             (_, _, _) => Task.FromResult("unused"));
         FakeSpeechToText speech = new("Where am I?");

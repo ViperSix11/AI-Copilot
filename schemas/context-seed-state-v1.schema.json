@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.arma-ai-bridge.invalid/schemas/context-seed-state-v1.schema.json",
+  "title": "Papa Bear local context seed state v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "player"
+  ],
+  "properties": {
+    "schema": {
+      "const": "arma-ai-bridge/context-seed-state-v1"
+    },
+    "sessionAlias": {
+      "type": "string",
+      "maxLength": 100
+    },
+    "world": {
+      "type": "string",
+      "maxLength": 80
+    },
+    "player": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "entityAlias": {
+          "type": "string",
+          "const": "player:self"
+        },
+        "groupCallsign": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "side": {
+          "type": "string",
+          "maxLength": 20
+        }
+      }
+    }
+  }
+}

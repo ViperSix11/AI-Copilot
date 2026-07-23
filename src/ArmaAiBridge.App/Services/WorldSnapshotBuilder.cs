@@ -8,6 +8,7 @@ namespace ArmaAiBridge.App.Services;
 public sealed class WorldSnapshotBuilder
 {
     public const string SnapshotSchema = "arma-ai-bridge/world-snapshot-v1";
+    public const string ContextSeedStateSchema = "arma-ai-bridge/context-seed-state-v1";
     private readonly WorldStateStore _store;
     private readonly MapGazetteerStore? _gazetteerStore;
     private readonly PositionInterpretationService _positionInterpreter;
@@ -40,6 +41,30 @@ public sealed class WorldSnapshotBuilder
             return false;
         }
         json = SerializeTactical(_operationalSnapshotBuilder.BuildPreview(string.Empty));
+        return true;
+    }
+
+    public bool TryBuildContextSeedState(out string json)
+    {
+        StatePlayer? player = _stateRepository?.GetPlayer();
+        StateRepositoryDiagnostics? diagnostics = _stateRepository?.GetDiagnostics();
+        if (player is null || diagnostics is null || diagnostics.LastSequence <= 0)
+        {
+            json = string.Empty;
+            return false;
+        }
+        json = JsonSerializer.Serialize(new
+        {
+            schema = ContextSeedStateSchema,
+            sessionAlias = diagnostics.ActiveSessionAlias,
+            world = diagnostics.WorldName,
+            player = new
+            {
+                entityAlias = "player:self",
+                groupCallsign = player.GroupCallsign,
+                side = player.Side
+            }
+        });
         return true;
     }
 

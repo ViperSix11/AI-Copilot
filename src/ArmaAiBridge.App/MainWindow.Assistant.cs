@@ -19,10 +19,10 @@ public partial class MainWindow
             _pipeServer, _settingsService, _log, _worldSnapshotBuilder, _rawInputHotkeyService, _stateRepository);
         _worldStateDiagnosticsPanel = new WorldStateDiagnosticsPanel(
             _worldStateStore, _worldSnapshotBuilder, _mapGazetteerStore, _stateRepository);
-        _aiContextPanel = new AiContextPanel(_worldSnapshotBuilder, _settingsService, _stateRepository);
+        _aiContextPanel = new AiContextPanel(_assistantPanel.ContextTrace, _worldSnapshotBuilder, _stateRepository);
         tabs.Items.Insert(1, new TabItem { Header = "Assistant", Content = _assistantPanel });
         tabs.Items.Insert(2, new TabItem { Header = "World State", Content = _worldStateDiagnosticsPanel });
-        tabs.Items.Insert(3, new TabItem { Header = "AI Context", Content = _aiContextPanel });
+        tabs.Items.Insert(3, new TabItem { Header = "Context on Demand", Content = _aiContextPanel });
     }
 
     private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject

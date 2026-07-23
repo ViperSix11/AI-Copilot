@@ -11,7 +11,7 @@ public sealed class OpenAiAssistantServiceTests
 {
     private const string ValidToolArguments = "{}";
     private const string WorldSnapshot = """
-        {"schema":"arma-ai-bridge/tactical-snapshot-v2","player":{"side":"WEST","groupCallsign":"Alpha 1-1"},"environment":{},"time":{},"friendlyForces":{"summary":{},"groups":[]},"enemyContacts":{"summary":{},"groups":[],"records":[]},"markers":{"count":0,"records":[]},"retrievedMemory":{"count":0,"records":[],"dialogueFocus":{}},"lore":{"count":0,"sections":[],"untrustedContext":true},"modelPayloadTruncated":false,"includedCounts":{}}
+        {"schema":"arma-ai-bridge/context-seed-state-v1","player":{"side":"WEST","groupCallsign":"Alpha 1-1"}}
         """;
 
     [Fact]
@@ -374,16 +374,15 @@ public sealed class OpenAiAssistantServiceTests
         {
             Assert.Equal(1, requestNumber);
             string instructions = request.GetProperty("instructions").GetString()!;
-            Assert.Contains("complete current game picture", instructions, StringComparison.Ordinal);
+            Assert.Contains("only the player's actual message", instructions, StringComparison.Ordinal);
             Assert.Contains("current callsign", instructions, StringComparison.Ordinal);
             Assert.Contains("last-known", instructions, StringComparison.Ordinal);
             Assert.Contains("Firing-solution calculations are unavailable", instructions, StringComparison.Ordinal);
             Assert.Contains("style-only", instructions, StringComparison.OrdinalIgnoreCase);
             string content = request.GetProperty("input")[0].GetProperty("content").GetString()!;
-            int facts = content.IndexOf("LOCALLY INTERPRETED TACTICAL CONTEXT", StringComparison.Ordinal);
+            int seed = content.IndexOf("CONTEXT-ON-DEMAND INTERACTION", StringComparison.Ordinal);
             int profile = content.IndexOf("RESPONSE PROFILE (STYLE ONLY)", StringComparison.Ordinal);
-            int question = content.IndexOf("QUESTION:", StringComparison.Ordinal);
-            Assert.True(facts >= 0 && facts < profile && profile < question);
+            Assert.True(profile >= 0 && profile < seed);
             Assert.Contains("customStyle", content, StringComparison.Ordinal);
             return FinalResponse("Southwest of Agia Marina. Over and out!");
         });
@@ -413,7 +412,7 @@ public sealed class OpenAiAssistantServiceTests
         {
             string content = request.GetProperty("input")[0].GetProperty("content").GetString()!;
             int pre = content.IndexOf("OPERATOR PRE-PROMPT", StringComparison.Ordinal);
-            int context = content.IndexOf("LOCALLY INTERPRETED TACTICAL CONTEXT", StringComparison.Ordinal);
+            int context = content.IndexOf("CONTEXT-ON-DEMAND INTERACTION", StringComparison.Ordinal);
             Assert.True(pre >= 0 && pre < context);
             Assert.Contains(prePrompt, content, StringComparison.Ordinal);
             string instructions = request.GetProperty("instructions").GetString()!;
@@ -450,7 +449,7 @@ public sealed class OpenAiAssistantServiceTests
         const string question = "It seems there is enemy movement at the radio dish in the south corner.";
         const string snapshot = """
         {
-          "schema":"arma-ai-bridge/tactical-snapshot-v2",
+          "schema":"arma-ai-bridge/context-seed-state-v1",
           "player":{"side":"WEST","groupCallsign":"Alpha 1-1"},
           "environment":{"overcast":0.9,"condition":"storm"},
           "time":{"missionDate":[2026,7,23,12,0],"daytime":12,"daylight":"daylight"},
@@ -466,7 +465,8 @@ public sealed class OpenAiAssistantServiceTests
         ScriptedHandler handler = new((_, request) =>
         {
             string content = request.GetProperty("input")[0].GetProperty("content").GetString()!;
-            Assert.Contains("You report:", content, StringComparison.Ordinal);
+            Assert.Contains("Player message:", content, StringComparison.Ordinal);
+            Assert.DoesNotContain("\"type\"", content, StringComparison.Ordinal);
             Assert.Contains("radio dish", content, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("no eligible hostile", content, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("overcast", content, StringComparison.OrdinalIgnoreCase);
@@ -491,8 +491,8 @@ public sealed class OpenAiAssistantServiceTests
         {
             if (requestNumber == 1) return FinalResponse("Position confirmed. Out! Out.");
             JsonElement[] input = request.GetProperty("input").EnumerateArray().ToArray();
-            Assert.Equal("assistant", input[1].GetProperty("role").GetString());
-            Assert.Equal("Position confirmed. Out.", input[1].GetProperty("content").GetString());
+            Assert.Single(input);
+            Assert.DoesNotContain("Position confirmed. Out.", input[0].GetProperty("content").GetString()!, StringComparison.Ordinal);
             return FinalResponse("Acknowledged.");
         });
         using HttpClient httpClient = Client(handler);
@@ -511,13 +511,14 @@ public sealed class OpenAiAssistantServiceTests
     }
 
     [Fact]
-    public async Task Request_UsesHumanInterpretedContextWithoutRawSnapshotForwarding()
+    public async Task Request_UsesMinimalSeedWithoutRawSnapshotForwarding()
     {
         ScriptedHandler handler = new((_, request) =>
         {
             string content = request.GetProperty("input")[0].GetProperty("content").GetString() ?? string.Empty;
-            Assert.Contains("LOCALLY INTERPRETED TACTICAL CONTEXT", content, StringComparison.Ordinal);
-            Assert.Contains("CURRENT OPERATIONAL CONTEXT", content, StringComparison.Ordinal);
+            Assert.Contains("CONTEXT-ON-DEMAND INTERACTION", content, StringComparison.Ordinal);
+            Assert.Contains("Available information areas:", content, StringComparison.Ordinal);
+            Assert.DoesNotContain("\"availableGroups\"", content, StringComparison.Ordinal);
             Assert.DoesNotContain("positionATL", content, StringComparison.Ordinal);
             Assert.DoesNotContain(WorldSnapshot, content, StringComparison.Ordinal);
             Assert.DoesNotContain("\"friendlyForces\"", content, StringComparison.Ordinal);
@@ -548,7 +549,7 @@ public sealed class OpenAiAssistantServiceTests
             (_, _) => Task.FromResult("unused"),
             TestContext.Current.CancellationToken));
 
-        Assert.Contains("world-state snapshot", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("context seed", exception.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(0, handler.RequestCount);
     }
 
@@ -583,16 +584,16 @@ public sealed class OpenAiAssistantServiceTests
     }
 
     [Fact]
-    public async Task StandardAndTerrainTurnsHaveNoArbitraryEnvironmentTool()
+    public async Task EveryTurnOffersTheSameClosedContextToolsWithoutKeywordRouting()
     {
         ScriptedHandler handler = new((requestNumber, request) =>
         {
             if (requestNumber == 1)
             {
-                Assert.False(request.TryGetProperty("tools", out _));
+                Assert.Equal(9, request.GetProperty("tools").GetArrayLength());
                 return FinalResponse("Position received.");
             }
-            Assert.False(request.TryGetProperty("tools", out _));
+            Assert.Equal(9, request.GetProperty("tools").GetArrayLength());
             return FinalResponse("Only official named geography is available.");
         });
         using HttpClient httpClient = Client(handler);
@@ -610,8 +611,8 @@ public sealed class OpenAiAssistantServiceTests
             (_, _, _) => Task.FromResult("unused"),
             TestContext.Current.CancellationToken);
 
-        Assert.Equal(0, standard.RequestMetrics!.SelectedToolCount);
-        Assert.Equal(0, terrain.RequestMetrics!.SelectedToolCount);
+        Assert.Equal(9, standard.RequestMetrics!.SelectedToolCount);
+        Assert.Equal(9, terrain.RequestMetrics!.SelectedToolCount);
     }
 
     [Fact]
@@ -620,7 +621,9 @@ public sealed class OpenAiAssistantServiceTests
         ScriptedHandler handler = new((requestNumber, request) =>
         {
             Assert.Equal(1, requestNumber);
-            Assert.False(request.TryGetProperty("tools", out _));
+            Assert.DoesNotContain(
+                request.GetProperty("tools").EnumerateArray(),
+                tool => tool.GetProperty("name").GetString() == "calculate_firing_solution");
             return FinalResponse("Firing-solution calculations are unavailable.");
         });
         using HttpClient httpClient = Client(handler);
@@ -641,7 +644,7 @@ public sealed class OpenAiAssistantServiceTests
 
         Assert.Equal(0, calculations);
         Assert.Equal(0, response.ToolCalls);
-        Assert.Equal(0, response.RequestMetrics!.SelectedToolCount);
+        Assert.Equal(9, response.RequestMetrics!.SelectedToolCount);
         Assert.Equal(1, handler.RequestCount);
     }
 
@@ -650,7 +653,7 @@ public sealed class OpenAiAssistantServiceTests
     {
         const string snapshot = """
         {
-          "schema":"arma-ai-bridge/tactical-snapshot-v2",
+          "schema":"arma-ai-bridge/context-seed-state-v1",
           "player":{"side":"WEST","groupCallsign":"Alpha 1-1"},
           "environment":{},"time":{},
           "friendlyForces":{"summary":{"groupCount":1,"unitCount":2,"woundedCount":0,"incapacitatedCount":0,"deadCount":0},"groups":[{"callsign":"Alpha 1-1","memberCount":2,"elementType":"infantry pair","compositionSummary":"two infantry","approximatePosition":{"x":6830,"y":9990,"precisionMeters":10},"bearingFromPlayerDegrees":0,"rangeFromPlayerMeters":0,"stale":false}]},
@@ -664,11 +667,9 @@ public sealed class OpenAiAssistantServiceTests
         ScriptedHandler handler = new((_, request) =>
         {
             string content = request.GetProperty("input")[0].GetProperty("content").GetString()!;
-            Assert.DoesNotContain("6830", content, StringComparison.Ordinal);
-            Assert.DoesNotContain("9990", content, StringComparison.Ordinal);
-            Assert.DoesNotContain("6730", content, StringComparison.Ordinal);
-            Assert.DoesNotContain("9860", content, StringComparison.Ordinal);
-            Assert.DoesNotContain("approximatePosition", content, StringComparison.Ordinal);
+            Assert.DoesNotContain("\"friendlyForces\"", content, StringComparison.Ordinal);
+            Assert.DoesNotContain("\"retrievedMemory\"", content, StringComparison.Ordinal);
+            Assert.DoesNotContain("\"approximatePosition\"", content, StringComparison.Ordinal);
             Assert.DoesNotContain("red tower", content, StringComparison.OrdinalIgnoreCase);
             string instructions = request.GetProperty("instructions").GetString()!;
             Assert.Contains("Never infer or reconstruct", instructions, StringComparison.Ordinal);
@@ -738,6 +739,36 @@ public sealed class OpenAiAssistantServiceTests
     }
 
     [Fact]
+    public async Task RetrievalBudgetExhaustion_ForcesAReadableFinalAnswerWithoutMoreTools()
+    {
+        string? finalToolOutput = null;
+        ScriptedHandler handler = new((requestNumber, request) =>
+        {
+            if (requestNumber <= 4)
+                return ToolResponse(
+                    $"rs_budget_{requestNumber}",
+                    $"call_budget_{requestNumber}",
+                    ValidToolArguments);
+
+            Assert.False(request.TryGetProperty("tools", out _));
+            finalToolOutput = FindFunctionOutput(request, "call_budget_4");
+            return FinalResponse("The requested detail is unavailable.");
+        });
+        using HttpClient httpClient = Client(handler);
+        using OpenAiAssistantService service = new(httpClient);
+
+        AssistantResponse response = await AskAsync(
+            service,
+            (_, _) => Task.FromResult("unused"),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("The requested detail is unavailable.", response.Text);
+        Assert.Equal(5, handler.RequestCount);
+        Assert.Contains("Complete the answer now", finalToolOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("{", finalToolOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task MalformedToolArguments_AreReturnedAsSafeToolError()
     {
         string? toolOutput = null;
@@ -758,7 +789,7 @@ public sealed class OpenAiAssistantServiceTests
         }, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, queryCount);
-        AssertToolError(toolOutput, "unsupported_tool", "The requested tool is not available.");
+        AssertReadableToolFailure(toolOutput);
         Assert.DoesNotContain("not valid json", toolOutput, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -780,7 +811,7 @@ public sealed class OpenAiAssistantServiceTests
             (_, _) => Task.FromException<string>(new TimeoutException("SECRET TOOL DETAIL")),
             TestContext.Current.CancellationToken);
 
-        AssertToolError(toolOutput, "unsupported_tool", "The requested tool is not available.");
+        AssertReadableToolFailure(toolOutput);
         Assert.DoesNotContain("SECRET TOOL DETAIL", toolOutput, StringComparison.Ordinal);
     }
 
@@ -849,7 +880,7 @@ public sealed class OpenAiAssistantServiceTests
         }, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, executions);
-        Assert.Contains("unsupported_tool", response.Text, StringComparison.Ordinal);
+        Assert.Contains("requested local information is unavailable", response.Text, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(2, handler.RequestCount);
     }
 
@@ -861,7 +892,7 @@ public sealed class OpenAiAssistantServiceTests
         const string secretMap = "SECRET MAP";
         const string customStyle = "SECRET CUSTOM STYLE";
         const string worldSnapshot = """
-            {"schema":"arma-ai-bridge/tactical-snapshot-v2","player":{"side":"WEST"},"environment":{},"time":{},"friendlyForces":{},"enemyContacts":{},"markers":{"count":0,"records":[]},"retrievedMemory":{"count":0,"records":[]},"lore":{"count":0,"sections":[]},"modelPayloadTruncated":false,"includedCounts":{"secret":"SECRET MAP"}}
+            {"schema":"arma-ai-bridge/context-seed-state-v1","player":{"side":"WEST"},"secret":"SECRET MAP"}
             """;
         ScriptedHandler handler = new((requestNumber, _) => requestNumber == 1
             ? ToolResponse("rs_secret", "call_secret", ValidToolArguments)
@@ -952,14 +983,13 @@ public sealed class OpenAiAssistantServiceTests
         return FinalResponse("Two checks complete.");
     }
 
-    private static void AssertToolError(string? output, string expectedCode, string expectedMessage)
+    private static void AssertReadableToolFailure(string? output)
     {
         Assert.NotNull(output);
-        using JsonDocument document = JsonDocument.Parse(output);
-        JsonElement root = document.RootElement;
-        Assert.False(root.GetProperty("ok").GetBoolean());
-        Assert.Equal(expectedCode, root.GetProperty("error").GetProperty("code").GetString());
-        Assert.Equal(expectedMessage, root.GetProperty("error").GetProperty("message").GetString());
+        Assert.Contains("requested local information is unavailable", output, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("{", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"code\"", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("tool_failed", output, StringComparison.Ordinal);
     }
 
     private static string FindFunctionOutput(JsonElement request, string callId)

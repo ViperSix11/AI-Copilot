@@ -9,7 +9,7 @@ if (!hasInterface) exitWith {};
     missionNamespace setVariable ["AAB_contactCacheAt", -100];
 
     private _ping = "arma_ai_bridge" callExtension "ping";
-    diag_log format ["[ArmA AI Bridge] Client bridge v0.8.0 starting. Bridge response: %1", _ping];
+    diag_log format ["[ArmA AI Bridge] Client bridge v0.9.1 starting. Bridge response: %1", _ping];
 
     call AAB_fnc_initialiseSession;
 

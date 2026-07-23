@@ -515,19 +515,25 @@ public sealed class Release08TacticalMemoryTests
     }
 
     [Fact]
-    public async Task MemoryIntent_RequestCapture_AttachesExactlyFourClosedTools()
+    public async Task ContextOnDemand_AttachesContextAndMemoryToolsWithoutKeywordRouting()
     {
         CaptureHandler handler = new();
         using HttpClient client = new(handler) { BaseAddress = new Uri("https://api.openai.com/v1/") };
         using OpenAiAssistantService service = new(client);
-        const string snapshot = "{\"schema\":\"arma-ai-bridge/tactical-snapshot-v2\",\"player\":{\"side\":\"WEST\"},\"environment\":{},\"time\":{},\"friendlyForces\":{},\"enemyContacts\":{},\"markers\":{},\"retrievedMemory\":{},\"lore\":{},\"modelPayloadTruncated\":false,\"includedCounts\":{}}";
+        const string snapshot = "{\"schema\":\"arma-ai-bridge/context-seed-state-v1\",\"player\":{\"side\":\"WEST\"}}";
         AssistantResponse response = await service.AskAsync("key", "gpt-5-mini", "Remember that the road is blocked.", snapshot,
             ResponseProfilePolicy.Defaults(), (_, _, _) => Task.FromResult("unused"), CancellationToken.None);
         JsonElement[] tools = handler.Request!.RootElement.GetProperty("tools").EnumerateArray().ToArray();
-        Assert.Equal(4, tools.Length);
-        Assert.Equal(new[] { "remember_information", "search_memory", "update_memory", "forget_memory" }, tools.Select(x => x.GetProperty("name").GetString()));
+        Assert.Equal(9, tools.Length);
+        Assert.Equal(new[]
+        {
+            "inspect_context_catalogue", "query_context",
+            "query_long_term_map_intelligence", "record_player_information",
+            "record_event_assessment",
+            "remember_information", "search_memory", "update_memory", "forget_memory"
+        }, tools.Select(x => x.GetProperty("name").GetString()));
         Assert.All(tools, tool => Assert.False(tool.GetProperty("parameters").GetProperty("additionalProperties").GetBoolean()));
-        Assert.Equal(4, response.RequestMetrics!.SelectedToolCount);
+        Assert.Equal(9, response.RequestMetrics!.SelectedToolCount);
     }
 
     [Fact]

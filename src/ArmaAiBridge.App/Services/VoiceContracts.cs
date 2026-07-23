@@ -101,6 +101,23 @@ public interface IOpenAiAssistantService : IDisposable
         Func<string, System.Text.Json.JsonElement, CancellationToken, Task<string>> executeTool,
         CancellationToken cancellationToken);
 
+    Task<AssistantResponse> AskEventAsync(
+        string apiKey,
+        string model,
+        string normalizedEventJson,
+        string worldSnapshotJson,
+        ResponseProfileSettings responseProfile,
+        Func<string, System.Text.Json.JsonElement, CancellationToken, Task<string>> executeTool,
+        CancellationToken cancellationToken)
+        => AskAsync(
+            apiKey,
+            model,
+            normalizedEventJson,
+            worldSnapshotJson,
+            responseProfile,
+            executeTool,
+            cancellationToken);
+
     void ResetConversation();
 }
 

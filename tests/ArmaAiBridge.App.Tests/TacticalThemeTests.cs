@@ -30,32 +30,25 @@ public sealed class TacticalThemeTests
 
         Assert.Contains("Title=\"ArmA AI Bridge - Papa Bear\"", window, StringComparison.Ordinal);
         Assert.Contains("Text=\"ArmA AI Bridge - Papa Bear\"", window, StringComparison.Ordinal);
-        Assert.Contains("Text=\"v0.8.1\"", window, StringComparison.Ordinal);
+        Assert.Contains("Text=\"v0.9.1\"", window, StringComparison.Ordinal);
         foreach (string tab in new[] { "Dashboard", "Map query", "API keys", "Logs" })
             Assert.Contains($"Header=\"{tab}\"", window, StringComparison.Ordinal);
         Assert.Contains("Header = \"Assistant\"", dynamicTabs, StringComparison.Ordinal);
         Assert.Contains("Header = \"World State\"", dynamicTabs, StringComparison.Ordinal);
-        Assert.Contains("Header = \"AI Context\"", dynamicTabs, StringComparison.Ordinal);
+        Assert.Contains("Header = \"Context on Demand\"", dynamicTabs, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void AiContextTab_IsReadOnlyAndUsesTheExactSharedInterpreterPath()
+    public void ContextOnDemandTab_IsReadOnlyAndShowsTheExactSharedRetrievalTrace()
     {
         string panel = Read("src", "ArmaAiBridge.App", "AiContextPanel.cs");
-        string snapshots = Read("src", "ArmaAiBridge.App", "Services", "WorldSnapshotBuilder.cs");
-        string assistant = Read("src", "ArmaAiBridge.App", "Services", "OpenAiAssistantService.cs");
+        string assistant = Read("src", "ArmaAiBridge.App", "AssistantPanel.cs");
 
         Assert.Contains("IsReadOnly = true", panel, StringComparison.Ordinal);
-        Assert.Contains("TryBuildEvidenceContext", panel, StringComparison.Ordinal);
-        Assert.Contains("TacticalContextInterpreter.Analyze(snapshot, question)", snapshots, StringComparison.Ordinal);
-        Assert.Contains("TacticalContextInterpreter.Interpret(worldSnapshot, question)", assistant, StringComparison.Ordinal);
-        Assert.Contains("Prospective question", panel, StringComparison.Ordinal);
-        Assert.Contains("Reset AI Context...", panel, StringComparison.Ordinal);
-        Assert.Contains("MessageBoxButton.YesNo", panel, StringComparison.Ordinal);
-        Assert.Contains("_stateRepository.ResetCache()", panel, StringComparison.Ordinal);
-        Assert.Contains("_snapshots.ResetTacticalContext()", panel, StringComparison.Ordinal);
-        Assert.Contains("API keys and response settings are preserved", panel, StringComparison.Ordinal);
-        foreach (string stage in new[] { "1. Candidates", "2. Selected", "3. Fused", "4. Transmitted" })
+        Assert.Contains("ContextTraceStore", panel, StringComparison.Ordinal);
+        Assert.Contains("ContextTraceStore ContextTrace", assistant, StringComparison.Ordinal);
+        Assert.DoesNotContain("TacticalContextInterpreter.Interpret", assistant, StringComparison.Ordinal);
+        foreach (string stage in new[] { "1. Minimal seed", "2. AI plan", "3. Retrieved context", "4. Model-visible exchange" })
             Assert.Contains(stage, panel, StringComparison.Ordinal);
     }
 

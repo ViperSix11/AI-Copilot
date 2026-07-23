@@ -2,47 +2,44 @@ using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using System.Windows.Threading;
+using ArmaAiBridge.App.Models;
 using ArmaAiBridge.App.Services;
 
 namespace ArmaAiBridge.App;
 
 public sealed class AiContextPanel : UserControl, IDisposable
 {
+    private readonly ContextTraceStore _trace;
     private readonly WorldSnapshotBuilder _snapshots;
-    private readonly SettingsService _settings;
     private readonly SqliteStateRepository _stateRepository;
-    private readonly TextBox _question = new() { MinHeight = 44, TextWrapping = TextWrapping.Wrap };
-    private readonly TextBox _candidates = EvidenceBox();
-    private readonly TextBox _selected = EvidenceBox();
-    private readonly TextBox _fused = EvidenceBox();
-    private readonly TextBox _transmitted = EvidenceBox();
+    private readonly TextBox _seed = ContextBox();
+    private readonly TextBox _plan = ContextBox();
+    private readonly TextBox _retrieved = ContextBox();
+    private readonly TextBox _transmitted = ContextBox();
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap };
-    private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(2) };
     private string _lastRendered = string.Empty;
+    private bool _disposed;
 
     public AiContextPanel(
+        ContextTraceStore trace,
         WorldSnapshotBuilder snapshots,
-        SettingsService settings,
         SqliteStateRepository stateRepository)
     {
+        _trace = trace ?? throw new ArgumentNullException(nameof(trace));
         _snapshots = snapshots ?? throw new ArgumentNullException(nameof(snapshots));
-        _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _stateRepository = stateRepository ?? throw new ArgumentNullException(nameof(stateRepository));
         Content = BuildUi();
-        _timer.Tick += (_, _) => Refresh();
-        Loaded += (_, _) => { Refresh(); _timer.Start(); };
-        Unloaded += (_, _) => _timer.Stop();
+        _trace.Changed += Trace_Changed;
+        Loaded += (_, _) => Refresh();
     }
 
     private UIElement BuildUi()
     {
-        foreach (TextBox box in new[] { _candidates, _selected, _fused, _transmitted })
+        foreach (TextBox box in new[] { _seed, _plan, _retrieved, _transmitted })
             box.Style = Resource<Style>("TerminalTextBoxStyle");
         _status.Foreground = Resource<Brush>("MutedTextBrush");
 
         Grid grid = new() { Margin = new Thickness(16) };
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -50,26 +47,20 @@ public sealed class AiContextPanel : UserControl, IDisposable
         StackPanel heading = new();
         heading.Children.Add(new TextBlock
         {
-            Text = "AI Context  /  unified evidence selection and fusion",
+            Text = "Context on Demand  /  hierarchical planning and narrow retrieval",
             Style = Resource<Style>("SectionHeaderTextStyle")
         });
         heading.Children.Add(new TextBlock
         {
-            Text = "Inspect all bounded candidates, deterministic selection, fused interpretation, and the exact tactical context supplied with the next question. Player position, private identifiers, credentials, system instructions and conversation history are not displayed.",
+            Text = "Shows the actual minimal interaction seed, model-selected catalogue requests, compact tool results and final response. Complete databases, canonical player coordinates, private identifiers, credentials and system instructions are never displayed or transmitted.",
             Foreground = Resource<Brush>("MutedTextBrush"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 6, 0, 10)
         });
         grid.Children.Add(heading);
 
-        StackPanel previewInput = new();
-        previewInput.Children.Add(new TextBlock { Text = "Prospective question or report (controls deterministic evidence selection)" });
-        previewInput.Children.Add(_question);
-        Grid.SetRow(previewInput, 1);
-        grid.Children.Add(previewInput);
-
-        WrapPanel actions = new() { Margin = new Thickness(0, 8, 0, 8) };
-        Button refresh = new() { Content = "Refresh evidence pipeline", MinWidth = 170 };
+        WrapPanel actions = new() { Margin = new Thickness(0, 0, 0, 8) };
+        Button refresh = new() { Content = "Refresh trace", MinWidth = 130 };
         refresh.Click += (_, _) => Refresh(force: true);
         actions.Children.Add(refresh);
         Button reset = new()
@@ -83,82 +74,109 @@ public sealed class AiContextPanel : UserControl, IDisposable
         actions.Children.Add(reset);
         _status.Margin = new Thickness(12, 7, 0, 0);
         actions.Children.Add(_status);
-        Grid.SetRow(actions, 2);
+        Grid.SetRow(actions, 1);
         grid.Children.Add(actions);
 
-        TabControl evidenceTabs = new();
-        evidenceTabs.Items.Add(new TabItem { Header = "1. Candidates", Content = _candidates });
-        evidenceTabs.Items.Add(new TabItem { Header = "2. Selected", Content = _selected });
-        evidenceTabs.Items.Add(new TabItem { Header = "3. Fused", Content = _fused });
-        evidenceTabs.Items.Add(new TabItem { Header = "4. Transmitted", Content = _transmitted });
-        Border panel = new() { Style = Resource<Style>("TerminalPanelStyle"), Child = evidenceTabs };
-        Grid.SetRow(panel, 3);
+        TabControl tabs = new();
+        tabs.Items.Add(new TabItem { Header = "1. Minimal seed", Content = _seed });
+        tabs.Items.Add(new TabItem { Header = "2. AI plan", Content = _plan });
+        tabs.Items.Add(new TabItem { Header = "3. Retrieved context", Content = _retrieved });
+        tabs.Items.Add(new TabItem { Header = "4. Model-visible exchange", Content = _transmitted });
+        Border panel = new() { Style = Resource<Style>("TerminalPanelStyle"), Child = tabs };
+        Grid.SetRow(panel, 2);
         grid.Children.Add(panel);
         return grid;
+    }
+
+    private void Trace_Changed()
+    {
+        if (_disposed || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+        _ = Dispatcher.BeginInvoke(() => Refresh());
     }
 
     private void ResetContext_Click(object sender, RoutedEventArgs e)
     {
         MessageBoxResult result = MessageBox.Show(
             Window.GetWindow(this),
-            "Delete the local AI context? This removes retained contacts, player reports, reported grids, lore and cached State Mirror data. API keys and response settings are preserved. Arma will repopulate fresh live state after its next handshake.",
+            "Delete local AI context and cached State Mirror data? API keys and response settings are preserved. Arma will repopulate current state after the next handshake.",
             "Reset AI Context",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning,
             MessageBoxResult.No);
         if (result != MessageBoxResult.Yes) return;
 
-        _timer.Stop();
         _stateRepository.ResetCache();
         _snapshots.ResetTacticalContext();
-        _question.Clear();
+        _trace.Reset();
         _lastRendered = string.Empty;
-        foreach (TextBox box in new[] { _candidates, _selected, _fused, _transmitted })
-            box.Text = "AI Context was reset. Waiting for the next Arma session handshake.";
-        _status.Text = "Local AI context reset. API keys and response settings were preserved.";
-        _timer.Start();
+        foreach (TextBox box in new[] { _seed, _plan, _retrieved, _transmitted })
+            box.Text = "Context was reset. Waiting for the next Arma session handshake and assistant interaction.";
+        _status.Text = "Local AI context reset.";
     }
 
-    private async void Refresh(bool force = false)
+    private void Refresh(bool force = false)
     {
-        string question = _question.Text.Trim();
-        if (!_snapshots.TryBuildEvidenceContext(question, out TacticalEvidenceReport report))
+        ContextTraceSnapshot trace = _trace.GetSnapshot();
+        if (trace.InteractionAlias.Length == 0)
         {
-            foreach (TextBox box in new[] { _candidates, _selected, _fused, _transmitted })
-                box.Text = "No canonical State Mirror snapshot is available yet.";
-            _status.Text = "Waiting for Arma state.";
+            foreach (TextBox box in new[] { _seed, _plan, _retrieved, _transmitted })
+                box.Text = "No context-on-demand interaction has run yet.";
+            _status.Text = "Waiting for an assistant interaction.";
             _lastRendered = string.Empty;
             return;
         }
 
-        string operatorPrompt;
-        try
-        {
-            operatorPrompt = ResponseProfilePolicy.Normalize((await _settings.LoadAsync()).ResponseProfile).OperatorPrePrompt;
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
-        {
-            operatorPrompt = "Operator pre-prompt unavailable because settings could not be read.";
-        }
-
-        string transmitted = $"OPERATOR PRE-PROMPT — APPLIED BEFORE CONTEXT\n\n{operatorPrompt}\n\n" +
-                             $"EXACT SELECTED AND FUSED TACTICAL CONTEXT\n\n{report.ModelContext}\n\n" +
-                             "PROSPECTIVE PLAYER INPUT\n\n" +
-                             (question.Length == 0 ? "No prospective question entered." : question);
-        string identity = $"{report.CandidateEvidence}\n{report.SelectedEvidence}\n{report.FusedInterpretation}\n{transmitted}";
+        string plan = BuildPlan(trace);
+        string retrieved = trace.ToolCalls.Count == 0
+            ? "The model requested no additional context."
+            : string.Join(
+                Environment.NewLine + Environment.NewLine,
+                trace.ToolCalls.Select((item, index) =>
+                    $"{index + 1}. {item.Tool}  /  {item.Group}  /  {item.Category}\n" +
+                    $"Arguments:\n{item.SafeArguments}\n\nResult ({item.ResultUtf8Bytes:N0} UTF-8 bytes, {item.ElapsedMilliseconds:N0} ms):\n{item.Result}"));
+        string transmitted =
+            $"INITIAL EVENT OR PLAYER MESSAGE\n\n{trace.Seed}\n\n" +
+            $"REQUESTED TOOL RESULTS ONLY\n\n{trace.ModelVisibleContext}\n\n" +
+            $"FINAL RESPONSE\n\n{trace.FinalDecision}";
+        string identity = trace.Seed + plan + retrieved + transmitted;
         if (force || !string.Equals(identity, _lastRendered, StringComparison.Ordinal))
         {
-            _candidates.Text = report.CandidateEvidence;
-            _selected.Text = report.SelectedEvidence;
-            _fused.Text = report.FusedInterpretation;
+            _seed.Text = trace.Seed;
+            _plan.Text = plan;
+            _retrieved.Text = retrieved;
             _transmitted.Text = transmitted;
             _lastRendered = identity;
         }
-        _status.Text = $"{report.SelectedCount:N0} of {report.CandidateCount:N0} candidates selected · " +
-                       $"{Encoding.UTF8.GetByteCount(report.ModelContext):N0} transmitted context bytes · refreshed {DateTime.Now:T}";
+
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        ContextUsageSample[] fiveMinutes = trace.RecentUsage
+            .Where(item => now - item.CompletedAtUtc <= TimeSpan.FromMinutes(5)).ToArray();
+        ContextUsageSample[] thirtyMinutes = trace.RecentUsage
+            .Where(item => now - item.CompletedAtUtc <= TimeSpan.FromMinutes(30)).ToArray();
+        int lastTotal = trace.InputTokens + trace.OutputTokens;
+        _status.Text =
+            $"{trace.ToolCallCount} context call(s) · {Encoding.UTF8.GetByteCount(trace.ModelVisibleContext):N0} retrieved bytes · " +
+            $"last: {lastTotal:N0} tokens ({trace.InputTokens:N0} input / {trace.OutputTokens:N0} output / {trace.ReasoningTokens:N0} reasoning) · " +
+            $"five minutes: {fiveMinutes.Sum(Total):N0} · thirty minutes: {thirtyMinutes.Sum(Total):N0}";
     }
 
-    private static TextBox EvidenceBox() => new()
+    private static string BuildPlan(ContextTraceSnapshot trace)
+    {
+        StringBuilder text = new();
+        text.AppendLine("DISCOVERABLE HIGH-LEVEL GROUPS");
+        foreach (string group in trace.AvailableGroups) text.AppendLine($"- {group}");
+        text.AppendLine();
+        text.AppendLine("MODEL-SELECTED REQUESTS");
+        if (trace.ToolCalls.Count == 0) text.AppendLine("No catalogue or context request was made.");
+        foreach ((ContextToolTrace call, int index) in trace.ToolCalls.Select((call, index) => (call, index)))
+            text.AppendLine($"{index + 1}. {call.Tool}: {call.Group}/{call.Category}");
+        return text.ToString().TrimEnd();
+    }
+
+    private static int Total(ContextUsageSample sample)
+        => sample.InputTokens + sample.OutputTokens;
+
+    private static TextBox ContextBox() => new()
     {
         IsReadOnly = true,
         AcceptsReturn = true,
@@ -170,5 +188,10 @@ public sealed class AiContextPanel : UserControl, IDisposable
     private static T Resource<T>(string key) where T : class
         => (T)Application.Current.FindResource(key);
 
-    public void Dispose() => _timer.Stop();
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _trace.Changed -= Trace_Changed;
+    }
 }

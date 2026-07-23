@@ -8,6 +8,59 @@ version boundaries below are reconstructed from the assembly version, merged
 pull requests, first-parent history, and the authoritative documents under
 `docs/papa-bear-v1/`.
 
+## 0.9.1 — Robust Context-on-Demand — Unreleased
+
+- Retains every typed and transcribed player message in current-mission memory
+  before model interpretation, while storing model-selected semantic
+  interpretation and clarification state as separate records.
+- Adds the `miscellaneous` context group and removes the long-term
+  map-intelligence confirmation round while preserving category, scope and
+  result bounds.
+- Changes State Mirror publication to four seconds. Contact development now
+  produces an immediate heads-up, waits through one silent snapshot, and offers
+  the developed report after the second additional snapshot; the general
+  six-snapshot change window remains independent.
+- Adds bounded friendly unit equipment and crewed-vehicle cargo collection for
+  purpose-specific resource queries. Player-private and unseen enemy equipment
+  remain withheld.
+- Explicitly rejects hidden opposing-side ground truth and correlation against
+  unseen positions, routes, orders, waypoints, targets or inventories.
+- Replaces model-visible context envelopes, database-shaped rows, aliases,
+  timestamps and machine error objects with bounded English fact snippets.
+  Internal typed records remain local. Exhausted retrieval now ends with a
+  tool-free synthesis request instead of discarding the interaction.
+
+## 0.9.0 — Hierarchical Context-on-Demand
+
+### Added
+
+- Stable ten-group, two-level information catalogue.
+- Strict local `inspect_context_catalogue` and `query_context` tools with
+  summary-before-detail retrieval and bounded filters.
+- Separate SQLite map-intelligence store with scoped one-shot permission.
+- Bounded on-demand conversation context rather than automatic history replay.
+- Minimal normalized event turns with a valid silent decision.
+- Read-only Context on Demand diagnostics showing actual seeds, tool calls,
+  results, decisions and provider token windows.
+
+### Changed
+
+- OpenAI no longer receives a deterministic broad tactical snapshot at the
+  start of a turn. It receives only the player message or normalized event and
+  requests needed categories itself.
+- New/reacquired contact changes no longer append a prewritten announcement.
+  They enter the same context-on-demand tool loop as direct questions.
+- Context tools are offered consistently for all inputs; keyword and
+  event-type routing do not decide operational categories.
+
+### Boundaries
+
+- The existing perspective-bound State Mirror remains the only current-world
+  source. Hidden enemy state, canonical player position, raw IDs and private
+  player details remain unavailable to OpenAI.
+- No native DLL, Named Pipe, SQF collection, ACE, ballistics, route, support,
+  map-scanning or arbitrary-command expansion.
+
 ## 0.8.1 — Natural Dynamic Radio Hotfix — Unreleased
 
 ### Added
@@ -49,8 +102,7 @@ pull requests, first-parent history, and the authoritative documents under
 - No native DLL, Named Pipe schema, position calculation, mission-memory schema
   or model-tool changes. SQF changes only the existing snapshot publication
   gate; individual collectors and the fair-play boundary are unchanged.
-- Full live acceptance remains required as documented in
-  `docs/papa-bear-v1/release-0.8.1-natural-radio-hotfix.md`.
+- Full live acceptance remains required.
 
 ### Local validation
 
@@ -153,8 +205,7 @@ Release PR: [#12](https://github.com/ViperSix11/AI-Copilot/pull/12)
 - Deterministic Release suite: 271 tests at release closeout.
 - WPF `win-x64`, native x64, and 22-file Addon Builder PBO builds passed.
 - GitHub Actions Windows build passed for the release-closeout commit.
-- Full live 0.8 acceptance remains the explicit manual gate recorded in
-  `docs/papa-bear-v1/release-0.8-tactical-memory.md`.
+- Full live 0.8 acceptance remains an explicit manual gate.
 
 ### Internal 0.8 patch chronology
 
