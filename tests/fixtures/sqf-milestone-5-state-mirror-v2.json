@@ -3,7 +3,7 @@
   "files": [
     {
       "path": "arma3/addon-source/arma_ai_bridge_client/functions/fn_publishStateSnapshot.sqf",
-      "requiredTokens": ["state-snapshot-v2", "AAB_stateSectionCaches", "private _runSection", "isNil { call _collector }", "[_name] call _fail", "State section collection failed", "groupCallsign", "groupId (group player)", "mapGridPosition", "ambientTemperature", "magazinesAmmoFull", "expectedDestination", "targetKnowledge", "getSensorTargets", "simpleTasks player", "allMapMarkers", "markerPolyline", "fullReconciliation", "uiSleep"],
+      "requiredTokens": ["state-snapshot-v2", "AAB_stateSectionCaches", "private _runSection", "isNil { call _collector }", "[_name] call _fail", "State section collection failed", "groupCallsign", "groupId (group player)", "mapGridPosition", "magazinesAmmoFull", "expectedDestination", "targetKnowledge", "getSensorTargets", "simpleTasks player", "allMapMarkers", "markerPolyline", "fullReconciliation", "uiSleep"],
       "forbiddenTokens": ["sunDirection", "getLighting", "lightDirection", "starsVisibility", "moonIntensity", "allMissionObjects", "allUnits", " vehicles", "getPlayerUID", "profileName", "name player", "getPosATL _target", "getPosASL _target", "remoteExec", "compile", "setWaypoint", "doMove", "commandMove"]
     },
     {

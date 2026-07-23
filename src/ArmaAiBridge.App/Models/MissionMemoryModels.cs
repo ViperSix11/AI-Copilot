@@ -13,7 +13,8 @@ public sealed record MissionContactTrack(
     WorldPosition EstimatedPosition,
     double UncertaintyRadiusMeters,
     int ObservationCount,
-    bool Corroborated);
+    bool Corroborated,
+    IReadOnlyList<string> ReporterCallsigns);
 
 public sealed record MissionContactObservation(
     long ObservationId,
@@ -39,3 +40,11 @@ public sealed record LoreSection(
     bool Enabled,
     bool AlwaysInclude,
     DateTimeOffset UpdatedAtUtc);
+
+public sealed record ReportedLocationAnchor(
+    string Key,
+    string Label,
+    string Grid,
+    WorldPosition Position,
+    double UncertaintyRadiusMeters,
+    DateTimeOffset ReportedAtUtc);

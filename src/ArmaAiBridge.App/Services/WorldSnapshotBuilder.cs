@@ -39,7 +39,7 @@ public sealed class WorldSnapshotBuilder
             json = string.Empty;
             return false;
         }
-        json = SerializeTactical(_operationalSnapshotBuilder.Build(string.Empty));
+        json = SerializeTactical(_operationalSnapshotBuilder.BuildPreview(string.Empty));
         return true;
     }
 
@@ -54,11 +54,34 @@ public sealed class WorldSnapshotBuilder
         return true;
     }
 
+    public bool TryBuildInterpretedContext(string question, out string context)
+    {
+        if (!TryBuildEvidenceContext(question, out TacticalEvidenceReport report))
+        {
+            context = string.Empty;
+            return false;
+        }
+        context = report.ModelContext;
+        return true;
+    }
+
+    public bool TryBuildEvidenceContext(string question, out TacticalEvidenceReport report)
+    {
+        if (_operationalSnapshotBuilder is null || _stateRepository is null || _stateRepository.GetDiagnostics().LastSequence <= 0 || _stateRepository.GetPlayer() is null)
+        {
+            report = new TacticalEvidenceReport(string.Empty, string.Empty, string.Empty, string.Empty, 0, 0);
+            return false;
+        }
+        string snapshot = SerializeTactical(_operationalSnapshotBuilder.BuildPreview(question));
+        report = TacticalContextInterpreter.Analyze(snapshot, question);
+        return true;
+    }
+
     public string BuildCurrentSituation()
     {
         if (_operationalSnapshotBuilder is null || _stateRepository is null || _stateRepository.GetDiagnostics().LastSequence <= 0 || _stateRepository.GetPlayer() is null)
             throw new InvalidOperationException("No world-state telemetry is available yet.");
-        return SerializeTactical(_operationalSnapshotBuilder.Build(string.Empty));
+        return SerializeTactical(_operationalSnapshotBuilder.BuildPreview(string.Empty));
     }
 
     public string BuildKnownContacts()

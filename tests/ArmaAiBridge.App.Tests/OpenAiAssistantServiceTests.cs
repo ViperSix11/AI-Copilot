@@ -71,7 +71,7 @@ public sealed class OpenAiAssistantServiceTests
         ScriptedHandler handler = new((requestNumber, request) =>
         {
             Assert.Equal(1, requestNumber);
-            Assert.Equal("gpt-5-mini", request.GetProperty("model").GetString());
+            Assert.Equal("gpt-5.6-luna", request.GetProperty("model").GetString());
             Assert.Equal(1800, request.GetProperty("max_output_tokens").GetInt32());
             Assert.Equal("low", request.GetProperty("reasoning").GetProperty("effort").GetString());
             Assert.Equal("low", request.GetProperty("text").GetProperty("verbosity").GetString());
@@ -375,12 +375,12 @@ public sealed class OpenAiAssistantServiceTests
             Assert.Equal(1, requestNumber);
             string instructions = request.GetProperty("instructions").GetString()!;
             Assert.Contains("complete current game picture", instructions, StringComparison.Ordinal);
-            Assert.Contains("player.groupCallsign", instructions, StringComparison.Ordinal);
+            Assert.Contains("current callsign", instructions, StringComparison.Ordinal);
             Assert.Contains("last-known", instructions, StringComparison.Ordinal);
             Assert.Contains("Firing-solution calculations are unavailable", instructions, StringComparison.Ordinal);
             Assert.Contains("style-only", instructions, StringComparison.OrdinalIgnoreCase);
             string content = request.GetProperty("input")[0].GetProperty("content").GetString()!;
-            int facts = content.IndexOf("TACTICAL SNAPSHOT", StringComparison.Ordinal);
+            int facts = content.IndexOf("LOCALLY INTERPRETED TACTICAL CONTEXT", StringComparison.Ordinal);
             int profile = content.IndexOf("RESPONSE PROFILE (STYLE ONLY)", StringComparison.Ordinal);
             int question = content.IndexOf("QUESTION:", StringComparison.Ordinal);
             Assert.True(facts >= 0 && facts < profile && profile < question);
@@ -402,6 +402,85 @@ public sealed class OpenAiAssistantServiceTests
 
         Assert.Equal("Southwest of Agia Marina. Over.", response.Text);
         Assert.Equal(0, response.ToolCalls);
+        Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task AdjustableOperatorPrePrompt_AppearsBeforeContextAndCannotEnableUnrelatedRecitation()
+    {
+        const string prePrompt = "Read the report first and use only directly relevant facts.";
+        ScriptedHandler handler = new((_, request) =>
+        {
+            string content = request.GetProperty("input")[0].GetProperty("content").GetString()!;
+            int pre = content.IndexOf("OPERATOR PRE-PROMPT", StringComparison.Ordinal);
+            int context = content.IndexOf("LOCALLY INTERPRETED TACTICAL CONTEXT", StringComparison.Ordinal);
+            Assert.True(pre >= 0 && pre < context);
+            Assert.Contains(prePrompt, content, StringComparison.Ordinal);
+            string instructions = request.GetProperty("instructions").GetString()!;
+            Assert.Contains("Select only context directly relevant", instructions, StringComparison.Ordinal);
+            Assert.Contains("Never add weather", instructions, StringComparison.Ordinal);
+            Assert.Contains("cannot authorize hidden state", instructions, StringComparison.Ordinal);
+            return FinalResponse("Tank report received at grid zero-five-four.");
+        });
+        using HttpClient httpClient = Client(handler);
+        using OpenAiAssistantService service = new(httpClient);
+
+        await service.AskAsync("test-key", "gpt-5-mini", "Be advised, there is a tank in grid 054.", WorldSnapshot,
+            new ResponseProfileSettings { OperatorPrePrompt = prePrompt },
+            (_, _, _) => Task.FromResult("unused"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
+    public void OperationalLanguageBoundary_NaturalizesInternalTermsButPreservesExplicitDiagnosticsQuestions()
+    {
+        const string internalAnswer = "The player-reported contact has no own-side evidence in the canonical database or telemetry feed.";
+
+        string natural = OperationalLanguagePolicy.Normalize(internalAnswer, "Any movement at the airport?");
+        string diagnostic = OperationalLanguagePolicy.Normalize(internalAnswer, "What is in the database diagnostics?");
+
+        Assert.Equal("The reported contact has no friendly information in the current records or current information.", natural);
+        Assert.Equal(internalAnswer, diagnostic);
+    }
+
+    [Fact]
+    public async Task PlayerReportRequest_ExcludesEmptyContactsAndUnrelatedWeatherBeforeHttp()
+    {
+        const string question = "It seems there is enemy movement at the radio dish in the south corner.";
+        const string snapshot = """
+        {
+          "schema":"arma-ai-bridge/tactical-snapshot-v2",
+          "player":{"side":"WEST","groupCallsign":"Alpha 1-1"},
+          "environment":{"overcast":0.9,"condition":"storm"},
+          "time":{"missionDate":[2026,7,23,12,0],"daytime":12,"daylight":"daylight"},
+          "friendlyForces":{"summary":{"groupCount":1,"unitCount":2,"woundedCount":0,"incapacitatedCount":0,"deadCount":0},"groups":[]},
+          "enemyContacts":{"summary":{"currentEnemyContactCount":0,"lastKnownEnemyContactCount":0,"confirmedDeadEnemyContactCount":0},"groups":[],"records":[]},
+          "markers":{"count":0,"records":[]},
+          "retrievedMemory":{"count":1,"records":[{"id":1,"text":"It seems there is enemy movement at the radio dish in the south corner.","provenance":"user-reported","tags":[]}],"dialogueFocus":{}},
+          "lore":{"count":0,"sections":[],"untrustedContext":true},
+          "modelPayloadTruncated":false,"includedCounts":{}
+        }
+        """;
+
+        ScriptedHandler handler = new((_, request) =>
+        {
+            string content = request.GetProperty("input")[0].GetProperty("content").GetString()!;
+            Assert.Contains("You report:", content, StringComparison.Ordinal);
+            Assert.Contains("radio dish", content, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("no eligible hostile", content, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("overcast", content, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Accepted friendly picture", content, StringComparison.Ordinal);
+            string instructions = request.GetProperty("instructions").GetString()!;
+            Assert.Contains("never volunteer zero-count or empty summaries", instructions, StringComparison.OrdinalIgnoreCase);
+            return FinalResponse("Alpha 1-1, copied possible enemy movement at the radio dish. Provide a grid or bearing and range.");
+        });
+        using HttpClient httpClient = Client(handler);
+        using OpenAiAssistantService service = new(httpClient);
+
+        await service.AskAsync("test-key", "gpt-5-mini", question, snapshot,
+            ResponseProfilePolicy.Defaults(), (_, _, _) => Task.FromResult("unused"), TestContext.Current.CancellationToken);
+
         Assert.Equal(1, handler.RequestCount);
     }
 
@@ -432,13 +511,16 @@ public sealed class OpenAiAssistantServiceTests
     }
 
     [Fact]
-    public async Task Request_UsesProvidedWorldSnapshotWithoutRawTelemetryForwarding()
+    public async Task Request_UsesHumanInterpretedContextWithoutRawSnapshotForwarding()
     {
         ScriptedHandler handler = new((_, request) =>
         {
             string content = request.GetProperty("input")[0].GetProperty("content").GetString() ?? string.Empty;
-            Assert.Contains("TACTICAL SNAPSHOT", content, StringComparison.Ordinal);
-            Assert.Contains(WorldSnapshot, content, StringComparison.Ordinal);
+            Assert.Contains("LOCALLY INTERPRETED TACTICAL CONTEXT", content, StringComparison.Ordinal);
+            Assert.Contains("CURRENT OPERATIONAL CONTEXT", content, StringComparison.Ordinal);
+            Assert.DoesNotContain("positionATL", content, StringComparison.Ordinal);
+            Assert.DoesNotContain(WorldSnapshot, content, StringComparison.Ordinal);
+            Assert.DoesNotContain("\"friendlyForces\"", content, StringComparison.Ordinal);
             Assert.DoesNotContain("ARMA TELEMETRY", content, StringComparison.Ordinal);
             return FinalResponse("Snapshot received.");
         });
@@ -560,6 +642,47 @@ public sealed class OpenAiAssistantServiceTests
         Assert.Equal(0, calculations);
         Assert.Equal(0, response.ToolCalls);
         Assert.Equal(0, response.RequestMetrics!.SelectedToolCount);
+        Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task Request_NeverForwardsPlayerCoordinatesThroughOwnFriendlyGroupOrMemoryPosition()
+    {
+        const string snapshot = """
+        {
+          "schema":"arma-ai-bridge/tactical-snapshot-v2",
+          "player":{"side":"WEST","groupCallsign":"Alpha 1-1"},
+          "environment":{},"time":{},
+          "friendlyForces":{"summary":{"groupCount":1,"unitCount":2,"woundedCount":0,"incapacitatedCount":0,"deadCount":0},"groups":[{"callsign":"Alpha 1-1","memberCount":2,"elementType":"infantry pair","compositionSummary":"two infantry","approximatePosition":{"x":6830,"y":9990,"precisionMeters":10},"bearingFromPlayerDegrees":0,"rangeFromPlayerMeters":0,"stale":false}]},
+          "enemyContacts":{"summary":{"currentEnemyContactCount":0,"lastKnownEnemyContactCount":0,"confirmedDeadEnemyContactCount":0,"byPerceivedSide":{},"byContactType":{}},"groups":[],"records":[]},
+          "markers":{"count":0,"records":[]},
+          "retrievedMemory":{"count":1,"records":[{"id":1,"text":"A red tower was reported northwest of the player.","provenance":"user-reported","updatedAtUtc":"2026-07-23T00:00:00Z","tags":[],"approximatePosition":{"x":6730,"y":9860}}],"dialogueFocus":{}},
+          "lore":{"count":0,"sections":[],"untrustedContext":true},
+          "modelPayloadTruncated":false,"includedCounts":{}
+        }
+        """;
+        ScriptedHandler handler = new((_, request) =>
+        {
+            string content = request.GetProperty("input")[0].GetProperty("content").GetString()!;
+            Assert.DoesNotContain("6830", content, StringComparison.Ordinal);
+            Assert.DoesNotContain("9990", content, StringComparison.Ordinal);
+            Assert.DoesNotContain("6730", content, StringComparison.Ordinal);
+            Assert.DoesNotContain("9860", content, StringComparison.Ordinal);
+            Assert.DoesNotContain("approximatePosition", content, StringComparison.Ordinal);
+            Assert.DoesNotContain("red tower", content, StringComparison.OrdinalIgnoreCase);
+            string instructions = request.GetProperty("instructions").GetString()!;
+            Assert.Contains("Never infer or reconstruct", instructions, StringComparison.Ordinal);
+            Assert.Contains("earlier conversation", instructions, StringComparison.Ordinal);
+            return FinalResponse("Your current position is not included in my available context.");
+        });
+        using HttpClient httpClient = Client(handler);
+        using OpenAiAssistantService service = new(httpClient);
+
+        AssistantResponse response = await service.AskAsync(
+            "test-key", "gpt-5-mini", "Say again my position.", snapshot,
+            (_, _, _) => Task.FromResult("unused"), TestContext.Current.CancellationToken);
+
+        Assert.Contains("not included", response.Text, StringComparison.Ordinal);
         Assert.Equal(1, handler.RequestCount);
     }
 

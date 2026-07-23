@@ -73,6 +73,7 @@ public partial class MainWindow : Window
         _assistantPanel?.Dispose();
         _rawInputHotkeyService.Dispose();
         _worldStateDiagnosticsPanel?.Dispose();
+        _aiContextPanel?.Dispose();
         _mapGazetteerCoordinator.Dispose();
         _stateMirrorIngestService.Dispose();
         _telemetryIngestService.Dispose();
@@ -247,7 +248,8 @@ public partial class MainWindow : Window
             Terminator = ReadSelectedTag(ResponseTerminatorBox, "none"),
             CustomStyle = ResponseCustomStyleBox.Text,
             CustomTerminator = ResponseCustomTerminatorBox.Text,
-            Banter = ReadSelectedTag(ResponseBanterBox, "dry")
+            Banter = ReadSelectedTag(ResponseBanterBox, "dry"),
+            OperatorPrePrompt = OperatorPrePromptBox.Text
         });
 
     private void ApplyResponseProfile(ResponseProfileSettings? profile)
@@ -259,6 +261,7 @@ public partial class MainWindow : Window
         SelectTag(ResponseTerminatorBox, value.Terminator);
         ResponseCustomStyleBox.Text = value.CustomStyle;
         ResponseCustomTerminatorBox.Text = value.CustomTerminator;
+        OperatorPrePromptBox.Text = value.OperatorPrePrompt;
         SelectTag(ResponseBanterBox, value.Banter);
     }
 

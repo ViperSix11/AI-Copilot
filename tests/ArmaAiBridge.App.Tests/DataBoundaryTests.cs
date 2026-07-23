@@ -58,6 +58,8 @@ public sealed class DataBoundaryTests
         Assert.All(new[] { "fn_collectContacts.sqf", "fn_collectSensorContacts.sqf" }, file =>
             Assert.Contains("targetKnowledge", File.ReadAllText(Path.Combine(root, "arma3", "addon-source", "arma_ai_bridge_client", "functions", file)), StringComparison.Ordinal));
         Assert.Contains("BIS_fnc_sideIsEnemy", normalizer, StringComparison.Ordinal);
+        Assert.Contains("\"UNKNOWN\"", normalizer, StringComparison.Ordinal);
+        Assert.Contains("_relationship = \"unknown\"", normalizer, StringComparison.Ordinal);
         Assert.DoesNotContain("allMissionObjects", normalizer, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -82,4 +84,3 @@ public sealed class DataBoundaryTests
         return directory?.FullName ?? throw new DirectoryNotFoundException();
     }
 }
-

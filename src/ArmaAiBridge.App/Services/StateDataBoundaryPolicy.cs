@@ -12,10 +12,10 @@ public static partial class ContactEligibilityPolicy
     };
 
     public static readonly IReadOnlySet<string> PerceivedSides = new HashSet<string>(StringComparer.Ordinal)
-    { "WEST", "EAST", "GUER", "CIV", "ENEMY" };
+    { "WEST", "EAST", "GUER", "CIV", "ENEMY", "UNKNOWN" };
 
     public static readonly IReadOnlySet<string> Relationships = new HashSet<string>(StringComparer.Ordinal)
-    { "friendly", "hostile", "neutral", "civilian" };
+    { "friendly", "hostile", "unknown", "neutral", "civilian" };
 
     private static readonly string[] ForbiddenClassPrefixes =
     {
@@ -98,6 +98,7 @@ public static class LegacyContactEligibilityPolicy
         "friendly" or "FRIENDLY" => "friendly",
         "hostile" or "HOSTILE" or "ENEMY" => "hostile",
         "neutral" or "NEUTRAL" => "neutral",
+        "unknown" or "UNKNOWN" => "unknown",
         "civilian" or "CIVILIAN" or "CIV" => "civilian",
         _ => string.Empty
     };

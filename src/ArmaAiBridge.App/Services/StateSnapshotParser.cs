@@ -62,11 +62,9 @@ public static class StateSnapshotParser
                     if (section.TryGetProperty(forbidden, out _)) throw Invalid("state_player_forbidden_field");
                 break;
             case "environment":
-                foreach (string field in new[] { "overcast", "forecastOvercast", "rain", "fog", "forecastFog", "windDirection", "windStrength", "gusts", "waves", "lightning", "humidity" })
-                    RequiredNumber(section, field, field == "windDirection" ? -360 : 0, field == "windDirection" ? 360 : 1);
-                Vector2(section, "wind"); ArrayLength(section, "fogParameters", 3, 3);
-                if (section.TryGetProperty("temperatureCelsius", out JsonElement temperature) && temperature.ValueKind != JsonValueKind.Null)
-                    RequiredNumber(section, "temperatureCelsius", -100, 100);
+                foreach (string field in new[] { "overcast", "forecastOvercast", "rain", "fog", "forecastFog", "waves", "lightning", "humidity" })
+                    RequiredNumber(section, field, 0, 1);
+                ArrayLength(section, "fogParameters", 3, 3);
                 RequiredNumber(section, "nextWeatherChange", -1, 1e12);
                 break;
             case "timeAstronomy":

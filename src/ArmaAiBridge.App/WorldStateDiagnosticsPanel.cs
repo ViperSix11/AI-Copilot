@@ -186,7 +186,7 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
             if (mirror.DiagnosticCode.Length > 0) text.AppendLine($"State diagnostic: {mirror.DiagnosticCode}");
             text.AppendLine($"Persistent contact tracks: {contactTracks?.Count ?? 0}");
             foreach (MissionContactTrack track in contactTracks ?? Array.Empty<MissionContactTrack>())
-                text.AppendLine($"  {track.TrackId}: {track.Description} / {track.Status} / observations={track.ObservationCount} / uncertainty={track.UncertaintyRadiusMeters:N0}m / last={track.LastObservedAtUtc:O}");
+                text.AppendLine($"  {track.TrackId}: {track.Description} / {track.Status} / observations={track.ObservationCount} / uncertainty={track.UncertaintyRadiusMeters:N0}m / reporters={FormatReporters(track.ReporterCallsigns)} / last={track.LastObservedAtUtc:O}");
             text.AppendLine($"Mission memory entries shown: {memories?.Count ?? 0}");
             foreach (MissionMemoryEntry entry in memories ?? Array.Empty<MissionMemoryEntry>())
                 text.AppendLine($"  memory-{entry.Id}: {entry.Provenance} / {entry.UpdatedAtUtc:O} / {entry.Text}");
@@ -322,6 +322,9 @@ public sealed class WorldStateDiagnosticsPanel : UserControl, IDisposable
             : "Mission lifecycle: the protocol handshake is authoritative; force identities are scoped to this local session.");
         return text.ToString();
     }
+
+    private static string FormatReporters(IReadOnlyList<string> callsigns)
+        => callsigns.Count == 0 ? "friendly observer" : string.Join(", ", callsigns);
 
     private static string Describe(WorldEntityMetadata metadata)
         => $"{metadata.FreshnessClass.ToString().ToLowerInvariant()}, " +

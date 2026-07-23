@@ -129,7 +129,8 @@ public sealed class Release08OperationalRadioTests
             Assert.Contains("earlier conversation history", instructions, StringComparison.Ordinal);
             Assert.Contains("omit direct callsign address", instructions, StringComparison.Ordinal);
             string content = request.GetProperty("input").EnumerateArray().Last().GetProperty("content").GetString()!;
-            Assert.Contains("\"groupCallsign\":\"Alpha 1-1\"", content, StringComparison.Ordinal);
+            Assert.Contains("Callsign: Alpha 1-1.", content, StringComparison.Ordinal);
+            Assert.DoesNotContain("\"groupCallsign\"", content, StringComparison.Ordinal);
             return Task.FromResult(FinalResponse("Papa Bear. Copy."));
         });
         using HttpClient client = new(handler) { BaseAddress = new Uri("https://api.openai.test/v1/") };
@@ -327,10 +328,10 @@ public sealed class Release08OperationalRadioTests
                 Assert.True(history.Length <= 6);
                 Assert.True(history.Sum(item => item.GetProperty("content").GetString()!.Length) <= 4000);
                 Assert.All(history, item => Assert.DoesNotContain(
-                    OperationalSnapshotBuilder.Schema,
+                    "LOCALLY INTERPRETED TACTICAL CONTEXT",
                     item.GetProperty("content").GetString()!,
                     StringComparison.Ordinal));
-                Assert.Contains(OperationalSnapshotBuilder.Schema,
+                Assert.Contains("LOCALLY INTERPRETED TACTICAL CONTEXT",
                     input[^1].GetProperty("content").GetString()!, StringComparison.Ordinal);
             }
             return Task.FromResult(FinalResponse(new string('A', 900)));

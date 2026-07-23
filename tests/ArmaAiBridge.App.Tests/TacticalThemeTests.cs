@@ -35,6 +35,23 @@ public sealed class TacticalThemeTests
             Assert.Contains($"Header=\"{tab}\"", window, StringComparison.Ordinal);
         Assert.Contains("Header = \"Assistant\"", dynamicTabs, StringComparison.Ordinal);
         Assert.Contains("Header = \"World State\"", dynamicTabs, StringComparison.Ordinal);
+        Assert.Contains("Header = \"AI Context\"", dynamicTabs, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AiContextTab_IsReadOnlyAndUsesTheExactSharedInterpreterPath()
+    {
+        string panel = Read("src", "ArmaAiBridge.App", "AiContextPanel.cs");
+        string snapshots = Read("src", "ArmaAiBridge.App", "Services", "WorldSnapshotBuilder.cs");
+        string assistant = Read("src", "ArmaAiBridge.App", "Services", "OpenAiAssistantService.cs");
+
+        Assert.Contains("IsReadOnly = true", panel, StringComparison.Ordinal);
+        Assert.Contains("TryBuildEvidenceContext", panel, StringComparison.Ordinal);
+        Assert.Contains("TacticalContextInterpreter.Analyze(snapshot, question)", snapshots, StringComparison.Ordinal);
+        Assert.Contains("TacticalContextInterpreter.Interpret(worldSnapshot, question)", assistant, StringComparison.Ordinal);
+        Assert.Contains("Prospective question", panel, StringComparison.Ordinal);
+        foreach (string stage in new[] { "1. Candidates", "2. Selected", "3. Fused", "4. Transmitted" })
+            Assert.Contains(stage, panel, StringComparison.Ordinal);
     }
 
     [Fact]

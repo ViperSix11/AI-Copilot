@@ -55,8 +55,10 @@ configurable global press-and-hold PTT.
 - Tools remain bounded, typed, locally validated and read-only until a later
   milestone explicitly introduces an authorized action.
 - ACE integration, firing-solution calculations, routes, support execution,
-  observation-fusion memory, full map indexing and proactive notifications are
-  not active product capabilities.
+  observation-fusion memory, full map indexing and broad proactive notifications
+  are not active product capabilities. Release 0.8 has only deterministic
+  new/reacquired hostile-or-unknown contact announcements from accepted own-side
+  target knowledge.
 
 ## Active documents
 
@@ -99,5 +101,6 @@ explicitly reactivate them.
 ## Active product step
 
 Complete release 0.8 automated verification and the exact Unified State Mirror
-live gate. Release 0.9 is proactive state-change detection and radio
-notifications; it is not active until 0.8 is accepted.
+live gate. Release 0.9 remains the home for broader state-change detection and
+radio notifications; the release-0.8 contact-announcement exception does not
+authorize any other proactive category.

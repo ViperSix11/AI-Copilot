@@ -25,9 +25,15 @@ if (_lastSeenAge < 0 && { _lastThreatAge < 0 }) exitWith { [] };
 if (_lastSeenAge > 120 || { _lastThreatAge > 120 }) exitWith { [] };
 
 private _sideText = str _perceivedSide;
-if !(_sideText in ["WEST", "EAST", "GUER", "CIV", "ENEMY"]) exitWith { [] };
+if !(_sideText in ["WEST", "EAST", "GUER", "CIV", "ENEMY", "UNKNOWN"]) exitWith { [] };
 
 private _relationship = "neutral";
+if (_sideText isEqualTo "UNKNOWN") then
+{
+    _relationship = "unknown";
+}
+else
+{
 if (_sideText isEqualTo "CIV") then
 {
     _relationship = "civilian";
@@ -45,6 +51,7 @@ else
             _relationship = "friendly";
         };
     };
+};
 };
 
 // Own-side actors are represented authoritatively by friendlyForces, not

@@ -13,6 +13,8 @@ public interface IMissionMemoryRepository
     IReadOnlyList<MissionMemoryEntry> SearchMemory(string query, int limit = 12, int maximumCharacters = 6000);
     bool UpdateMemory(long id, string text, IReadOnlyList<string>? tags = null, WorldPosition? position = null);
     bool ForgetMemory(long id);
+    void SaveReportedLocation(ReportedLocationAnchor anchor);
+    ReportedLocationAnchor? GetReportedLocation(string key);
     IReadOnlyList<LoreSection> GetLoreSections();
     void SaveLoreSection(string scope, string content, bool enabled, bool alwaysInclude);
     void ClearLoreSection(string scope);

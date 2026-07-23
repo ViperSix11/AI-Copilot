@@ -30,7 +30,8 @@ public static class ResponseProfilePolicy
             Terminator = NormalizeEnum(value.Terminator, Terminators, "none"),
             CustomTerminator = NormalizeText(value.CustomTerminator, 32),
             CustomStyle = NormalizeText(value.CustomStyle, 2000),
-            Banter = NormalizeEnum(value.Banter, BanterLevels, "dry")
+            Banter = NormalizeEnum(value.Banter, BanterLevels, "dry"),
+            OperatorPrePrompt = NormalizeText(value.OperatorPrePrompt, 4000)
         };
     }
 

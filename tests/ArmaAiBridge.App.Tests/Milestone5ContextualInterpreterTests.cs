@@ -284,7 +284,8 @@ public sealed class Milestone5ContextualInterpreterTests
             Length = "essay",
             Terminator = "custom",
             CustomTerminator = new string('x', 100),
-            CustomStyle = new string('y', 2500) + "\nINJECT"
+            CustomStyle = new string('y', 2500) + "\nINJECT",
+            OperatorPrePrompt = new string('z', 4500) + "\nUNTRUSTED"
         });
 
         Assert.Equal("authentic-military", result.Preset);
@@ -293,6 +294,8 @@ public sealed class Milestone5ContextualInterpreterTests
         Assert.Equal(32, result.CustomTerminator.Length);
         Assert.Equal(2000, result.CustomStyle.Length);
         Assert.DoesNotContain('\n', result.CustomStyle);
+        Assert.Equal(4000, result.OperatorPrePrompt.Length);
+        Assert.DoesNotContain('\n', result.OperatorPrePrompt);
         Assert.Contains("STYLE ONLY", ResponseProfilePolicy.BuildPrompt(result), StringComparison.Ordinal);
     }
 
@@ -308,7 +311,8 @@ public sealed class Milestone5ContextualInterpreterTests
                 Length = "very-short",
                 Terminator = "custom",
                 CustomTerminator = "Ende.",
-                CustomStyle = "Ruhig und knapp."
+                CustomStyle = "Ruhig und knapp.",
+                OperatorPrePrompt = "Use only facts relevant to the current request."
             }
         };
 
@@ -318,6 +322,7 @@ public sealed class Milestone5ContextualInterpreterTests
         Assert.Equal("de", restored.ResponseProfile.Language);
         Assert.Equal("Ruhig und knapp.", restored.ResponseProfile.CustomStyle);
         Assert.Equal("Ende.", restored.ResponseProfile.CustomTerminator);
+        Assert.Equal("Use only facts relevant to the current request.", restored.ResponseProfile.OperatorPrePrompt);
     }
 
     private static MapGazetteerStore ReadyRequest(TimeProvider? time = null)

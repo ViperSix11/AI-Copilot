@@ -21,9 +21,13 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private readonly VoiceInteractionService _voice;
     private readonly MissionMemoryToolService? _memoryTools;
     private readonly IGlobalPushToTalkInputService _globalPttInput;
+    private readonly SqliteStateRepository _stateRepository;
+    private readonly ContactAnnouncementDetector _contactAnnouncements = new();
+    private readonly Queue<string> _contactSpeechQueue = new();
+    private readonly CancellationTokenSource _contactSpeechCancellation = new();
     private readonly TextBox _conversation = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly TextBox _question = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 76 };
-    private readonly TextBox _model = new() { Text = "gpt-5-mini", Width = 220 };
+    private readonly TextBox _model = new() { Text = "gpt-5.6-luna", Width = 220 };
     private readonly TextBlock _status = new() { Text = "Ready.", TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock _voiceStage = new() { Text = "Voice: ready", TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold };
     private readonly Button _ask = new() { Content = "Ask", MinWidth = 100 };
@@ -52,6 +56,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private bool _globalPttLoaded;
     private bool _updatingGlobalPttUi;
     private int _globalPttDetectionCount;
+    private bool _contactSpeechActive;
     private bool _disposed;
 
     public AssistantPanel(
@@ -59,12 +64,14 @@ public sealed class AssistantPanel : UserControl, IDisposable
         SettingsService settings,
         LogService log,
         WorldSnapshotBuilder snapshots,
-        IGlobalPushToTalkInputService globalPttInput)
+        IGlobalPushToTalkInputService globalPttInput,
+        SqliteStateRepository stateRepository)
     {
         _settings = settings;
         _log = log;
         _snapshots = snapshots;
         _globalPttInput = globalPttInput;
+        _stateRepository = stateRepository;
         _queries = new ArmaQueryCoordinator(pipe);
         _memoryTools = snapshots.MissionMemory is null ? null : new MissionMemoryToolService(snapshots.MissionMemory);
         _capture = new PushToTalkCaptureCoordinator(new WindowsMicrophoneCaptureService());
@@ -103,6 +110,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
         _globalPttEnabled.Unchecked += GlobalPttEnabled_Changed;
         _changeGlobalPtt.Click += ChangeGlobalPtt_Click;
         _resetGlobalPtt.Click += ResetGlobalPtt_Click;
+        _stateRepository.StateChanged += StateRepository_StateChanged;
         _globalPttTestOnly.Checked += (_, _) =>
         {
             if (_globalPtt is not null) _globalPtt.DetectionOnly = true;
@@ -246,7 +254,11 @@ public sealed class AssistantPanel : UserControl, IDisposable
 
     private async Task<bool> BeginCaptureAsync(Button? button, CapturePurpose purpose)
     {
-        if (_activeRequest is not null || _disposed) return false;
+        if (_activeRequest is not null || _contactSpeechActive || _disposed)
+        {
+            if (_contactSpeechActive) _status.Text = "Contact announcement is finishing. Try push-to-talk again in a moment.";
+            return false;
+        }
         try
         {
             _activeRequest = new CancellationTokenSource();
@@ -567,6 +579,73 @@ public sealed class AssistantPanel : UserControl, IDisposable
         _activeRequest?.Dispose();
         _activeRequest = null;
         SetOperationBusy(false);
+        _ = DrainContactSpeechAsync();
+    }
+
+    private void StateRepository_StateChanged()
+    {
+        if (_disposed) return;
+        try
+        {
+            StateRepositoryDiagnostics diagnostics = _stateRepository.GetDiagnostics();
+            IReadOnlyList<ContactAnnouncement> announcements = _contactAnnouncements.Evaluate(
+                _stateRepository.ActiveMissionKey,
+                diagnostics.LastSequence,
+                _stateRepository.GetContactTracks(256),
+                _stateRepository.GetPlayer()?.GroupCallsign);
+            if (announcements.Count == 0) return;
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                if (_disposed) return;
+                foreach (ContactAnnouncement announcement in announcements)
+                {
+                    Append("Papa Bear", announcement.VisibleText);
+                    _contactSpeechQueue.Enqueue(announcement.VisibleText);
+                }
+                _ = DrainContactSpeechAsync();
+            });
+        }
+        catch (Exception exception)
+        {
+            _log.Warn($"Contact announcement evaluation failed: exceptionType={exception.GetType().Name}.");
+        }
+    }
+
+    private async Task DrainContactSpeechAsync()
+    {
+        if (_disposed || _contactSpeechActive || _activeRequest is not null || _contactSpeechQueue.Count == 0) return;
+        _contactSpeechActive = true;
+        try
+        {
+            while (!_disposed && _activeRequest is null && _contactSpeechQueue.Count > 0)
+            {
+                string visible = _contactSpeechQueue.Dequeue();
+                try
+                {
+                    SpeechOutputResult result = await _voice.RetrySpeechAsync(
+                        RadioSpeechTextNormalizer.Normalize(visible, _stateRepository.GetPlayer()?.GroupCallsign),
+                        null,
+                        new Progress<VoiceStage>(_ => { }),
+                        _contactSpeechCancellation.Token);
+                    result.Audio?.Dispose();
+                    if (result.Failure is not null)
+                    {
+                        _status.Text = SpeechServiceException.FormatPartialSuccessForUser(result.Failure);
+                        _log.Warn(SpeechServiceException.FormatForLog(result.Failure));
+                    }
+                }
+                catch (OperationCanceledException) when (_disposed) { }
+                catch (Exception exception)
+                {
+                    _status.Text = SpeechServiceException.FormatPartialSuccessForUser(exception);
+                    _log.Warn(SpeechServiceException.FormatForLog(exception));
+                }
+            }
+        }
+        finally
+        {
+            _contactSpeechActive = false;
+        }
     }
 
     private async void AssistantPanel_Loaded(object sender, RoutedEventArgs e)
@@ -757,6 +836,8 @@ public sealed class AssistantPanel : UserControl, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _stateRepository.StateChanged -= StateRepository_StateChanged;
+        _contactSpeechCancellation.Cancel();
         _activeRequest?.Cancel();
         _voice.StopPlayback();
         _ = _capture.ReleaseAsync();
@@ -774,5 +855,6 @@ public sealed class AssistantPanel : UserControl, IDisposable
         _queries.Dispose();
         _ = _capture.DisposeAsync();
         _activeRequest?.Dispose();
+        _contactSpeechCancellation.Dispose();
     }
 }

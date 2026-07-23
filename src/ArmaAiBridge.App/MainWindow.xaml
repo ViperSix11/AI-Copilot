@@ -207,6 +207,9 @@
                             <TextBlock Text="Response profile" Style="{StaticResource SectionHeaderTextStyle}" Margin="0,6,0,8" />
                             <TextBlock Text="Style settings affect wording only. They cannot change facts, privacy, fair play, calculations or tool policy."
                                        Style="{StaticResource MutedTextStyle}" Margin="0,0,0,14" />
+                            <TextBlock Text="Operator pre-prompt (maximum 4,000 characters; applied before tactical context)" Margin="0,0,0,6" />
+                            <TextBox x:Name="OperatorPrePromptBox" Width="760" MaxLength="4000" MinHeight="96"
+                                     AcceptsReturn="True" TextWrapping="Wrap" Margin="0,0,0,14" />
                             <WrapPanel Margin="0,0,0,14">
                                 <StackPanel Margin="0,0,16,0">
                                     <TextBlock Text="Preset" Margin="0,0,0,6" />

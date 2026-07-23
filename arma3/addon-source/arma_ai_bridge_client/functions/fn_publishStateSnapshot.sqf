@@ -72,7 +72,6 @@ private _runSection =
     "environment",
     8,
 {
-    private _temperature = ambientTemperature;
     private _value = createHashMapFromArray
     [
         ["overcast", overcast],
@@ -81,14 +80,9 @@ private _runSection =
         ["fog", fog],
         ["fogParameters", fogParams],
         ["forecastFog", fogForecast],
-        ["wind", wind],
-        ["windDirection", windDir],
-        ["windStrength", windStr],
-        ["gusts", gusts],
         ["waves", waves],
         ["lightning", lightnings],
         ["humidity", humidity],
-        ["temperatureCelsius", if ((count _temperature) > 0) then { _temperature select 0 } else { objNull }],
         ["nextWeatherChange", nextWeatherChange]
     ];
     ["environment", _value] call _finish;

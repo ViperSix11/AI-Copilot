@@ -193,7 +193,7 @@ public sealed class Milestone5UnifiedStateMirrorTests
 
         using SqliteStateRepository repository = new(database.Path, new ManualTimeProvider(Start));
         Assert.Equal(StateRepositoryReadiness.Ready, repository.GetDiagnostics().Readiness);
-        Assert.Equal(4, repository.GetDiagnostics().SchemaVersion);
+        Assert.Equal(5, repository.GetDiagnostics().SchemaVersion);
     }
 
     [Fact]
@@ -217,7 +217,7 @@ public sealed class Milestone5UnifiedStateMirrorTests
         }
 
         using (SqliteStateRepository repository = new(database.Path, new ManualTimeProvider(Start)))
-            Assert.Equal(4, repository.GetDiagnostics().SchemaVersion);
+            Assert.Equal(5, repository.GetDiagnostics().SchemaVersion);
 
         using SqliteConnection verify = new($"Data Source={database.Path};Pooling=False");
         verify.Open();
@@ -227,17 +227,15 @@ public sealed class Milestone5UnifiedStateMirrorTests
     }
 
     [Fact]
-    public void DeterministicInterpreters_DeriveWeatherLoadoutForceAndContactFacts()
+    public void DeterministicInterpreters_DeriveOvercastLoadoutForceAndContactFacts()
     {
         using TempDatabase database = new();
         ManualTimeProvider time = new(Start);
         using SqliteStateRepository repository = ReadyRepository(database.Path, time);
         EnvironmentInterpretation environment = new EnvironmentInterpretationService().Interpret(
             repository.GetEnvironment()!, repository.GetTimeAstronomy());
-        Assert.Equal(5, environment.WindSpeedMetersPerSecond);
-        Assert.Equal(37, environment.WindBearingDegrees);
-        Assert.Equal("northeast", environment.WindCardinalDirection);
-        Assert.Equal("light", environment.RainClassification);
+        Assert.Equal(0.4, environment.Overcast);
+        Assert.Equal("unsettled", environment.Condition);
 
         LoadoutSummary loadout = new LoadoutSummaryService().Summarize(repository.GetLoadout()!);
         Assert.Equal(27, loadout.LoadedRounds);
@@ -309,8 +307,11 @@ public sealed class Milestone5UnifiedStateMirrorTests
         });
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement root = document.RootElement;
-        Assert.Equal(0, root.GetProperty("environment").GetProperty("rain").GetDouble());
-        Assert.Equal(0, root.GetProperty("environment").GetProperty("fog").GetDouble());
+        JsonElement environment = root.GetProperty("environment");
+        Assert.Equal(0.4, environment.GetProperty("overcast").GetDouble());
+        Assert.Equal("unsettled", environment.GetProperty("condition").GetString());
+        foreach (string removed in new[] { "rain", "fog", "wind", "temperatureCelsius" })
+            Assert.False(environment.TryGetProperty(removed, out _), removed);
         Assert.False(root.TryGetProperty("loadout", out _));
         Assert.Equal(12, root.GetProperty("friendlyForces").GetProperty("groups").GetArrayLength());
         Assert.Equal(12, root.GetProperty("enemyContacts").GetProperty("records").GetArrayLength());

@@ -1,13 +1,8 @@
 namespace ArmaAiBridge.App.Models;
 
 public sealed record EnvironmentInterpretation(
-    double WindSpeedMetersPerSecond,
-    int WindBearingDegrees,
-    string WindCardinalDirection,
-    string RainClassification,
-    string FogClassification,
-    double? TemperatureCelsius,
-    string DaytimeDescription,
+    double Overcast,
+    string Condition,
     double AgeSeconds,
     bool IsStale);
 

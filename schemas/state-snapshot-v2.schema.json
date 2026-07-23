@@ -52,15 +52,13 @@
     "environment": {
       "type": "object",
       "required": ["sampledAt", "readiness"],
-      "allOf": [{ "if": { "properties": { "readiness": { "enum": ["ready", "stale"] } } }, "then": { "required": ["overcast", "forecastOvercast", "rain", "fog", "fogParameters", "forecastFog", "wind", "windDirection", "windStrength", "gusts", "waves", "lightning", "humidity", "temperatureCelsius", "nextWeatherChange"] } }],
+      "allOf": [{ "if": { "properties": { "readiness": { "enum": ["ready", "stale"] } } }, "then": { "required": ["overcast", "forecastOvercast", "rain", "fog", "fogParameters", "forecastFog", "waves", "lightning", "humidity", "nextWeatherChange"] } }],
       "properties": {
         "sampledAt": { "type": "number", "minimum": 0 }, "readiness": { "$ref": "#/$defs/readiness" },
         "overcast": { "$ref": "#/$defs/unit" }, "forecastOvercast": { "$ref": "#/$defs/unit" }, "rain": { "$ref": "#/$defs/unit" },
         "fog": { "$ref": "#/$defs/unit" }, "fogParameters": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number", "minimum": -5000, "maximum": 5000 } },
-        "forecastFog": { "$ref": "#/$defs/unit" }, "wind": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number", "minimum": -1000, "maximum": 1000 } },
-        "windDirection": { "type": "number", "minimum": -360, "maximum": 360 }, "windStrength": { "$ref": "#/$defs/unit" },
-        "gusts": { "$ref": "#/$defs/unit" }, "waves": { "$ref": "#/$defs/unit" }, "lightning": { "$ref": "#/$defs/unit" },
-        "humidity": { "$ref": "#/$defs/unit" }, "temperatureCelsius": { "type": ["number", "null"], "minimum": -100, "maximum": 100 },
+        "forecastFog": { "$ref": "#/$defs/unit" }, "waves": { "$ref": "#/$defs/unit" }, "lightning": { "$ref": "#/$defs/unit" },
+        "humidity": { "$ref": "#/$defs/unit" },
         "nextWeatherChange": { "type": "number", "minimum": -1 }
       },
       "additionalProperties": false
@@ -138,7 +136,7 @@
     },
     "contact": {
       "type": "object", "required": ["sourceId", "class", "displayName", "contactType", "perceivedSide", "relationship", "estimatedPosition", "positionErrorMeters", "lastSeenAgeSeconds", "lastThreatAgeSeconds", "observerGroupSourceIds"],
-      "properties": { "sourceId": { "$ref": "#/$defs/id" }, "class": { "$ref": "#/$defs/text" }, "displayName": { "$ref": "#/$defs/optionalText" }, "contactType": { "enum": ["person", "ground-vehicle", "air", "naval", "static-weapon", "unmanned-ground", "unmanned-air"] }, "perceivedSide": { "enum": ["WEST", "EAST", "GUER", "CIV", "ENEMY"] }, "relationship": { "enum": ["friendly", "hostile", "neutral", "civilian"] }, "estimatedPosition": { "$ref": "#/$defs/vector" }, "positionErrorMeters": { "type": "number", "minimum": 0, "maximum": 100000 }, "lastSeenAgeSeconds": { "type": "number", "minimum": -1, "maximum": 600 }, "lastThreatAgeSeconds": { "type": "number", "minimum": -1, "maximum": 600 }, "observerGroupSourceIds": { "type": "array", "minItems": 1, "maxItems": 128, "items": { "$ref": "#/$defs/id" } } },
+      "properties": { "sourceId": { "$ref": "#/$defs/id" }, "class": { "$ref": "#/$defs/text" }, "displayName": { "$ref": "#/$defs/optionalText" }, "contactType": { "enum": ["person", "ground-vehicle", "air", "naval", "static-weapon", "unmanned-ground", "unmanned-air"] }, "perceivedSide": { "enum": ["WEST", "EAST", "GUER", "CIV", "ENEMY", "UNKNOWN"] }, "relationship": { "enum": ["friendly", "hostile", "unknown", "neutral", "civilian"] }, "estimatedPosition": { "$ref": "#/$defs/vector" }, "positionErrorMeters": { "type": "number", "minimum": 0, "maximum": 100000 }, "lastSeenAgeSeconds": { "type": "number", "minimum": -1, "maximum": 600 }, "lastThreatAgeSeconds": { "type": "number", "minimum": -1, "maximum": 600 }, "observerGroupSourceIds": { "type": "array", "minItems": 1, "maxItems": 128, "items": { "$ref": "#/$defs/id" } } },
       "additionalProperties": false
     },
     "knownContacts": { "type": "object", "required": ["sampledAt", "readiness"], "allOf": [{ "if": { "properties": { "readiness": { "enum": ["ready", "stale"] } } }, "then": { "required": ["contacts"] } }], "properties": { "sampledAt": { "type": "number", "minimum": 0 }, "readiness": { "$ref": "#/$defs/readiness" }, "contacts": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/contact" } } }, "additionalProperties": false },

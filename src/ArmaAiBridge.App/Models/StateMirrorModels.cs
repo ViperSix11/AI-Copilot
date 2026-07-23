@@ -42,15 +42,9 @@ public sealed record StateEnvironment(
     double Fog,
     IReadOnlyList<double> FogParameters,
     double ForecastFog,
-    double WindX,
-    double WindY,
-    double WindDirection,
-    double WindStrength,
-    double Gusts,
     double Waves,
     double Lightning,
     double Humidity,
-    double? TemperatureCelsius,
     double NextWeatherChange,
     StateSectionMetadata Metadata);
 
