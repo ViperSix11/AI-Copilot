@@ -21,9 +21,9 @@ FORBIDDEN_MARKERS = (
 
 EXPECTED_PATHS = (
     ".github/workflows/build.yml",
-    "docs/papa-bear-v1/codex-milestone-4a-voice-position-mvp.md",
-    "docs/papa-bear-v1/codex-milestone-5-contextual-interpreter.md",
-    "docs/papa-bear-v1/codex-milestone-5-unified-state-mirror.md",
+    "docs/papa-bear-v1/README.md",
+    "docs/papa-bear-v1/world-model.md",
+    "docs/papa-bear-v1/privacy-and-fair-play.md",
     "scripts/package_pbo.py",
     "arma3/@Arma_AI_Bridge/mod.cpp",
     "arma3/addon-source/arma_ai_bridge_client/config.cpp",

@@ -254,6 +254,29 @@ private _runSection =
             if ((count _role) > 0) then { _vehicleRole = toLower (_role select 0); };
         };
         private _target = assignedTarget _x;
+        private _weaponClasses = (weapons _x) select [0, 8];
+        private _magazineClasses = [];
+        {
+            private _class = _x param [0, ""];
+            if !(_class isEqualTo "") then { _magazineClasses pushBackUnique _class; };
+        } forEach (magazinesAmmoFull _x);
+        if ((count _magazineClasses) > 32) then { _magazineClasses resize 32; };
+        private _itemClasses = [];
+        { _itemClasses pushBackUnique _x; } forEach ((items _x) + (assignedItems _x));
+        if ((count _itemClasses) > 32) then { _itemClasses resize 32; };
+        private _vehicleWeaponCargo = [];
+        private _vehicleMagazineCargo = [];
+        private _vehicleItemCargo = [];
+        private _vehicleBackpackCargo = [];
+        private _vehicleTransportCapacity = 0;
+        if !(_vehicle isEqualTo _x) then
+        {
+            _vehicleWeaponCargo = ((getWeaponCargo _vehicle) param [0, []]) select [0, 32];
+            _vehicleMagazineCargo = ((getMagazineCargo _vehicle) param [0, []]) select [0, 64];
+            _vehicleItemCargo = ((getItemCargo _vehicle) param [0, []]) select [0, 64];
+            _vehicleBackpackCargo = ((getBackpackCargo _vehicle) param [0, []]) select [0, 16];
+            _vehicleTransportCapacity = getNumber (configFile >> "CfgVehicles" >> (typeOf _vehicle) >> "transportSoldier");
+        };
         _unitRecords pushBack (createHashMapFromArray
         [
             ["sourceId", [_x, "unit"] call AAB_fnc_getStableEntityId],
@@ -262,7 +285,12 @@ private _runSection =
             ["position", getPosATL _x], ["alive", alive _x], ["lifeState", lifeState _x],
             ["mobile", alive _x && { canMove _x }], ["damage", damage _x], ["currentCommand", currentCommand _x],
             ["assignedTargetSourceId", if (isNull _target) then { "" } else { [_target, "contact"] call AAB_fnc_getStableEntityId }],
-            ["vehicleSourceId", _vehicleId], ["vehicleRole", _vehicleRole]
+            ["vehicleSourceId", _vehicleId], ["vehicleRole", _vehicleRole],
+            ["weaponClasses", _weaponClasses], ["magazineClasses", _magazineClasses],
+            ["itemClasses", _itemClasses], ["vehicleWeaponCargo", _vehicleWeaponCargo],
+            ["vehicleMagazineCargo", _vehicleMagazineCargo], ["vehicleItemCargo", _vehicleItemCargo],
+            ["vehicleBackpackCargo", _vehicleBackpackCargo],
+            ["vehicleTransportCapacity", _vehicleTransportCapacity]
         ]);
     } forEach _friendlyUnits;
     ["friendlyForces", createHashMapFromArray [["groups", _groupRecords], ["units", _unitRecords]]] call _finish;

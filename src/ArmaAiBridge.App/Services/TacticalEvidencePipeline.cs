@@ -192,6 +192,22 @@ public static class TacticalEvidencePipeline
                 : $"Current hostile picture: {current} current, {lastKnown} last-known and {dead} confirmed dead.",
             "high", "current", total == 0, false, false, null);
 
+        if (total > 0)
+        {
+            string composition = CurrentHostileComposition(contacts);
+            int currentClusters = CurrentHostileClusterCount(contacts);
+            string clusterText = currentClusters == 0
+                ? "No geographic grouping is supported."
+                : $"The current observations form {currentClusters} geographic presentation " +
+                  $"{(currentClusters == 1 ? "cluster" : "clusters")}.";
+            add("hostile-strength", "derived-local",
+                $"Supported hostile strength estimate: {current} current observed {(current == 1 ? "contact" : "contacts")} " +
+                $"and {lastKnown} last-known. " +
+                $"Current identified composition: {composition}. {clusterText} " +
+                "This is an observed-contact estimate and may not equal total personnel when observations overlap or vehicle crews are unknown.",
+                "medium", "current", false, false, false, null);
+        }
+
         int currentUnknown = Object(contacts, "summary", out JsonElement unknownSummary)
             ? IntegerValue(unknownSummary, "currentUnknownContactCount") : 0;
         int lastKnownUnknown = Object(contacts, "summary", out unknownSummary)
@@ -363,10 +379,16 @@ public static class TacticalEvidencePipeline
     private static IReadOnlyList<Evidence> Select(IReadOnlyList<Evidence> candidates, string input)
     {
         HashSet<string> inputTerms = Terms(input);
+        string resolvedIntent = candidates
+            .Where(item => item.Category == "dialogue-focus" &&
+                           item.Statement.StartsWith("Resolved current request:", StringComparison.Ordinal))
+            .Select(item => item.OriginalText)
+            .FirstOrDefault() ?? string.Empty;
+        string intent = resolvedIntent.Length == 0 ? input : $"{input} {resolvedIntent}";
         bool blank = input.Length == 0;
         bool report = LooksLikeTacticalReport(input);
-        bool broad = ContainsAny(input, "situation", "sitrep", "status report", "overview", "whole picture");
-        bool confirmation = ContainsAny(input, "sensor", "confirmed", "confirmation", "recorded", "records", "state mirror", "feed", "known contact");
+        bool broad = ContainsAny(intent, "situation", "sitrep", "status report", "overview", "whole picture");
+        bool confirmation = ContainsAny(intent, "sensor", "confirmed", "confirmation", "recorded", "records", "state mirror", "feed", "known contact");
         bool question = PlayerUtteranceClassifier.IsQuestion(input);
         bool hasLocationFusion = candidates.Any(evidence => evidence.Category == "corroboration");
 
@@ -376,7 +398,7 @@ public static class TacticalEvidencePipeline
             if (evidence.AlwaysInclude || evidence.CurrentPlayerReport) { selected.Add(evidence); continue; }
             if (hasLocationFusion && evidence.Category is "hostile-contact" or "hostile-focus" or "unknown-contact" or "location") continue;
             int overlap = evidence.Terms.Count(inputTerms.Contains);
-            bool category = CategoryIntent(evidence.Category, input) || broad;
+            bool category = CategoryIntent(evidence.Category, intent) || broad;
             if (evidence.NegativeAbsence)
             {
                 if (!report && category && (question || confirmation || broad)) selected.Add(evidence);
@@ -393,7 +415,9 @@ public static class TacticalEvidencePipeline
             }
             if (evidence.Category is "session-memory" or "dialogue-focus")
             {
-                if (overlap > 0 || category) selected.Add(evidence);
+                if (overlap > 0 || category ||
+                    evidence.Statement.StartsWith("Resolved current request:", StringComparison.Ordinal))
+                    selected.Add(evidence);
                 continue;
             }
             if (evidence.Category == "location" && overlap > 0) { selected.Add(evidence); continue; }
@@ -480,9 +504,10 @@ public static class TacticalEvidencePipeline
         "friendly-force" => ContainsAny(input, "friendly", "friendlies", "unit", "group", "team", "callsign", "wounded", "casualt", "force"),
         "objective" => ContainsAny(input, "objective", "mission", "task", "goal", "destination", "target"),
         "hostile-summary" => ContainsAny(input, "enemy", "hostile", "hostiles", "threat", "opfor"),
+        "hostile-strength" => ContainsAny(input, "combatant", "strength", "how many enemies", "how many hostiles", "enemy count", "hostile count", "contact count", "approximation", "approximate", "estimate"),
         "unknown-summary" => ContainsAny(input, "unknown", "unidentified"),
-        "hostile-focus" => ContainsAny(input, "where", "grid", "last seen", "who reported", "who saw", "who observed", "this enemy", "this hostile", "this contact", "enemy contact"),
-        "hostile-contact" => ContainsAny(input, "where", "which", "describe", "details", "grid", "who reported", "who saw", "who observed", "last seen"),
+        "hostile-focus" => ContainsAny(input, "where", "position", "grid", "last seen", "last known", "who reported", "who saw", "who observed", "this enemy", "this hostile", "this contact", "enemy contact"),
+        "hostile-contact" => ContainsAny(input, "where", "position", "which", "describe", "details", "grid", "who reported", "who saw", "who observed", "last seen", "last known"),
         "unknown-contact" => ContainsAny(input, "unknown", "unidentified", "where", "grid", "who reported", "who saw"),
         "location" => ContainsAny(input, "location", "place", "area", "airport", "airfield", "base", "camp", "harbor", "harbour", "port"),
         "corroboration" => true,
@@ -503,7 +528,36 @@ public static class TacticalEvidencePipeline
     private static string NormalizeForComparison(string value)
         => string.Join(' ', Terms(value).OrderBy(x => x, StringComparer.Ordinal));
     private static int CategoryOrder(string category) => category switch
-    { "player-report" => 0, "player" => 1, "dialogue-focus" => 2, "corroboration" => 3, "session-memory" => 4, "hostile-summary" => 5, "unknown-summary" => 6, "hostile-focus" => 7, "hostile-contact" => 8, "unknown-contact" => 9, "friendly-force" => 10, "objective" => 11, "location" => 12, "environment" => 13, "mission-time" => 14, "lore" => 15, "privacy-boundary" => 98, _ => 99 };
+    { "player-report" => 0, "player" => 1, "dialogue-focus" => 2, "corroboration" => 3, "session-memory" => 4, "hostile-strength" => 5, "hostile-summary" => 6, "unknown-summary" => 7, "hostile-focus" => 8, "hostile-contact" => 9, "unknown-contact" => 10, "friendly-force" => 11, "objective" => 12, "location" => 13, "environment" => 14, "mission-time" => 15, "lore" => 16, "privacy-boundary" => 98, _ => 99 };
+
+    private static string CurrentHostileComposition(JsonElement contacts)
+    {
+        if (!Array(contacts, "records", out JsonElement records)) return "unavailable";
+        string[] composition = records.EnumerateArray()
+            .Where(item => Text(item, "status") == "current")
+            .Where(item => !Text(item, "description").StartsWith("unknown", StringComparison.OrdinalIgnoreCase))
+            .GroupBy(item => Text(item, "contactType"), StringComparer.Ordinal)
+            .OrderBy(item => item.Key, StringComparer.Ordinal)
+            .Select(item => $"{item.Count()} {StrengthNoun(item.Key, item.Count())}")
+            .ToArray();
+        return composition.Length == 0 ? "unavailable" : string.Join(", ", composition);
+    }
+
+    private static int CurrentHostileClusterCount(JsonElement contacts)
+    {
+        if (!Array(contacts, "groups", out JsonElement groups)) return 0;
+        return groups.EnumerateArray().Count(item =>
+            Text(item, "status") == "current" &&
+            !Text(item, "description").StartsWith("unknown", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string StrengthNoun(string type, int count) => type switch
+    {
+        "person" => count == 1 ? "infantry contact" : "infantry contacts",
+        "ground-vehicle" => count == 1 ? "vehicle" : "vehicles",
+        "air" => count == 1 ? "aircraft" : "aircraft",
+        _ => count == 1 ? "contact" : "contacts"
+    };
 
     private static HashSet<string> Terms(string value) => value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
         .Select(x => new string(x.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant())

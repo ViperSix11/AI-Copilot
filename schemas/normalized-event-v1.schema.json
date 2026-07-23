@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.arma-ai-bridge.invalid/schemas/normalized-event-v1.schema.json",
+  "title": "Papa Bear minimally normalized event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "eventAlias",
+    "eventType",
+    "transition",
+    "entityAlias",
+    "observedAtUtc"
+  ],
+  "properties": {
+    "schema": {
+      "const": "arma-ai-bridge/normalized-event-v1"
+    },
+    "eventAlias": {
+      "type": "string",
+      "pattern": "^event-[a-zA-Z0-9_-]{1,80}$"
+    },
+    "eventType": {
+      "type": "string",
+      "enum": [
+        "entity-state-changed"
+      ]
+    },
+    "transition": {
+      "type": "string",
+      "enum": [
+        "newly-current",
+        "current-after-stale"
+      ]
+    },
+    "entityAlias": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "observedAtUtc": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

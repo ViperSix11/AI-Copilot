@@ -116,7 +116,15 @@ public sealed record StateFriendlyUnit(
     string AssignedTargetAlias,
     string VehicleAlias,
     string VehicleRole,
-    StateSectionMetadata Metadata);
+    StateSectionMetadata Metadata,
+    IReadOnlyList<string>? WeaponClasses = null,
+    IReadOnlyList<string>? MagazineClasses = null,
+    IReadOnlyList<string>? ItemClasses = null,
+    IReadOnlyList<string>? VehicleWeaponCargo = null,
+    IReadOnlyList<string>? VehicleMagazineCargo = null,
+    IReadOnlyList<string>? VehicleItemCargo = null,
+    IReadOnlyList<string>? VehicleBackpackCargo = null,
+    int VehicleTransportCapacity = 0);
 
 public sealed record StateKnownContact(
     string Alias,

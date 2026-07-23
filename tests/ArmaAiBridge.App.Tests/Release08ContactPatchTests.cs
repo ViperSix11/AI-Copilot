@@ -74,7 +74,7 @@ public sealed class Release08ContactPatchTests
     public void ContactAnnouncements_SilenceBaselineDeduplicateAndResetPerSession()
     {
         ManualTimeProvider time = new(Start);
-        ContactAnnouncementDetector detector = new(new FixedPositionReporter(), time);
+        ContactAnnouncementDetector detector = new(new FixedPositionReporter(), time, TimeSpan.Zero);
         MissionContactTrack first = Track("contact-a", "hostile", "current", 2550, 6450);
         Assert.Empty(detector.Evaluate("session-a", 1, [first], "Alpha 1-1"));
         Assert.Empty(detector.Evaluate("session-a", 2, [first], "Alpha 1-1"));
@@ -101,7 +101,7 @@ public sealed class Release08ContactPatchTests
     public void ContactAnnouncements_GroupCompatibleTracksIntoOneRadioMessage()
     {
         ManualTimeProvider time = new(Start);
-        ContactAnnouncementDetector detector = new(new FixedPositionReporter(), time);
+        ContactAnnouncementDetector detector = new(new FixedPositionReporter(), time, TimeSpan.Zero);
         MissionContactTrack[] stale = Enumerable.Range(0, 4)
             .Select(index => Track($"contact-{index}", "hostile", "last-known", 6250 + index * 5, 5550 + index * 5))
             .ToArray();
@@ -119,7 +119,10 @@ public sealed class Release08ContactPatchTests
     [Fact]
     public void ContactAnnouncements_ConsolidateRelatedInfantryAndVehicle()
     {
-        ContactAnnouncementDetector detector = new(new FixedPositionReporter(), new ManualTimeProvider(Start));
+        ContactAnnouncementDetector detector = new(
+            new FixedPositionReporter(),
+            new ManualTimeProvider(Start),
+            TimeSpan.Zero);
         Assert.Empty(detector.Evaluate("session-a", 1, [], "Alpha 1-1"));
         MissionContactTrack infantry = Track("contact-a", "hostile", "current", 1000, 1000);
         MissionContactTrack vehicle = Track("contact-b", "hostile", "current", 1020, 1020) with
@@ -135,10 +138,87 @@ public sealed class Release08ContactPatchTests
     }
 
     [Fact]
+    public void ContactAnnouncements_GroupDistinctVehicleTracksWithTheSameRadioPosition()
+    {
+        ContactAnnouncementDetector detector = new(
+            new FixedPositionReporter(),
+            new ManualTimeProvider(Start),
+            TimeSpan.Zero);
+        Assert.Empty(detector.Evaluate("session-a", 1, [], "Alpha 1-2"));
+        MissionContactTrack first = Track("vehicle-a", "hostile", "current", 1000, 1000) with
+        {
+            ContactType = "ground-vehicle",
+            Description = "hostile vehicle"
+        };
+        MissionContactTrack second = Track("vehicle-b", "hostile", "current", 1200, 1200) with
+        {
+            ContactType = "ground-vehicle",
+            Description = "hostile vehicle"
+        };
+        MissionContactTrack aircraft = Track("aircraft-a", "unknown", "current", 1400, 1400) with
+        {
+            ContactType = "air",
+            Description = "unknown aircraft"
+        };
+
+        IReadOnlyList<ContactAnnouncement> announcements =
+            detector.Evaluate("session-a", 2, [first, second, aircraft], "Alpha 1-2");
+
+        Assert.Equal(2, announcements.Count);
+        Assert.Contains(announcements, item =>
+            item.VisibleText ==
+            "Alpha 1-2, enemy vehicle group, two vehicles, 600 metres northeast of Bullseye Alpha.");
+        Assert.Contains(announcements, item =>
+            item.VisibleText ==
+            "Alpha 1-2, unknown aircraft, 600 metres northeast of Bullseye Alpha.");
+    }
+
+    [Fact]
+    public void ContactAnnouncements_BatchNearbyTracksAndSuppressIncrementalClusterChatter()
+    {
+        ManualTimeProvider time = new(Start);
+        ContactAnnouncementDetector detector = new(
+            new FixedPositionReporter(),
+            time,
+            TimeSpan.FromSeconds(3));
+        Assert.Empty(detector.Evaluate("session-a", 1, [], "Alpha 1-1"));
+        MissionContactTrack[] firstWave =
+        [
+            Track("contact-a", "hostile", "current", 1000, 1000),
+            Track("contact-b", "hostile", "current", 1100, 1000),
+            Track("contact-c", "hostile", "current", 1200, 1000)
+        ];
+
+        Assert.Empty(detector.Evaluate("session-a", 2, firstWave, "Alpha 1-1"));
+        Assert.True(detector.HasPending);
+        time.Advance(TimeSpan.FromSeconds(3));
+        ContactAnnouncement grouped = Assert.Single(detector.FlushPending("Alpha 1-1"));
+        Assert.Contains("enemy infantry group, approximately three contacts", grouped.VisibleText,
+            StringComparison.Ordinal);
+
+        time.Advance(TimeSpan.FromSeconds(8));
+        MissionContactTrack fourth = Track("contact-d", "hostile", "current", 1220, 1000);
+        Assert.Empty(detector.Evaluate("session-a", 3, [.. firstWave, fourth], "Alpha 1-1"));
+        time.Advance(TimeSpan.FromSeconds(3));
+        Assert.Empty(detector.FlushPending("Alpha 1-1"));
+
+        MissionContactTrack aircraft = Track("aircraft-a", "unknown", "current", 1210, 1000) with
+        {
+            ContactType = "air",
+            Description = "unknown aircraft"
+        };
+        Assert.Empty(detector.Evaluate("session-a", 4, [.. firstWave, fourth, aircraft], "Alpha 1-1"));
+        time.Advance(TimeSpan.FromSeconds(3));
+        Assert.Contains("unknown aircraft",
+            Assert.Single(detector.FlushPending("Alpha 1-1")).VisibleText,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ContactAnnouncements_DoNotCallABriefLastKnownFlickerAReacquisition()
     {
         ManualTimeProvider time = new(Start);
-        ContactAnnouncementDetector detector = new(new FixedPositionReporter(), time);
+        ContactAnnouncementDetector detector = new(new FixedPositionReporter(), time, TimeSpan.Zero);
         MissionContactTrack current = Track("contact-a", "hostile", "current", 2550, 6450);
         Assert.Empty(detector.Evaluate("session-a", 1, [current], "Alpha 1-1"));
         Assert.Empty(detector.Evaluate("session-a", 2, [current with { Status = "last-known" }], "Alpha 1-1"));
@@ -158,6 +238,63 @@ public sealed class Release08ContactPatchTests
         foreach (string forbidden in new[] { "metres from your position", "bearing", "rangeFromPlayer", "bearingFromPlayer", "direction" })
             Assert.DoesNotContain(forbidden, evidence.ModelContext, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("reported by", evidence.ModelContext, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void LastKnownEnemyPositionQuestion_SelectsTheNewestContactPosition()
+    {
+        using TestDatabase database = new();
+        ManualTimeProvider time = new(Start);
+        using SqliteStateRepository repository = Ready(database.Path, time, "EAST", "hostile");
+        string snapshot = JsonSerializer.Serialize(
+            new TacticalSnapshotBuilder(repository, repository, time)
+                .Build("Can you give me the last known position of the enemies?"));
+
+        TacticalEvidenceReport evidence = TacticalEvidencePipeline.Build(
+            snapshot,
+            "Can you give me the last known position of the enemies?");
+
+        Assert.Contains("hostile infantry", evidence.ModelContext, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("grid 025064", evidence.ModelContext, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("status current", evidence.ModelContext, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void HostileStrengthTopic_SelectsCountsForCombatantsAndApproximationFollowUp()
+    {
+        using TestDatabase database = new();
+        ManualTimeProvider time = new(Start);
+        using SqliteStateRepository repository = Ready(database.Path, time, "EAST", "hostile");
+        TacticalSnapshotBuilder builder = new(repository, repository, time);
+
+        string firstSnapshot = JsonSerializer.Serialize(
+            builder.Build("How many combatants are we talking about?"));
+        TacticalEvidenceReport first = TacticalEvidencePipeline.Build(
+            firstSnapshot,
+            "How many combatants are we talking about?");
+        Assert.Contains("Supported hostile strength estimate: 1 current observed contact",
+            first.ModelContext, StringComparison.Ordinal);
+        Assert.Contains("1 infantry contact", first.ModelContext, StringComparison.Ordinal);
+
+        JsonElement followUpSnapshot = JsonDocument.Parse(JsonSerializer.Serialize(
+            builder.Build("Do you have an approximation?"))).RootElement.Clone();
+        JsonElement focus = followUpSnapshot.GetProperty("retrievedMemory").GetProperty("dialogueFocus");
+        Assert.Equal("hostile-strength", focus.GetProperty("activeTopic").GetString());
+        Assert.Contains("Estimate hostile strength", focus.GetProperty("resolvedQuestion").GetString(),
+            StringComparison.Ordinal);
+
+        TacticalEvidenceReport followUp = TacticalEvidencePipeline.Build(
+            followUpSnapshot.GetRawText(),
+            "Do you have an approximation?");
+        Assert.Contains("Supported hostile strength estimate: 1 current observed contact",
+            followUp.ModelContext, StringComparison.Ordinal);
+        Assert.DoesNotContain("overcast", followUp.ModelContext, StringComparison.OrdinalIgnoreCase);
+
+        JsonElement unrelated = JsonDocument.Parse(JsonSerializer.Serialize(
+            builder.Build("What is the weather?"))).RootElement
+            .GetProperty("retrievedMemory").GetProperty("dialogueFocus").Clone();
+        Assert.Equal(JsonValueKind.Null, unrelated.GetProperty("activeTopic").ValueKind);
+        Assert.Equal(JsonValueKind.Null, unrelated.GetProperty("resolvedQuestion").ValueKind);
     }
 
     [Fact]

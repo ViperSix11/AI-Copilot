@@ -75,6 +75,39 @@ public sealed class Milestone5UnifiedStateMirrorTests
         JsonNode missingChannel = SnapshotNode();
         missingChannel["sections"]!["markers"]!["markers"]![0]!.AsObject().Remove("channel");
         Assert.Equal("state_integer_invalid", ParseFailure(missingChannel));
+
+        JsonNode excessiveEquipment = SnapshotNode();
+        excessiveEquipment["sections"]!["friendlyForces"]!["units"]![0]!["weaponClasses"] =
+            new JsonArray(Enumerable.Range(0, 9).Select(index => (JsonNode?)$"weapon-{index}").ToArray());
+        Assert.Equal("state_array_invalid", ParseFailure(excessiveEquipment));
+    }
+
+    [Fact]
+    public void FriendlyEquipment_IsBoundedAndRoundTripsThroughCanonicalState()
+    {
+        JsonNode snapshot = SnapshotNode();
+        JsonNode unit = snapshot["sections"]!["friendlyForces"]!["units"]![0]!;
+        unit["weaponClasses"] = new JsonArray("arifle_MX_F", "launch_NLAW_F");
+        unit["magazineClasses"] = new JsonArray("30Rnd_65x39_caseless_mag");
+        unit["itemClasses"] = new JsonArray("FirstAidKit");
+        unit["vehicleWeaponCargo"] = new JsonArray("arifle_MXC_F");
+        unit["vehicleMagazineCargo"] = new JsonArray("30Rnd_65x39_caseless_mag");
+        unit["vehicleItemCargo"] = new JsonArray("ToolKit");
+        unit["vehicleBackpackCargo"] = new JsonArray("B_AssaultPack_khk");
+        unit["vehicleTransportCapacity"] = 8;
+
+        using TempDatabase database = new();
+        using SqliteStateRepository repository = new(database.Path, new ManualTimeProvider(Start));
+        Activate(repository);
+        Assert.Equal(
+            TelemetryIngestStatus.Applied,
+            repository.ApplySnapshot(Parse(snapshot, new ManualTimeProvider(Start))).Status);
+        StateFriendlyUnit stored = Assert.Single(repository.GetFriendlyUnits());
+
+        Assert.Equal(new[] { "arifle_MX_F", "launch_NLAW_F" }, stored.WeaponClasses);
+        Assert.Equal(new[] { "30Rnd_65x39_caseless_mag" }, stored.MagazineClasses);
+        Assert.Equal(new[] { "ToolKit" }, stored.VehicleItemCargo);
+        Assert.Equal(8, stored.VehicleTransportCapacity);
     }
 
     [Fact]
@@ -518,6 +551,7 @@ public sealed class Milestone5UnifiedStateMirrorTests
             ("friendlyForces", 2), ("knownContacts", 2), ("tasks", 4), ("markers", 4)
         })
             Assert.Matches($@"\[\s*""{section}""\s*,\s*{cadence}\s*,\s*\{{", publisher);
+        Assert.Contains("(_now - _lastPublish) < 4", publisher, StringComparison.Ordinal);
         Assert.True(publisher.IndexOf("call _runSection", StringComparison.Ordinal) < publisher.IndexOf("private _lastPublish", StringComparison.Ordinal));
     }
 

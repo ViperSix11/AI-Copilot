@@ -9,17 +9,41 @@ public sealed class ContactAnnouncementDetector
     internal static readonly TimeSpan MinimumReacquisitionInterval = TimeSpan.FromSeconds(30);
     private readonly object _gate = new();
     private readonly Dictionary<string, TrackState> _stateByTrack = new(StringComparer.Ordinal);
+    private readonly List<TransitionedContact> _pendingTransitions = new();
+    private readonly List<PresentationState> _recentPresentations = new();
     private readonly ITacticalPositionReporter _positionReports;
     private readonly TimeProvider _timeProvider;
+    private readonly TimeSpan _batchWindow;
     private string _sessionKey = string.Empty;
     private bool _baselineEstablished;
+    private DateTimeOffset? _pendingSinceUtc;
 
     public ContactAnnouncementDetector(
         ITacticalPositionReporter? positionReports = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        TimeSpan? batchWindow = null)
     {
         _positionReports = positionReports ?? new GridOnlyPositionReporter();
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _batchWindow = batchWindow ?? ContactPresentationPolicy.AnnouncementBatchWindow;
+    }
+
+    public bool HasPending
+    {
+        get { lock (_gate) return _pendingTransitions.Count > 0; }
+    }
+
+    public TimeSpan PendingDelay
+    {
+        get
+        {
+            lock (_gate)
+            {
+                if (_pendingTransitions.Count == 0 || _pendingSinceUtc is null) return TimeSpan.Zero;
+                TimeSpan remaining = _batchWindow - (_timeProvider.GetUtcNow() - _pendingSinceUtc.Value);
+                return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+            }
+        }
     }
 
     public IReadOnlyList<ContactAnnouncement> Evaluate(
@@ -35,6 +59,9 @@ public sealed class ContactAnnouncementDetector
             {
                 _sessionKey = sessionKey ?? string.Empty;
                 _stateByTrack.Clear();
+                _pendingTransitions.Clear();
+                _recentPresentations.Clear();
+                _pendingSinceUtc = null;
                 _baselineEstablished = false;
             }
             if (snapshotSequence <= 0) return Array.Empty<ContactAnnouncement>();
@@ -79,47 +106,125 @@ public sealed class ContactAnnouncementDetector
             }
             foreach (string removed in _stateByTrack.Keys.Where(key => !retained.Contains(key)).ToArray())
                 _stateByTrack.Remove(removed);
-            return GroupTransitions(transitions, playerCallsign);
+            if (transitions.Count > 0)
+            {
+                if (_pendingTransitions.Count == 0) _pendingSinceUtc = now;
+                _pendingTransitions.AddRange(transitions);
+            }
+            return DrainPending(now, playerCallsign, force: _batchWindow <= TimeSpan.Zero);
         }
+    }
+
+    public IReadOnlyList<ContactAnnouncement> FlushPending(string? playerCallsign)
+    {
+        lock (_gate)
+            return DrainPending(_timeProvider.GetUtcNow(), playerCallsign, force: false);
+    }
+
+    private IReadOnlyList<ContactAnnouncement> DrainPending(
+        DateTimeOffset now,
+        string? playerCallsign,
+        bool force)
+    {
+        if (_pendingTransitions.Count == 0 || _pendingSinceUtc is null)
+            return Array.Empty<ContactAnnouncement>();
+        if (!force && now - _pendingSinceUtc.Value < _batchWindow)
+            return Array.Empty<ContactAnnouncement>();
+
+        TransitionedContact[] pending = _pendingTransitions
+            .GroupBy(item => item.Track.TrackId, StringComparer.Ordinal)
+            .Select(group => group.Last())
+            .ToArray();
+        _pendingTransitions.Clear();
+        _pendingSinceUtc = null;
+        return GroupTransitions(pending, playerCallsign, now);
     }
 
     private IReadOnlyList<ContactAnnouncement> GroupTransitions(
         IReadOnlyList<TransitionedContact> transitions,
-        string? playerCallsign)
+        string? playerCallsign,
+        DateTimeOffset now)
     {
-        List<List<TransitionedContact>> groups = new();
-        foreach (TransitionedContact transition in transitions.OrderBy(item => item.Track.TrackId, StringComparer.Ordinal))
+        PositionedTransition[] positioned = transitions
+            .Select(transition => new PositionedTransition(
+                transition,
+                _positionReports.Describe(transition.Track.EstimatedPosition)))
+            .OrderBy(item => item.Transition.Track.TrackId, StringComparer.Ordinal)
+            .ToArray();
+        List<List<PositionedTransition>> groups = new();
+        foreach (PositionedTransition transition in positioned)
         {
-            List<TransitionedContact>? group = groups.FirstOrDefault(candidate => candidate.All(item =>
-                item.Kind == transition.Kind &&
-                item.Track.Relationship == transition.Track.Relationship &&
-                Math.Abs((item.Track.LastObservedAtUtc - transition.Track.LastObservedAtUtc).TotalSeconds) <= 120 &&
-                Distance(item.Track.EstimatedPosition, transition.Track.EstimatedPosition) <= 40));
-            if (group is null) groups.Add(group = new List<TransitionedContact>());
+            List<PositionedTransition>? group = groups.FirstOrDefault(candidate => candidate.All(item =>
+                item.Transition.Kind == transition.Transition.Kind &&
+                (ContactPresentationPolicy.CanCluster(
+                     item.Transition.Track,
+                     transition.Transition.Track) ||
+                 (ContactNoun(item.Transition.Track.ContactType) ==
+                  ContactNoun(transition.Transition.Track.ContactType) &&
+                  item.Transition.Track.Relationship == transition.Transition.Track.Relationship &&
+                  string.Equals(
+                      item.Position.Text,
+                      transition.Position.Text,
+                      StringComparison.Ordinal)))));
+            if (group is null) groups.Add(group = new List<PositionedTransition>());
             group.Add(transition);
         }
 
         string callsign = SafeCallsign(playerCallsign);
-        return groups.Select(group =>
+        _recentPresentations.RemoveAll(item =>
+            now - item.AnnouncedAtUtc > ContactPresentationPolicy.SimilarAnnouncementCooldown);
+        List<ContactAnnouncement> announcements = new();
+        foreach (List<PositionedTransition> group in groups)
         {
-            TransitionedContact first = group[0];
+            PositionedTransition first = group[0];
             WorldPosition center = new(
-                group.Average(item => item.Track.EstimatedPosition.X),
-                group.Average(item => item.Track.EstimatedPosition.Y),
-                group.Average(item => item.Track.EstimatedPosition.Z));
-            TacticalPositionDescription position = _positionReports.Describe(center);
-            string classification = first.Track.Relationship == "unknown" ? "unknown" : "enemy";
-            string subject = ContactSubject(group);
-            string body = first.Kind == "reacquired"
+                group.Average(item => item.Transition.Track.EstimatedPosition.X),
+                group.Average(item => item.Transition.Track.EstimatedPosition.Y),
+                group.Average(item => item.Transition.Track.EstimatedPosition.Z));
+            string nounKey = string.Join(
+                "|",
+                group.Select(item => ContactNoun(item.Transition.Track.ContactType))
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(item => item, StringComparer.Ordinal));
+            bool recentlyPresented = _recentPresentations.Any(item =>
+                item.Relationship == first.Transition.Track.Relationship &&
+                item.NounKey == nounKey &&
+                ContactPresentationPolicy.Distance(item.Center, center) <=
+                ContactPresentationPolicy.ClusterRadiusMeters);
+            if (recentlyPresented) continue;
+
+            TacticalPositionDescription position = group.All(item =>
+                    string.Equals(item.Position.Text, first.Position.Text, StringComparison.Ordinal))
+                ? first.Position
+                : _positionReports.Describe(center);
+            string classification = first.Transition.Track.Relationship == "unknown" ? "unknown" : "enemy";
+            string subject = ContactSubject(group.Select(item => item.Transition).ToArray());
+            string body = first.Transition.Kind == "reacquired"
                 ? $"Previously reported {classification} {subject} reacquired, {position.Text}."
                 : $"{Capitalize(classification)} {subject}, {position.Text}.";
             string visible = callsign.Length == 0 ? body : $"{callsign}, {LowercaseFirst(body)}";
-            return new ContactAnnouncement(first.Track.TrackId, first.Kind, position.Grid, visible);
-        }).ToArray();
+            announcements.Add(new ContactAnnouncement(
+                first.Transition.Track.TrackId,
+                first.Transition.Kind,
+                position.Grid,
+                visible));
+            _recentPresentations.Add(new PresentationState(
+                first.Transition.Track.Relationship,
+                nounKey,
+                center,
+                now));
+        }
+        return announcements;
     }
 
     private static string ContactSubject(IReadOnlyList<TransitionedContact> group)
     {
+        string[] nouns = group.Select(item => ContactNoun(item.Track.ContactType))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (group.Count > 1 && nouns.Length == 1 && nouns[0] != "infantry")
+            return $"{nouns[0]} group, {CountWord(group.Count)} {Plural(nouns[0])}";
+
         string[] subjects = group.GroupBy(item => ContactNoun(item.Track.ContactType), StringComparer.Ordinal)
             .OrderBy(item => item.Key, StringComparer.Ordinal)
             .Select(item => item.Key == "infantry" && item.Count() > 1
@@ -163,8 +268,6 @@ public sealed class ContactAnnouncementDetector
 
     private static string Capitalize(string value) => char.ToUpperInvariant(value[0]) + value[1..];
     private static string LowercaseFirst(string value) => char.ToLowerInvariant(value[0]) + value[1..];
-    private static double Distance(WorldPosition left, WorldPosition right)
-        => Math.Sqrt(Math.Pow(right.X - left.X, 2) + Math.Pow(right.Y - left.Y, 2));
     private static string CountWord(int value) => value switch
     {
         2 => "two", 3 => "three", 4 => "four", 5 => "five", 6 => "six",
@@ -174,6 +277,14 @@ public sealed class ContactAnnouncementDetector
 
     private sealed record TrackState(string Status, DateTimeOffset? LostSinceUtc);
     private sealed record TransitionedContact(MissionContactTrack Track, string Kind);
+    private sealed record PositionedTransition(
+        TransitionedContact Transition,
+        TacticalPositionDescription Position);
+    private sealed record PresentationState(
+        string Relationship,
+        string NounKey,
+        WorldPosition Center,
+        DateTimeOffset AnnouncedAtUtc);
     private sealed class GridOnlyPositionReporter : ITacticalPositionReporter
     {
         public TacticalPositionDescription Describe(WorldPosition target)

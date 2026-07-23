@@ -103,6 +103,15 @@ public static class StateSnapshotParser
                     RequiredString(unit, "sourceId", 128); RequiredString(unit, "groupSourceId", 128);
                     Vector(unit, "position"); RequiredBoolean(unit, "alive"); RequiredBoolean(unit, "mobile");
                     RequiredNumber(unit, "damage", 0, 1);
+                    OptionalStringArray(unit, "weaponClasses", 8, 256);
+                    OptionalStringArray(unit, "magazineClasses", 32, 256);
+                    OptionalStringArray(unit, "itemClasses", 32, 256);
+                    OptionalStringArray(unit, "vehicleWeaponCargo", 32, 256);
+                    OptionalStringArray(unit, "vehicleMagazineCargo", 64, 256);
+                    OptionalStringArray(unit, "vehicleItemCargo", 64, 256);
+                    OptionalStringArray(unit, "vehicleBackpackCargo", 16, 256);
+                    if (unit.TryGetProperty("vehicleTransportCapacity", out _))
+                        RequiredInteger(unit, "vehicleTransportCapacity", 0, 1000);
                 }
                 break;
             case "knownContacts":
@@ -187,6 +196,16 @@ public static class StateSnapshotParser
     {
         if (!root.TryGetProperty(name, out JsonElement value) || value.ValueKind != JsonValueKind.Array || value.GetArrayLength() < min || value.GetArrayLength() > max)
             throw Invalid("state_array_invalid");
+    }
+    private static void OptionalStringArray(JsonElement root, string name, int maxItems, int maxLength)
+    {
+        if (!root.TryGetProperty(name, out JsonElement value)) return;
+        if (value.ValueKind != JsonValueKind.Array || value.GetArrayLength() > maxItems)
+            throw Invalid("state_array_invalid");
+        foreach (JsonElement item in value.EnumerateArray())
+            if (item.ValueKind != JsonValueKind.String ||
+                (item.GetString() ?? string.Empty).Length > maxLength)
+                throw Invalid("state_array_invalid");
     }
     private static void Vector(JsonElement root, string name) { ArrayLength(root, name, 3, 3); foreach (JsonElement value in root.GetProperty(name).EnumerateArray()) if (value.ValueKind != JsonValueKind.Number || !value.TryGetDouble(out double n) || !double.IsFinite(n) || Math.Abs(n) > 1e7) throw Invalid("state_vector_invalid"); }
     private static void Vector2(JsonElement root, string name) { ArrayLength(root, name, 3, 3); foreach (JsonElement value in root.GetProperty(name).EnumerateArray()) if (value.ValueKind != JsonValueKind.Number || !value.TryGetDouble(out double n) || !double.IsFinite(n) || Math.Abs(n) > 1e6) throw Invalid("state_vector_invalid"); }

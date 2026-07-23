@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -21,9 +23,14 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private readonly AssistantTurnService _turns;
     private readonly VoiceInteractionService _voice;
     private readonly MissionMemoryToolService? _memoryTools;
+    private readonly PlayerInformationJournal? _playerInformation;
+    private readonly ContextConversationStore _contextConversation;
+    private readonly HierarchicalContextBroker _contextBroker;
     private readonly IGlobalPushToTalkInputService _globalPttInput;
     private readonly SqliteStateRepository _stateRepository;
     private readonly ContactAnnouncementDetector _contactAnnouncements;
+    private readonly MissionEventCoordinator _missionEvents = new();
+    private readonly ConcurrentQueue<string> _normalizedEventQueue = new();
     private readonly Queue<string> _contactSpeechQueue = new();
     private readonly CancellationTokenSource _contactSpeechCancellation = new();
     private readonly TextBox _conversation = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
@@ -64,7 +71,11 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private bool _alwaysOnProcessingTurn;
     private int _globalPttDetectionCount;
     private bool _contactSpeechActive;
+    private int _contactAnnouncementFlushScheduled;
+    private int _normalizedEventDrainActive;
     private bool _disposed;
+
+    public ContextTraceStore ContextTrace { get; } = new();
 
     public AssistantPanel(
         TelemetryPipeServer pipe,
@@ -83,22 +94,26 @@ public sealed class AssistantPanel : UserControl, IDisposable
             new TacticalPositionReportingService(stateRepository));
         _queries = new ArmaQueryCoordinator(pipe);
         _memoryTools = snapshots.MissionMemory is null ? null : new MissionMemoryToolService(snapshots.MissionMemory);
+        _playerInformation = snapshots.MissionMemory is null
+            ? null
+            : new PlayerInformationJournal(snapshots.MissionMemory);
+        _contextConversation = new ContextConversationStore();
+        _contextBroker = new HierarchicalContextBroker(
+            stateRepository,
+            _contextConversation,
+            ContextTrace,
+            snapshots.MissionMemory);
         _capture = new PushToTalkCaptureCoordinator(new WindowsMicrophoneCaptureService());
         _alwaysOnCapture = new WindowsVoiceActivatedMicrophoneCaptureService();
 
-        OpenAiAssistantService openAi = new();
+        OpenAiAssistantService openAi = new(ContextTrace, _contextConversation);
         _turns = new AssistantTurnService(
             openAi,
             BuildSnapshot,
             LoadOpenAiSettingsAsync,
             ExecuteToolAsync,
-            _snapshots.GetCurrentGroupCallsign);
-        if (snapshots.MissionMemory is not null)
-        {
-            MissionMemoryConversationService memoryConversation = new(snapshots.MissionMemory);
-            _turns.SetLocalTurnHandler(text => memoryConversation.TryHandle(text, out string response)
-                ? (true, response) : (false, string.Empty));
-        }
+            _snapshots.GetCurrentGroupCallsign,
+            playerMessageRecorder: RecordPlayerMessage);
         _voice = new VoiceInteractionService(
             new OpenAiSpeechToTextService(),
             _turns,
@@ -513,9 +528,11 @@ public sealed class AssistantPanel : UserControl, IDisposable
     }
 
     private (bool Success, string Snapshot) BuildSnapshot(string question)
-        => _snapshots.TryBuildCurrentSituation(question, out string snapshot)
-            ? (true, snapshot)
-            : (false, string.Empty);
+    {
+        if (!_snapshots.TryBuildContextSeedState(out string snapshot))
+            return (false, string.Empty);
+        return (true, snapshot);
+    }
 
     private async Task<(string ApiKey, string Model, ResponseProfileSettings Profile)> LoadOpenAiSettingsAsync(CancellationToken cancellationToken)
     {
@@ -540,10 +557,31 @@ public sealed class AssistantPanel : UserControl, IDisposable
         CancellationToken cancellationToken)
         => name switch
         {
+            "inspect_context_catalogue" or "query_context" or
+                "query_long_term_map_intelligence"
+                => Task.FromResult(_contextBroker.Execute(name, arguments)),
+            "record_player_information" when _playerInformation is not null
+                => Task.FromResult(_playerInformation.Execute(arguments)),
+            "record_event_assessment" when _playerInformation is not null
+                => Task.FromResult(_playerInformation.ExecuteEventAssessment(arguments)),
             "remember_information" or "search_memory" or "update_memory" or "forget_memory" when _memoryTools is not null
                 => Task.FromResult(_memoryTools.Execute(name, arguments)),
             _ => Task.FromException<string>(new InvalidOperationException("Unsupported local tool."))
         };
+
+    private void RecordPlayerMessage(string text, UserTurnSource source)
+    {
+        if (_playerInformation is null) return;
+        try
+        {
+            _playerInformation.RecordRaw(text, source);
+        }
+        catch (InvalidOperationException)
+        {
+            // No active mission/session yet. The turn will independently fail
+            // the state-readiness check without logging message content.
+        }
+    }
 
     private void Append(string speaker, string text)
     {
@@ -570,11 +608,18 @@ public sealed class AssistantPanel : UserControl, IDisposable
 
     private void CommitVisibleAnswer(AssistantResponse response)
     {
-        Append("Papa Bear", response.Text);
-        _lastAnswerText = response.Text;
-        _lastAnswerSpeechText = RadioSpeechTextNormalizer.Normalize(
-            response.Text,
-            response.GroupCallsign);
+        IReadOnlyList<RadioTransmission> transmissions =
+            response.Transmissions is { Count: > 0 }
+                ? response.Transmissions
+                : new[] { new RadioTransmission(response.Text) };
+        foreach (RadioTransmission transmission in transmissions)
+            Append("Papa Bear", transmission.Text);
+        _lastAnswerText = string.Join(' ', transmissions.Select(item => item.Text));
+        _lastAnswerSpeechText = string.Join(
+            ' ',
+            transmissions.Select(item => RadioSpeechTextNormalizer.Normalize(
+                item.Text,
+                response.GroupCallsign)));
         _lastAnswerAudio?.Dispose();
         _lastAnswerAudio = null;
     }
@@ -634,23 +679,151 @@ public sealed class AssistantPanel : UserControl, IDisposable
                 diagnostics.LastSequence,
                 _stateRepository.GetContactTracks(256),
                 _stateRepository.GetPlayer()?.GroupCallsign);
-            if (announcements.Count == 0) return;
-            _ = Dispatcher.BeginInvoke(() =>
-            {
-                if (_disposed) return;
-                foreach (ContactAnnouncement announcement in announcements)
-                {
-                    Append("Papa Bear", announcement.VisibleText);
-                    _contactSpeechQueue.Enqueue(announcement.VisibleText);
-                }
-                if (_alwaysOnCycleActive && !_alwaysOnProcessingTurn)
-                    _activeRequest?.Cancel();
-                _ = DrainContactSpeechAsync();
-            });
+            QueueNormalizedEvents(_missionEvents.Observe(
+                _stateRepository.ActiveMissionKey,
+                diagnostics.LastSequence,
+                announcements,
+                BuildDomainSignatures(),
+                DateTimeOffset.UtcNow));
+            if (_contactAnnouncements.HasPending) ScheduleContactAnnouncementFlush();
         }
         catch (Exception exception)
         {
             _log.Warn($"Contact announcement evaluation failed: exceptionType={exception.GetType().Name}.");
+        }
+    }
+
+    private void ScheduleContactAnnouncementFlush()
+    {
+        if (_disposed || Interlocked.Exchange(ref _contactAnnouncementFlushScheduled, 1) != 0) return;
+        _ = FlushContactAnnouncementsAfterDelayAsync();
+    }
+
+    private async Task FlushContactAnnouncementsAfterDelayAsync()
+    {
+        try
+        {
+            TimeSpan delay = _contactAnnouncements.PendingDelay;
+            if (delay > TimeSpan.Zero)
+                await Task.Delay(delay, _contactSpeechCancellation.Token).ConfigureAwait(false);
+            IReadOnlyList<ContactAnnouncement> announcements = _contactAnnouncements.FlushPending(
+                _stateRepository.GetPlayer()?.GroupCallsign);
+            StateRepositoryDiagnostics diagnostics = _stateRepository.GetDiagnostics();
+            QueueNormalizedEvents(_missionEvents.Observe(
+                _stateRepository.ActiveMissionKey,
+                diagnostics.LastSequence,
+                announcements,
+                BuildDomainSignatures(),
+                DateTimeOffset.UtcNow));
+        }
+        catch (OperationCanceledException) when (_disposed) { }
+        catch (Exception exception)
+        {
+            _log.Warn($"Contact announcement flush failed: exceptionType={exception.GetType().Name}.");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _contactAnnouncementFlushScheduled, 0);
+            if (!_disposed && _contactAnnouncements.HasPending) ScheduleContactAnnouncementFlush();
+        }
+    }
+
+    private void QueueNormalizedEvents(IReadOnlyList<string> normalizedEvents)
+    {
+        if (normalizedEvents.Count == 0 || _disposed) return;
+        foreach (string normalizedEvent in normalizedEvents)
+        {
+            try { _playerInformation?.RecordEventCandidate(normalizedEvent); }
+            catch (InvalidOperationException) { }
+            _normalizedEventQueue.Enqueue(normalizedEvent);
+        }
+        _ = DrainNormalizedEventsAsync();
+    }
+
+    private IReadOnlyDictionary<string, string> BuildDomainSignatures()
+    {
+        string contacts = string.Join(
+            "|",
+            _stateRepository.GetContactTracks(256)
+                .OrderBy(item => item.TrackId, StringComparer.Ordinal)
+                .Select(item =>
+                    $"{item.TrackId}:{item.Status}:{item.ObservationCount}:{Math.Round(item.EstimatedPosition.X / 25)}:{Math.Round(item.EstimatedPosition.Y / 25)}"));
+        string friendlies = string.Join(
+            "|",
+            _stateRepository.GetFriendlyUnits(512, true)
+                .OrderBy(item => item.Alias, StringComparer.Ordinal)
+                .Select(item =>
+                    $"{item.Alias}:{item.Alive}:{item.Mobile}:{Math.Round(item.Damage, 1)}:{item.VehicleAlias}"));
+        string operations = string.Join(
+            "|",
+            _stateRepository.GetTasks(128, true)
+                .OrderBy(item => item.Alias, StringComparer.Ordinal)
+                .Select(item => $"{item.Alias}:{item.Status}:{item.Active}"));
+        string geography = string.Join(
+            "|",
+            _stateRepository.GetMarkers(256, true)
+                .OrderBy(item => item.Alias, StringComparer.Ordinal)
+                .Select(item => $"{item.Alias}:{item.Text}:{item.Shape}"));
+        StateEnvironment? environment = _stateRepository.GetEnvironment();
+        string conditions = environment is null
+            ? string.Empty
+            : $"{Math.Round(environment.Overcast, 1)}:{Math.Round(environment.Fog, 1)}";
+        return new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["contacts"] = contacts,
+            ["friendly-forces"] = friendlies,
+            ["operations"] = operations,
+            ["geography"] = geography,
+            ["environment"] = conditions
+        };
+    }
+
+    private async Task DrainNormalizedEventsAsync()
+    {
+        if (_disposed || Interlocked.Exchange(ref _normalizedEventDrainActive, 1) != 0) return;
+        try
+        {
+            while (!_disposed && _normalizedEventQueue.TryPeek(out string? normalizedEvent))
+            {
+                try
+                {
+                    AssistantResponse response = await _turns.SubmitNormalizedEventAsync(
+                        normalizedEvent,
+                        _contactSpeechCancellation.Token).ConfigureAwait(false);
+                    _normalizedEventQueue.TryDequeue(out _);
+                    if (string.IsNullOrWhiteSpace(response.Text)) continue;
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        IReadOnlyList<RadioTransmission> transmissions =
+                            response.Transmissions is { Count: > 0 }
+                                ? response.Transmissions
+                                : new[] { new RadioTransmission(response.Text) };
+                        foreach (RadioTransmission transmission in transmissions)
+                        {
+                            Append("Papa Bear", transmission.Text);
+                            _contactSpeechQueue.Enqueue(transmission.Text);
+                        }
+                        _ = DrainContactSpeechAsync();
+                    });
+                }
+                catch (InvalidOperationException exception)
+                    when (exception.Message.Contains("already active", StringComparison.Ordinal))
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(1), _contactSpeechCancellation.Token)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (_disposed) { break; }
+                catch (Exception exception)
+                {
+                    _normalizedEventQueue.TryDequeue(out _);
+                    _log.Warn($"Normalized event turn failed: exceptionType={exception.GetType().Name}.");
+                }
+            }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _normalizedEventDrainActive, 0);
+            if (!_disposed && !_normalizedEventQueue.IsEmpty) _ = DrainNormalizedEventsAsync();
         }
     }
 
@@ -1039,14 +1212,15 @@ public sealed class AssistantPanel : UserControl, IDisposable
     }
 
     private static string FormatCompletion(AssistantResponse response)
-        => $"{response.Model} · {response.ToolCalls} tool call(s) · {response.InputTokens} input / {response.OutputTokens} output tokens";
+        => $"{response.Model} · {response.ToolCalls} tool call(s) · {response.InputTokens} input / {response.OutputTokens} output tokens" +
+           (response.AwaitingCopyConfirmation ? " · awaiting copy confirmation" : string.Empty);
 
     private void LogCompletion(string source, AssistantResponse response)
     {
         AssistantRequestMetrics? metrics = response.RequestMetrics;
         string requestMetrics = metrics is null
             ? string.Empty
-            : $", snapshotBytes={metrics.SnapshotUtf8Bytes}, sectionCounts={string.Join("|", metrics.SectionRecordCounts.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => $"{item.Key}:{item.Value}"))}, historyMessages={metrics.HistoryMessageCount}, historyCharacters={metrics.HistoryCharacterCount}, selectedTools={metrics.SelectedToolCount}, acknowledgementEligible={metrics.AcknowledgementEligible}, acknowledgementEmitted={metrics.AcknowledgementEmitted}, acknowledgementThresholdMs={metrics.AcknowledgementThresholdMilliseconds}, acknowledgementVariation={metrics.AcknowledgementVariationId}, answerTextLatencyMs={metrics.AnswerTextLatencyMilliseconds}, responseLatencyMs={metrics.ResponseLatencyMilliseconds}, retryPerformed={metrics.RetryPerformed}, initialIncompleteReason={metrics.InitialIncompleteReason}";
+            : $", snapshotBytes={metrics.SnapshotUtf8Bytes}, sectionCounts={string.Join("|", metrics.SectionRecordCounts.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => $"{item.Key}:{item.Value}"))}, historyMessages={metrics.HistoryMessageCount}, historyCharacters={metrics.HistoryCharacterCount}, selectedTools={metrics.SelectedToolCount}, acknowledgementEligible={metrics.AcknowledgementEligible}, acknowledgementEmitted={metrics.AcknowledgementEmitted}, acknowledgementThresholdMs={metrics.AcknowledgementThresholdMilliseconds}, acknowledgementVariation={metrics.AcknowledgementVariationId}, answerTextLatencyMs={metrics.AnswerTextLatencyMilliseconds}, responseLatencyMs={metrics.ResponseLatencyMilliseconds}, retryPerformed={metrics.RetryPerformed}, initialIncompleteReason={metrics.InitialIncompleteReason}, radioVariation={metrics.RadioVariationId}, radioTransmissions={metrics.RadioTransmissionCount}, copyConfirmationRequested={metrics.CopyConfirmationRequested}";
         _log.Info($"{source} assistant text completed: model={response.Model}, tools={response.ToolCalls}, inputTokens={response.InputTokens}, outputTokens={response.OutputTokens}, reasoningTokens={response.ReasoningTokens}{requestMetrics}.");
     }
 
@@ -1071,6 +1245,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
         }
         _voice.Dispose();
         _turns.Dispose();
+        _contextBroker.Dispose();
         _queries.Dispose();
         _ = _capture.DisposeAsync();
         _activeRequest?.Dispose();

@@ -59,7 +59,7 @@ public partial class MainWindow : Window
         {
             await LoadSettingsAsync();
             await StartListenerAsync();
-            _log.Info("ArmA AI Bridge v0.8.0 started.");
+            _log.Info("ArmA AI Bridge v0.9.1 started.");
         }
         catch (Exception exception)
         {

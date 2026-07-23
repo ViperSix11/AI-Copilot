@@ -10,6 +10,7 @@ public sealed class VoiceInteractionService : IDisposable
     private readonly ITextToSpeechService _textToSpeech;
     private readonly IAudioPlaybackService _playback;
     private readonly Func<CancellationToken, Task<VoiceProviderSettings>> _settingsFactory;
+    private readonly Func<TimeSpan, CancellationToken, Task> _transmissionPause;
     private readonly Dictionary<string, AudioPayload> _acknowledgementAudioCache = new(StringComparer.Ordinal);
     private readonly Queue<string> _acknowledgementCacheOrder = new();
     private readonly SemaphoreSlim _operationGate = new(1, 1);
@@ -20,13 +21,15 @@ public sealed class VoiceInteractionService : IDisposable
         IAssistantTurnService assistantTurns,
         ITextToSpeechService textToSpeech,
         IAudioPlaybackService playback,
-        Func<CancellationToken, Task<VoiceProviderSettings>> settingsFactory)
+        Func<CancellationToken, Task<VoiceProviderSettings>> settingsFactory,
+        Func<TimeSpan, CancellationToken, Task>? transmissionPause = null)
     {
         _speechToText = speechToText ?? throw new ArgumentNullException(nameof(speechToText));
         _assistantTurns = assistantTurns ?? throw new ArgumentNullException(nameof(assistantTurns));
         _textToSpeech = textToSpeech ?? throw new ArgumentNullException(nameof(textToSpeech));
         _playback = playback ?? throw new ArgumentNullException(nameof(playback));
         _settingsFactory = settingsFactory ?? throw new ArgumentNullException(nameof(settingsFactory));
+        _transmissionPause = transmissionPause ?? Task.Delay;
     }
 
     public async Task PlayMicrophoneTestAsync(
@@ -121,33 +124,59 @@ public sealed class VoiceInteractionService : IDisposable
                 cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
 
-            progress?.Report(VoiceStage.GeneratingVoice);
-            try
+            IReadOnlyList<Models.RadioTransmission> transmissions =
+                answer.Transmissions is { Count: > 0 }
+                    ? answer.Transmissions
+                    : new[] { new Models.RadioTransmission(answer.Text) };
+            for (int index = 0; index < transmissions.Count; index++)
             {
-                audio = await _textToSpeech.SynthesizeAsync(
-                    RadioSpeechTextNormalizer.Normalize(answer.Text, answer.GroupCallsign),
-                    settings.ElevenLabsApiKey,
-                    settings.ElevenLabsVoiceId,
-                    cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                progress?.Report(VoiceStage.Failed);
-                return new VoiceTurnResult(transcript, answer, null, exception);
-            }
-            cancellationToken.ThrowIfCancellationRequested();
+                Models.RadioTransmission transmission = transmissions[index];
+                if (index > 0 && transmission.PauseBeforeMilliseconds > 0)
+                {
+                    progress?.Report(VoiceStage.Thinking);
+                    await _transmissionPause(
+                        TimeSpan.FromMilliseconds(transmission.PauseBeforeMilliseconds),
+                        cancellationToken).ConfigureAwait(false);
+                }
 
-            progress?.Report(VoiceStage.Speaking);
-            try
-            {
-                await _playback.PlayAsync(audio, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                progress?.Report(VoiceStage.Failed);
-                VoiceTurnResult partial = new(transcript, answer, audio, exception);
-                audio = null;
-                return partial;
+                progress?.Report(VoiceStage.GeneratingVoice);
+                AudioPayload segmentAudio;
+                try
+                {
+                    segmentAudio = await _textToSpeech.SynthesizeAsync(
+                        RadioSpeechTextNormalizer.Normalize(transmission.Text, answer.GroupCallsign),
+                        settings.ElevenLabsApiKey,
+                        settings.ElevenLabsVoiceId,
+                        cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    progress?.Report(VoiceStage.Failed);
+                    return new VoiceTurnResult(transcript, answer, null, exception);
+                }
+                if (transmissions.Count == 1) audio = segmentAudio;
+
+                try
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    progress?.Report(VoiceStage.Speaking);
+                    await _playback.PlayAsync(segmentAudio, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    progress?.Report(VoiceStage.Failed);
+                    if (transmissions.Count == 1)
+                    {
+                        VoiceTurnResult partial = new(transcript, answer, audio, exception);
+                        audio = null;
+                        return partial;
+                    }
+                    return new VoiceTurnResult(transcript, answer, null, exception);
+                }
+                finally
+                {
+                    if (transmissions.Count > 1) segmentAudio.Dispose();
+                }
             }
             progress?.Report(VoiceStage.Ready);
             VoiceTurnResult result = new(transcript, answer, audio, null);

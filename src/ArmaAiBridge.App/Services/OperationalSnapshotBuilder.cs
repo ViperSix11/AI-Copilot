@@ -33,6 +33,8 @@ public sealed class TacticalSnapshotBuilder
     private string _lastQuestion = string.Empty;
     private string _friendlyFocus = string.Empty;
     private string _hostileFocus = string.Empty;
+    private string _dialogueTopic = string.Empty;
+    private int _dialogueTopicTurnsRemaining;
 
     public TacticalSnapshotBuilder(IStateRepository state, IMissionMemoryRepository? memory = null,
         TimeProvider? timeProvider = null)
@@ -51,6 +53,8 @@ public sealed class TacticalSnapshotBuilder
             _lastQuestion = string.Empty;
             _friendlyFocus = string.Empty;
             _hostileFocus = string.Empty;
+            _dialogueTopic = string.Empty;
+            _dialogueTopicTurnsRemaining = 0;
         }
     }
 
@@ -101,9 +105,13 @@ public sealed class TacticalSnapshotBuilder
         string lastQuestion = _lastQuestion;
         string friendlyFocus = _friendlyFocus;
         string hostileFocus = _hostileFocus;
+        string dialogueTopic = _dialogueTopic;
+        int topicTurnsRemaining = _dialogueTopicTurnsRemaining;
         if (!string.Equals(mission, _focusMission, StringComparison.Ordinal))
         {
             lastQuestion = friendlyFocus = hostileFocus = string.Empty;
+            dialogueTopic = string.Empty;
+            topicTurnsRemaining = 0;
         }
         string normalized = (question ?? string.Empty).Trim();
         string resolved = normalized;
@@ -113,6 +121,28 @@ public sealed class TacticalSnapshotBuilder
             string replacement = normalized[..correction].Trim();
             string rejected = normalized[(correction + 6)..].Trim().TrimEnd('.', '!', '?');
             resolved = lastQuestion.Replace(rejected, replacement, StringComparison.OrdinalIgnoreCase);
+        }
+        bool explicitHostileStrength = ContainsAny(
+            normalized,
+            "combatant", "enemy strength", "hostile strength", "enemy count",
+            "hostile count", "contact count", "how many enemies", "how many hostiles");
+        bool estimateFollowUp = ContainsAny(
+            normalized,
+            "approximation", "approximate", "estimate", "roughly", "best guess", "about how many");
+        if (explicitHostileStrength)
+        {
+            dialogueTopic = "hostile-strength";
+            topicTurnsRemaining = 2;
+        }
+        else if (dialogueTopic == "hostile-strength" && topicTurnsRemaining > 0 && estimateFollowUp)
+        {
+            resolved = $"Estimate hostile strength. {normalized}";
+            topicTurnsRemaining--;
+        }
+        else if (PlayerUtteranceClassifier.IsQuestion(normalized))
+        {
+            dialogueTopic = string.Empty;
+            topicTurnsRemaining = 0;
         }
 
         StateFriendlyGroup[] groups = _state.GetFriendlyGroups(128, true).ToArray();
@@ -124,7 +154,7 @@ public sealed class TacticalSnapshotBuilder
                 .OrderBy(x => Distance(player.PositionAtl, x.LeaderPosition)).ThenBy(x => x.Callsign, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
             if (nearest is not null) friendlyFocus = nearest.Callsign;
         }
-        if (ContainsAny(resolved, "hostile", "enemy", "contact"))
+        if (ContainsAny(resolved, "hostile", "enemy", "contact", "combatant"))
             hostileFocus = _memory?.GetContactTracks(256).FirstOrDefault()?.TrackId ?? hostileFocus;
         if (commit)
         {
@@ -132,12 +162,15 @@ public sealed class TacticalSnapshotBuilder
             _lastQuestion = resolved;
             _friendlyFocus = friendlyFocus;
             _hostileFocus = hostileFocus;
+            _dialogueTopic = dialogueTopic;
+            _dialogueTopicTurnsRemaining = topicTurnsRemaining;
         }
         return new
         {
             resolvedQuestion = resolved == normalized ? null : resolved,
             friendlyGroupCallsign = friendlyFocus.Length == 0 ? null : friendlyFocus,
-            hostileContactReference = hostileFocus.Length == 0 ? null : hostileFocus
+            hostileContactReference = hostileFocus.Length == 0 ? null : hostileFocus,
+            activeTopic = dialogueTopic.Length == 0 ? null : dialogueTopic
         };
     }
 
@@ -311,10 +344,8 @@ public sealed class TacticalSnapshotBuilder
         List<List<MissionContactTrack>> groups = new();
         foreach (MissionContactTrack contact in contacts.Where(x => x.Status != "dead").OrderBy(x => x.TrackId, StringComparer.Ordinal))
         {
-            List<MissionContactTrack>? group = groups.FirstOrDefault(g => g.All(x =>
-                string.Equals(x.Relationship, contact.Relationship, StringComparison.Ordinal) &&
-                Math.Abs((x.LastObservedAtUtc - contact.LastObservedAtUtc).TotalSeconds) <= 120 &&
-                Distance(x.EstimatedPosition, contact.EstimatedPosition) <= 40));
+            List<MissionContactTrack>? group = groups.FirstOrDefault(g =>
+                g.All(x => ContactPresentationPolicy.CanCluster(x, contact)));
             if (group is null) groups.Add(group = new List<MissionContactTrack>());
             group.Add(contact);
         }

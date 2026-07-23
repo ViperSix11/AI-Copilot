@@ -11,7 +11,7 @@ ElevenLabs optionally speaks the completed text.
 
 | Release | Platform | Status |
 | --- | --- | --- |
-| **0.8.0 — Unified State Mirror & Interpreter** | Windows 10/11 x64, Arma 3, .NET 8 | Automated Windows validation passed; full live 0.8 acceptance remains documented and must not be inferred from CI |
+| **0.9.1 — Robust Context-on-Demand candidate** | Windows 10/11 x64, Arma 3, .NET 8 | AI-selected bounded retrieval, player-message journaling, developing event windows and bounded friendly equipment queries are implemented; live acceptance and GitHub CI status are reported separately |
 
 The complete release and repository history is in
 [`CHANGELOG.md`](CHANGELOG.md).
@@ -32,8 +32,8 @@ Arma 3
      ArmA AI Bridge WPF application
        ├─ mission-scoped SQLite State Mirror
        ├─ contact lifecycle and player-report memory
-       ├─ deterministic evidence selection and spatial language
-       ├─ read-only World State and AI Context diagnostics
+       ├─ hierarchical context broker and deterministic spatial language
+       ├─ read-only World State and Context on Demand diagnostics
        └─ shared typed/voice AssistantTurnService
             ↓
        OpenAI transcription and Responses
@@ -50,7 +50,7 @@ maintain a separate world model or conversation.
 ### Perspective-bound Arma state
 
 - Explicit mission/session handshake and protocol feature versions.
-- One bounded `state-snapshot-v2` envelope every four seconds, built from
+- One bounded `state-snapshot-v2` envelope every eight seconds, built from
   independently sampled player, environment, time, loadout, friendly-force,
   known-contact, task, and marker sections.
 - Current player side and dynamic `groupId (group player)` callsign.
@@ -87,20 +87,31 @@ maintain a separate world model or conversation.
   lore, contact history, and dialogue focus without deleting encrypted provider
   settings.
 
-### Context and radio behavior
+### Context-on-demand and radio behavior
 
-- Closed `arma-ai-bridge/tactical-snapshot-v2` internal snapshot.
-- Deterministic interpreter that converts structured rows into concise,
-  human-readable evidence before an OpenAI request.
-- Four-stage **AI Context** diagnostics: candidates, selected evidence, fused
-  interpretation, and exact tactical context transmitted with the next turn.
-- Question-first relevance selection. Unrelated weather, friendly counts, and
-  empty-contact summaries are not added merely because they exist.
+- Minimal plain-English provider seed containing only the actual player
+  message or a human-readable event summary, dynamic callsign/side, and the
+  available information-area names.
+- Model-selected `inspect_context_catalogue` and `query_context` tools backed by
+  strict local validation, bounded summaries, privacy projection and exact
+  local spatial calculations.
+- A deterministic provider-boundary formatter converts selected structured
+  results into short English facts. Database rows, schemas, raw aliases,
+  timestamps, tags and serialized query envelopes remain local.
+- Permission-gated, scope-bound one-shot access to a separate local map
+  intelligence database.
+- Four-stage **Context on Demand** diagnostics: minimal seed, actual AI plan,
+  retrieved context and model-visible exchange, with last/five-/thirty-minute
+  provider token totals.
+- Unsolicited contact changes use the same context tools and may remain silent;
+  the event handler does not route categories from keywords.
 - Dynamic Arma group callsign in acknowledgements and final answers, with a
   neutral fallback when unavailable.
 - Editable operator pre-prompt and bounded response-profile controls.
 - English-only speech normalization for callsigns, numbers, units, grids, and
   optional terminators.
+- Context-dependent single or multi-call delivery with bounded pauses, optional
+  receipt confirmation, and locally simplified repeat handling.
 - Hierarchical position descriptions:
 
   1. nearest locally authorized Bullseye;
@@ -126,6 +137,7 @@ maintain a separate world model or conversation.
 - OpenAI completed-utterance transcription.
 - OpenAI Responses with locally managed bounded history and `store: false`.
 - ElevenLabs-only assistant speech output.
+- Every ElevenLabs transmission uses English number words rather than digits.
 - Transcript shown immediately after transcription; answer shown immediately
   after reasoning.
 - TTS or playback failure preserves the visible conversation and allows

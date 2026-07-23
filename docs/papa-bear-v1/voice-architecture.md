@@ -18,8 +18,10 @@ OR explicitly enable local voice-activated listening
 -> conditional local English acknowledgement if final text remains pending
 -> cached acknowledgement ElevenLabs speech, cancellable before playback
 -> locally normalized final visible answer
--> final ElevenLabs speech after acknowledgement playback
--> Windows playback
+-> local context-dependent one-or-more-transmission plan
+-> final ElevenLabs speech per transmission after acknowledgement playback
+-> bounded local pause between calls
+-> sequential Windows playback
 ```
 
 An ordinary operational question has no tool round because all fixed compact
@@ -39,13 +41,19 @@ a second turn, history entry or acknowledgement.
 - acknowledgement audio is cached after first synthesis and final audio never
   overlaps acknowledgement playback;
 - response profiles are local style data and cannot override immutable rules;
-- the model answer is normalized once; the turn service ensures the exact
-  current callsign is present in the visible final response without reusing an
-  older locally-added address from history; ElevenLabs/replay may use only the
+- the model answer is normalized once; the local planner may use only the exact
+  current callsign and never an older address from history; it does not force
+  direct address into every response; ElevenLabs/replay may use only the
   speech-formatted current callsign, numbers and units;
 - Over/Out suffixes are removed and the configured terminator is appended once;
 - replay synthesizes or replays the last final answer and never repeats STT,
   acknowledgement or Responses.
+- receipt confirmation and repeat state are local, expire after five minutes,
+  clear on callsign/conversation reset, and never become hidden model tools;
+- a locally handled repeat does not call Responses again and removes filler
+  while preserving the relevant completed information;
+- every ElevenLabs payload is deterministically normalized to contain English
+  number words rather than ASCII digits.
 
 ## State and failure behavior
 
