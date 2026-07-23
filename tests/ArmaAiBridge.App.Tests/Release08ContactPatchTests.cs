@@ -125,6 +125,35 @@ public sealed class Release08ContactPatchTests
         Assert.DoesNotContain("reported by", evidence.ModelContext, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void AiContextReset_DeletesRetainedLocalContextAndClearsDialogueFocus()
+    {
+        using TestDatabase database = new();
+        ManualTimeProvider time = new(Start);
+        using SqliteStateRepository repository = Ready(database.Path, time, "EAST", "hostile");
+        repository.Remember("Enemy activity was reported at the airport.", "user-reported", ["enemy", "airport"]);
+        repository.SaveLoreSection("Mission", "The airport is the current objective.", true, true);
+        repository.SaveReportedLocation(new ReportedLocationAnchor(
+            "mission-goal", "mission goal", "027067", new WorldPosition(2750, 6750, 0), 71, Start));
+        TacticalSnapshotBuilder builder = new(repository, repository, time);
+        JsonElement focused = JsonDocument.Parse(JsonSerializer.Serialize(builder.Build("Who reported this enemy?")))
+            .RootElement.GetProperty("retrievedMemory").GetProperty("dialogueFocus").Clone();
+        Assert.Equal(JsonValueKind.String, focused.GetProperty("hostileContactReference").ValueKind);
+
+        builder.ResetDialogueFocus();
+        JsonElement clearedFocus = JsonDocument.Parse(JsonSerializer.Serialize(
+                builder.Build("What is the weather?", commitDialogueFocus: false)))
+            .RootElement.GetProperty("retrievedMemory").GetProperty("dialogueFocus").Clone();
+        Assert.Equal(JsonValueKind.Null, clearedFocus.GetProperty("hostileContactReference").ValueKind);
+
+        repository.ResetCache();
+        Assert.Equal(0, repository.GetDiagnostics().LastSequence);
+        Assert.Empty(repository.GetContactTracks());
+        Assert.Empty(repository.SearchMemory(string.Empty));
+        Assert.Empty(repository.GetLoreSections());
+        Assert.Null(repository.GetReportedLocation("mission-goal"));
+    }
+
     private static SqliteStateRepository Ready(string path, ManualTimeProvider time, string perceivedSide, string relationship)
     {
         SqliteStateRepository repository = new(path, time);

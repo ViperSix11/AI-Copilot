@@ -50,6 +50,11 @@ public sealed class TacticalThemeTests
         Assert.Contains("TacticalContextInterpreter.Analyze(snapshot, question)", snapshots, StringComparison.Ordinal);
         Assert.Contains("TacticalContextInterpreter.Interpret(worldSnapshot, question)", assistant, StringComparison.Ordinal);
         Assert.Contains("Prospective question", panel, StringComparison.Ordinal);
+        Assert.Contains("Reset AI Context...", panel, StringComparison.Ordinal);
+        Assert.Contains("MessageBoxButton.YesNo", panel, StringComparison.Ordinal);
+        Assert.Contains("_stateRepository.ResetCache()", panel, StringComparison.Ordinal);
+        Assert.Contains("_snapshots.ResetTacticalContext()", panel, StringComparison.Ordinal);
+        Assert.Contains("API keys and response settings are preserved", panel, StringComparison.Ordinal);
         foreach (string stage in new[] { "1. Candidates", "2. Selected", "3. Fused", "4. Transmitted" })
             Assert.Contains(stage, panel, StringComparison.Ordinal);
     }

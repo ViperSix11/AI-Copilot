@@ -77,6 +77,8 @@ public sealed class WorldSnapshotBuilder
         return true;
     }
 
+    public void ResetTacticalContext() => _operationalSnapshotBuilder?.ResetDialogueFocus();
+
     public string BuildCurrentSituation()
     {
         if (_operationalSnapshotBuilder is null || _stateRepository is null || _stateRepository.GetDiagnostics().LastSequence <= 0 || _stateRepository.GetPlayer() is null)

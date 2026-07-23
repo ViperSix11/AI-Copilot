@@ -11,6 +11,7 @@ public sealed class AiContextPanel : UserControl, IDisposable
 {
     private readonly WorldSnapshotBuilder _snapshots;
     private readonly SettingsService _settings;
+    private readonly SqliteStateRepository _stateRepository;
     private readonly TextBox _question = new() { MinHeight = 44, TextWrapping = TextWrapping.Wrap };
     private readonly TextBox _candidates = EvidenceBox();
     private readonly TextBox _selected = EvidenceBox();
@@ -20,10 +21,14 @@ public sealed class AiContextPanel : UserControl, IDisposable
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(2) };
     private string _lastRendered = string.Empty;
 
-    public AiContextPanel(WorldSnapshotBuilder snapshots, SettingsService settings)
+    public AiContextPanel(
+        WorldSnapshotBuilder snapshots,
+        SettingsService settings,
+        SqliteStateRepository stateRepository)
     {
         _snapshots = snapshots ?? throw new ArgumentNullException(nameof(snapshots));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _stateRepository = stateRepository ?? throw new ArgumentNullException(nameof(stateRepository));
         Content = BuildUi();
         _timer.Tick += (_, _) => Refresh();
         Loaded += (_, _) => { Refresh(); _timer.Start(); };
@@ -67,6 +72,15 @@ public sealed class AiContextPanel : UserControl, IDisposable
         Button refresh = new() { Content = "Refresh evidence pipeline", MinWidth = 170 };
         refresh.Click += (_, _) => Refresh(force: true);
         actions.Children.Add(refresh);
+        Button reset = new()
+        {
+            Content = "Reset AI Context...",
+            MinWidth = 160,
+            Margin = new Thickness(8, 0, 0, 0),
+            Style = Resource<Style>("DestructiveButtonStyle")
+        };
+        reset.Click += ResetContext_Click;
+        actions.Children.Add(reset);
         _status.Margin = new Thickness(12, 7, 0, 0);
         actions.Children.Add(_status);
         Grid.SetRow(actions, 2);
@@ -81,6 +95,28 @@ public sealed class AiContextPanel : UserControl, IDisposable
         Grid.SetRow(panel, 3);
         grid.Children.Add(panel);
         return grid;
+    }
+
+    private void ResetContext_Click(object sender, RoutedEventArgs e)
+    {
+        MessageBoxResult result = MessageBox.Show(
+            Window.GetWindow(this),
+            "Delete the local AI context? This removes retained contacts, player reports, reported grids, lore and cached State Mirror data. API keys and response settings are preserved. Arma will repopulate fresh live state after its next handshake.",
+            "Reset AI Context",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No);
+        if (result != MessageBoxResult.Yes) return;
+
+        _timer.Stop();
+        _stateRepository.ResetCache();
+        _snapshots.ResetTacticalContext();
+        _question.Clear();
+        _lastRendered = string.Empty;
+        foreach (TextBox box in new[] { _candidates, _selected, _fused, _transmitted })
+            box.Text = "AI Context was reset. Waiting for the next Arma session handshake.";
+        _status.Text = "Local AI context reset. API keys and response settings were preserved.";
+        _timer.Start();
     }
 
     private async void Refresh(bool force = false)

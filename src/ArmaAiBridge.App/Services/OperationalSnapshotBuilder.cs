@@ -17,6 +17,7 @@ public sealed class OperationalSnapshotBuilder
 
     public Dictionary<string, object?> Build(string question) => _inner.Build(question);
     public Dictionary<string, object?> BuildPreview(string question) => _inner.Build(question, commitDialogueFocus: false);
+    public void ResetDialogueFocus() => _inner.ResetDialogueFocus();
 }
 
 public sealed class TacticalSnapshotBuilder
@@ -26,6 +27,7 @@ public sealed class TacticalSnapshotBuilder
     private readonly IStateRepository _state;
     private readonly IMissionMemoryRepository? _memory;
     private readonly TimeProvider _timeProvider;
+    private readonly object _focusGate = new();
     private string _focusMission = string.Empty;
     private string _lastQuestion = string.Empty;
     private string _friendlyFocus = string.Empty;
@@ -37,6 +39,17 @@ public sealed class TacticalSnapshotBuilder
         _state = state ?? throw new ArgumentNullException(nameof(state));
         _memory = memory;
         _timeProvider = timeProvider ?? TimeProvider.System;
+    }
+
+    public void ResetDialogueFocus()
+    {
+        lock (_focusGate)
+        {
+            _focusMission = string.Empty;
+            _lastQuestion = string.Empty;
+            _friendlyFocus = string.Empty;
+            _hostileFocus = string.Empty;
+        }
     }
 
     public Dictionary<string, object?> Build(string question, bool commitDialogueFocus = true)
@@ -73,6 +86,11 @@ public sealed class TacticalSnapshotBuilder
     }
 
     private object UpdateDialogueFocus(string question, StatePlayer player, bool commit)
+    {
+        lock (_focusGate) return UpdateDialogueFocusCore(question, player, commit);
+    }
+
+    private object UpdateDialogueFocusCore(string question, StatePlayer player, bool commit)
     {
         string mission = _memory?.ActiveMissionKey ?? string.Empty;
         string lastQuestion = _lastQuestion;
