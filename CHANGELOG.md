@@ -8,6 +8,41 @@ version boundaries below are reconstructed from the assembly version, merged
 pull requests, first-parent history, and the authoritative documents under
 `docs/papa-bear-v1/`.
 
+## 0.8.1 — Natural Dynamic Radio Hotfix — Unreleased
+
+### Added
+
+- Context-dependent probabilistic single or multi-transmission delivery.
+- Bounded urgent and calm pauses between separately synthesized radio calls.
+- Local five-minute receipt-confirmation state accepting affirmative,
+  negative and repeat vocabulary.
+- Deterministic simplified repeat handling without another OpenAI Responses
+  request.
+- Safe radio variation/count/confirmation diagnostics without content logs.
+
+### Changed
+
+- OpenAI now produces complete factual prose while the local radio layer owns
+  stand-by phrases, pauses, copy requests and transmission sequencing.
+- Combat responses are prompted shorter and calmer situations allow restrained
+  conversational cadence.
+- Every ElevenLabs payload converts grouped numbers, integers and decimals to
+  English words and applies a final no-digit safeguard.
+
+### Boundaries
+
+- No SQF, native DLL, Named Pipe, State Mirror, snapshot, position calculation,
+  mission-memory schema or model-tool changes.
+- Full live acceptance remains required as documented in
+  `docs/papa-bear-v1/release-0.8.1-natural-radio-hotfix.md`.
+
+### Local validation
+
+- Repository verifier: 175 UTF-8 files.
+- Deterministic Release suite: 292 tests.
+- WPF `win-x64`, native x64 and 22-file Addon Builder PBO builds passed.
+- GitHub Actions and live Arma acceptance remain pending.
+
 ## 0.8.0 — Unified State Mirror & Interpreter — 2026-07-23
 
 Release PR: [#12](https://github.com/ViperSix11/AI-Copilot/pull/12)

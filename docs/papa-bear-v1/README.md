@@ -1,8 +1,10 @@
 # Papa Bear v1 — architecture and milestone record
 
-Status: **version 0.8.0 Unified State Mirror & Interpreter is the current
-release line; automated Windows validation is green, while the complete live
-0.8 gate remains explicitly pending. Version 0.7 passed live acceptance.**
+Status: **version 0.8.1 is the focused natural-radio hotfix candidate on the
+0.8 Unified State Mirror & Interpreter release line. Local Windows validation
+is green; live hotfix acceptance and GitHub CI must not be inferred until
+recorded. Version 0.7 passed live acceptance; the complete live 0.8 gate
+remains explicitly pending.**
 
 The active release 0.8 model-context and persistence boundary is
 [`release-0.8-tactical-memory.md`](release-0.8-tactical-memory.md). It
@@ -91,6 +93,8 @@ configurable global press-and-hold PTT.
 14. `release-0.8-tactical-memory.md` — active tactical evidence, mission
     memory, contact announcement, always-on voice, reset and hierarchical
     position-reporting boundary.
+15. `release-0.8.1-natural-radio-hotfix.md` — focused dynamic transmission,
+    pause, receipt-confirmation, repeat and spoken-number contract.
 
 The repository-level [`CHANGELOG.md`](../../CHANGELOG.md) records the complete
 release and pull-request history.

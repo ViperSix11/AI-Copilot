@@ -11,7 +11,7 @@ ElevenLabs optionally speaks the completed text.
 
 | Release | Platform | Status |
 | --- | --- | --- |
-| **0.8.0 — Unified State Mirror & Interpreter** | Windows 10/11 x64, Arma 3, .NET 8 | Automated Windows validation passed; full live 0.8 acceptance remains documented and must not be inferred from CI |
+| **0.8.1 — Natural Dynamic Radio Hotfix candidate** | Windows 10/11 x64, Arma 3, .NET 8 | Local Windows validation passed; live acceptance and GitHub CI remain pending; the accepted 0.8 state and fair-play boundaries are unchanged |
 
 The complete release and repository history is in
 [`CHANGELOG.md`](CHANGELOG.md).
@@ -101,6 +101,8 @@ maintain a separate world model or conversation.
 - Editable operator pre-prompt and bounded response-profile controls.
 - English-only speech normalization for callsigns, numbers, units, grids, and
   optional terminators.
+- Context-dependent single or multi-call delivery with bounded pauses, optional
+  receipt confirmation, and locally simplified repeat handling.
 - Hierarchical position descriptions:
 
   1. nearest locally authorized Bullseye;
@@ -126,6 +128,7 @@ maintain a separate world model or conversation.
 - OpenAI completed-utterance transcription.
 - OpenAI Responses with locally managed bounded history and `store: false`.
 - ElevenLabs-only assistant speech output.
+- Every ElevenLabs transmission uses English number words rather than digits.
 - Transcript shown immediately after transcription; answer shown immediately
   after reasoning.
 - TTS or playback failure preserves the visible conversation and allows

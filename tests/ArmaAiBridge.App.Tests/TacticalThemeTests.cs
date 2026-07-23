@@ -30,7 +30,7 @@ public sealed class TacticalThemeTests
 
         Assert.Contains("Title=\"ArmA AI Bridge - Papa Bear\"", window, StringComparison.Ordinal);
         Assert.Contains("Text=\"ArmA AI Bridge - Papa Bear\"", window, StringComparison.Ordinal);
-        Assert.Contains("Text=\"v0.8.0\"", window, StringComparison.Ordinal);
+        Assert.Contains("Text=\"v0.8.1\"", window, StringComparison.Ordinal);
         foreach (string tab in new[] { "Dashboard", "Map query", "API keys", "Logs" })
             Assert.Contains($"Header=\"{tab}\"", window, StringComparison.Ordinal);
         Assert.Contains("Header = \"Assistant\"", dynamicTabs, StringComparison.Ordinal);

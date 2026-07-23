@@ -29,6 +29,7 @@ public static partial class RadioSpeechTextNormalizer
             _ => match.Value
         });
         value = StandaloneNumberRegex().Replace(value, match => NumberToWords(match.Value));
+        value = AsciiDigitRegex().Replace(value, match => Ones[match.Value[0] - '0']);
         return WhitespaceRegex().Replace(value, " ").Trim();
     }
 
@@ -37,10 +38,12 @@ public static partial class RadioSpeechTextNormalizer
         string value = token.Trim();
         bool negative = value.StartsWith("-", StringComparison.Ordinal);
         if (negative) value = value[1..];
+        if (value.StartsWith("+", StringComparison.Ordinal)) value = value[1..];
         bool leadingDecimal = value.StartsWith(".", StringComparison.Ordinal);
         if (leadingDecimal) value = "0" + value;
         string[] parts = value.Split('.', 2);
-        if (!long.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out long integer))
+        string integerToken = parts[0].Replace(",", string.Empty, StringComparison.Ordinal);
+        if (!long.TryParse(integerToken, NumberStyles.None, CultureInfo.InvariantCulture, out long integer))
             return token;
         string result = leadingDecimal ? string.Empty : IntegerToWords(integer);
         if (parts.Length == 2)
@@ -84,14 +87,17 @@ public static partial class RadioSpeechTextNormalizer
         return value.ToString(CultureInfo.InvariantCulture);
     }
 
-    [GeneratedRegex(@"(?<![\p{L}\p{N}_])(?<number>-?(?:\d+(?:\.\d+)?|\.\d+))\s*(?<unit>km/h|m/s|°C|°|ASL|AGL|ATL|mils?|MOA|km|cm|mm|m|LM)(?![\p{L}\p{N}_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"(?<![\p{L}\p{N}_])(?<number>-?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+))\s*(?<unit>km/h|m/s|°C|°|ASL|AGL|ATL|mils?|MOA|km|cm|mm|m|LM)(?![\p{L}\p{N}_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex UnitValueRegex();
 
     [GeneratedRegex(@"\b(?:ASL|AGL|ATL|MOA|FCS)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex AcronymRegex();
 
-    [GeneratedRegex(@"(?<![\p{L}\p{N}_])[-+]?(?:\d+(?:\.\d+)?|\.\d+)(?![\p{L}\p{N}_])", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"(?<![\p{L}\p{N}_])[-+]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+)(?![\p{L}\p{N}_])", RegexOptions.CultureInvariant)]
     private static partial Regex StandaloneNumberRegex();
+
+    [GeneratedRegex(@"\d", RegexOptions.CultureInvariant)]
+    private static partial Regex AsciiDigitRegex();
 
     [GeneratedRegex(@"\s+", RegexOptions.CultureInvariant)]
     private static partial Regex WhitespaceRegex();

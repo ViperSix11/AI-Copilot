@@ -14,6 +14,7 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
     private readonly Func<string> _currentGroupCallsignFactory;
     private Func<string, (bool Handled, string Response)>? _localTurnHandler;
     private readonly RadioAcknowledgementService _acknowledgements;
+    private readonly NaturalRadioDialogueService _radioDialogue;
     private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _acknowledgementDelay;
     private readonly Func<TimeSpan, CancellationToken, Task> _acknowledgementWait;
@@ -29,7 +30,8 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
         RadioAcknowledgementService? acknowledgements = null,
         TimeProvider? timeProvider = null,
         TimeSpan? acknowledgementDelay = null,
-        Func<TimeSpan, CancellationToken, Task>? acknowledgementWait = null)
+        Func<TimeSpan, CancellationToken, Task>? acknowledgementWait = null,
+        NaturalRadioDialogueService? radioDialogue = null)
     {
         _assistant = assistant ?? throw new ArgumentNullException(nameof(assistant));
         ArgumentNullException.ThrowIfNull(snapshotFactory);
@@ -38,6 +40,7 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
         _executeTool = executeTool ?? throw new ArgumentNullException(nameof(executeTool));
         _currentGroupCallsignFactory = currentGroupCallsignFactory ?? (() => string.Empty);
         _acknowledgements = acknowledgements ?? new RadioAcknowledgementService();
+        _radioDialogue = radioDialogue ?? new NaturalRadioDialogueService(timeProvider: timeProvider);
         _timeProvider = timeProvider ?? TimeProvider.System;
         _acknowledgementDelay = acknowledgementDelay ?? AcknowledgementDelay;
         _acknowledgementWait = acknowledgementWait ?? ((duration, token) => Task.Delay(duration, _timeProvider, token));
@@ -52,7 +55,8 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
         RadioAcknowledgementService? acknowledgements = null,
         TimeProvider? timeProvider = null,
         TimeSpan? acknowledgementDelay = null,
-        Func<TimeSpan, CancellationToken, Task>? acknowledgementWait = null)
+        Func<TimeSpan, CancellationToken, Task>? acknowledgementWait = null,
+        NaturalRadioDialogueService? radioDialogue = null)
     {
         _assistant = assistant ?? throw new ArgumentNullException(nameof(assistant));
         _snapshotFactory = snapshotFactory ?? throw new ArgumentNullException(nameof(snapshotFactory));
@@ -60,6 +64,7 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
         _executeTool = executeTool ?? throw new ArgumentNullException(nameof(executeTool));
         _currentGroupCallsignFactory = currentGroupCallsignFactory ?? (() => string.Empty);
         _acknowledgements = acknowledgements ?? new RadioAcknowledgementService();
+        _radioDialogue = radioDialogue ?? new NaturalRadioDialogueService(timeProvider: timeProvider);
         _timeProvider = timeProvider ?? TimeProvider.System;
         _acknowledgementDelay = acknowledgementDelay ?? AcknowledgementDelay;
         _acknowledgementWait = acknowledgementWait ?? ((duration, token) => Task.Delay(duration, _timeProvider, token));
@@ -104,22 +109,42 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             string normalizedText = text.Trim();
+            string immediateCallsign = _currentGroupCallsignFactory().Trim();
+            if (_radioDialogue.TryHandleFollowUp(normalizedText, immediateCallsign, out NaturalRadioPlan followUp))
+            {
+                AssistantResponse localFollowUp = CreateLocalResponse(
+                    followUp.Transmissions.Count == 0
+                        ? string.Empty
+                        : string.Join(' ', followUp.Transmissions.Select(item => item.Text)),
+                    immediateCallsign,
+                    followUp);
+                answerTextReady?.Invoke(localFollowUp);
+                return localFollowUp;
+            }
             if (_localTurnHandler?.Invoke(normalizedText) is (true, string localText))
             {
-                string callsign = _currentGroupCallsignFactory().Trim();
-                AssistantResponse local = new(RadioFinalResponsePolicy.EnsureCurrentCallsign(localText, callsign), "local", 0, 0, 0, GroupCallsign: callsign,
-                    RequestMetrics: new AssistantRequestMetrics(0, new Dictionary<string, int>(), 0, 0, 0, 0));
+                string callsign = immediateCallsign;
+                string visible = RadioFinalResponsePolicy.EnsureCurrentCallsign(localText, callsign);
+                NaturalRadioPlan localPlan = _radioDialogue.Plan(
+                    normalizedText,
+                    visible,
+                    callsign,
+                    acknowledgementAlreadyEmitted: false);
+                AssistantResponse local = CreateLocalResponse(visible, callsign, localPlan);
                 answerTextReady?.Invoke(local);
                 return local;
             }
             if (FiringSolutionRequestPolicy.IsRequest(normalizedText))
             {
-                string callsign = _currentGroupCallsignFactory().Trim();
+                string callsign = immediateCallsign;
                 string message = callsign.Length == 0
                     ? "Firing-solution calculation is not available."
                     : $"{callsign}, firing-solution calculation is not available.";
-                AssistantResponse local = new(message, "local", 0, 0, 0, GroupCallsign: callsign,
-                    RequestMetrics: new AssistantRequestMetrics(0, new Dictionary<string, int>(), 0, 0, 0, 0));
+                NaturalRadioPlan localPlan = new(
+                    new[] { new RadioTransmission(message) },
+                    false,
+                    "radio-local-single");
+                AssistantResponse local = CreateLocalResponse(message, callsign, localPlan);
                 answerTextReady?.Invoke(local);
                 return local;
             }
@@ -177,13 +202,30 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
                     AcknowledgementThresholdMilliseconds = (int)_acknowledgementDelay.TotalMilliseconds,
                     AnswerTextLatencyMilliseconds = answerLatency.ElapsedMilliseconds
                 };
+            string finalText = RadioFinalResponsePolicy.EnsureCurrentCallsign(
+                response.Text,
+                groupCallsign);
+            NaturalRadioPlan radioPlan = _radioDialogue.Plan(
+                normalizedText,
+                finalText,
+                groupCallsign,
+                acknowledgementEmitted,
+                profile);
+            metrics = metrics is null
+                ? null
+                : metrics with
+                {
+                    RadioVariationId = radioPlan.VariationId,
+                    RadioTransmissionCount = radioPlan.Transmissions.Count,
+                    CopyConfirmationRequested = radioPlan.AwaitingCopyConfirmation
+                };
             AssistantResponse final = response with
             {
-                Text = RadioFinalResponsePolicy.EnsureCurrentCallsign(
-                    response.Text,
-                    groupCallsign),
+                Text = finalText,
                 GroupCallsign = groupCallsign,
-                RequestMetrics = metrics
+                RequestMetrics = metrics,
+                Transmissions = radioPlan.Transmissions,
+                AwaitingCopyConfirmation = radioPlan.AwaitingCopyConfirmation
             };
             answerTextReady?.Invoke(final);
             acknowledgementCancellation.Cancel();
@@ -202,7 +244,35 @@ public sealed class AssistantTurnService : IAssistantTurnService, IDisposable
         catch (OperationCanceledException) when (!turnToken.IsCancellationRequested) { }
     }
 
-    public void ResetConversation() => _assistant.ResetConversation();
+    public void ResetConversation()
+    {
+        _assistant.ResetConversation();
+        _radioDialogue.Reset();
+    }
+
+    private static AssistantResponse CreateLocalResponse(
+        string text,
+        string callsign,
+        NaturalRadioPlan plan)
+        => new(
+            text,
+            "local",
+            0,
+            0,
+            0,
+            GroupCallsign: callsign,
+            RequestMetrics: new AssistantRequestMetrics(
+                0,
+                new Dictionary<string, int>(),
+                0,
+                0,
+                0,
+                0,
+                RadioVariationId: plan.VariationId,
+                RadioTransmissionCount: plan.Transmissions.Count,
+                CopyConfirmationRequested: plan.AwaitingCopyConfirmation),
+            Transmissions: plan.Transmissions,
+            AwaitingCopyConfirmation: plan.AwaitingCopyConfirmation);
 
     private static string ReadSnapshotCallsign(string snapshot)
     {

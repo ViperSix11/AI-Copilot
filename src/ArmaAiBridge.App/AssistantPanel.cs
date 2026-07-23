@@ -570,11 +570,18 @@ public sealed class AssistantPanel : UserControl, IDisposable
 
     private void CommitVisibleAnswer(AssistantResponse response)
     {
-        Append("Papa Bear", response.Text);
-        _lastAnswerText = response.Text;
-        _lastAnswerSpeechText = RadioSpeechTextNormalizer.Normalize(
-            response.Text,
-            response.GroupCallsign);
+        IReadOnlyList<RadioTransmission> transmissions =
+            response.Transmissions is { Count: > 0 }
+                ? response.Transmissions
+                : new[] { new RadioTransmission(response.Text) };
+        foreach (RadioTransmission transmission in transmissions)
+            Append("Papa Bear", transmission.Text);
+        _lastAnswerText = string.Join(' ', transmissions.Select(item => item.Text));
+        _lastAnswerSpeechText = string.Join(
+            ' ',
+            transmissions.Select(item => RadioSpeechTextNormalizer.Normalize(
+                item.Text,
+                response.GroupCallsign)));
         _lastAnswerAudio?.Dispose();
         _lastAnswerAudio = null;
     }
@@ -1039,14 +1046,15 @@ public sealed class AssistantPanel : UserControl, IDisposable
     }
 
     private static string FormatCompletion(AssistantResponse response)
-        => $"{response.Model} · {response.ToolCalls} tool call(s) · {response.InputTokens} input / {response.OutputTokens} output tokens";
+        => $"{response.Model} · {response.ToolCalls} tool call(s) · {response.InputTokens} input / {response.OutputTokens} output tokens" +
+           (response.AwaitingCopyConfirmation ? " · awaiting copy confirmation" : string.Empty);
 
     private void LogCompletion(string source, AssistantResponse response)
     {
         AssistantRequestMetrics? metrics = response.RequestMetrics;
         string requestMetrics = metrics is null
             ? string.Empty
-            : $", snapshotBytes={metrics.SnapshotUtf8Bytes}, sectionCounts={string.Join("|", metrics.SectionRecordCounts.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => $"{item.Key}:{item.Value}"))}, historyMessages={metrics.HistoryMessageCount}, historyCharacters={metrics.HistoryCharacterCount}, selectedTools={metrics.SelectedToolCount}, acknowledgementEligible={metrics.AcknowledgementEligible}, acknowledgementEmitted={metrics.AcknowledgementEmitted}, acknowledgementThresholdMs={metrics.AcknowledgementThresholdMilliseconds}, acknowledgementVariation={metrics.AcknowledgementVariationId}, answerTextLatencyMs={metrics.AnswerTextLatencyMilliseconds}, responseLatencyMs={metrics.ResponseLatencyMilliseconds}, retryPerformed={metrics.RetryPerformed}, initialIncompleteReason={metrics.InitialIncompleteReason}";
+            : $", snapshotBytes={metrics.SnapshotUtf8Bytes}, sectionCounts={string.Join("|", metrics.SectionRecordCounts.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => $"{item.Key}:{item.Value}"))}, historyMessages={metrics.HistoryMessageCount}, historyCharacters={metrics.HistoryCharacterCount}, selectedTools={metrics.SelectedToolCount}, acknowledgementEligible={metrics.AcknowledgementEligible}, acknowledgementEmitted={metrics.AcknowledgementEmitted}, acknowledgementThresholdMs={metrics.AcknowledgementThresholdMilliseconds}, acknowledgementVariation={metrics.AcknowledgementVariationId}, answerTextLatencyMs={metrics.AnswerTextLatencyMilliseconds}, responseLatencyMs={metrics.ResponseLatencyMilliseconds}, retryPerformed={metrics.RetryPerformed}, initialIncompleteReason={metrics.InitialIncompleteReason}, radioVariation={metrics.RadioVariationId}, radioTransmissions={metrics.RadioTransmissionCount}, copyConfirmationRequested={metrics.CopyConfirmationRequested}";
         _log.Info($"{source} assistant text completed: model={response.Model}, tools={response.ToolCalls}, inputTokens={response.InputTokens}, outputTokens={response.OutputTokens}, reasoningTokens={response.ReasoningTokens}{requestMetrics}.");
     }
 

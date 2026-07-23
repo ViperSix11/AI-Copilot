@@ -8,7 +8,13 @@ public sealed record AssistantResponse(
     int OutputTokens,
     int ReasoningTokens = 0,
     string GroupCallsign = "",
-    AssistantRequestMetrics? RequestMetrics = null);
+    AssistantRequestMetrics? RequestMetrics = null,
+    IReadOnlyList<RadioTransmission>? Transmissions = null,
+    bool AwaitingCopyConfirmation = false);
+
+public sealed record RadioTransmission(
+    string Text,
+    int PauseBeforeMilliseconds = 0);
 
 public sealed record AssistantRequestMetrics(
     int SnapshotUtf8Bytes,
@@ -23,4 +29,7 @@ public sealed record AssistantRequestMetrics(
     int AcknowledgementThresholdMilliseconds = 0,
     long AnswerTextLatencyMilliseconds = 0,
     bool RetryPerformed = false,
-    string InitialIncompleteReason = "");
+    string InitialIncompleteReason = "",
+    string RadioVariationId = "",
+    int RadioTransmissionCount = 1,
+    bool CopyConfirmationRequested = false);
