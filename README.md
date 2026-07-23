@@ -9,12 +9,13 @@ Arma supplies bounded facts, local deterministic services normalize and select
 the relevant evidence, OpenAI produces the natural-language answer, and
 ElevenLabs optionally speaks the completed text.
 
-| Release | Platform | Status |
+| Current source baseline | Platform | Status |
 | --- | --- | --- |
-| **0.9.1 — Robust Context-on-Demand candidate** | Windows 10/11 x64, Arma 3, .NET 8 | AI-selected bounded retrieval, player-message journaling, developing event windows and bounded friendly equipment queries are implemented; live acceptance and GitHub CI status are reported separately |
+| **0.9.1 — Robust Context-on-Demand** | Windows 10/11 x64, Arma 3, .NET 8 | Integrated on `main`; Windows CI passed for the integration commit. No Git tag or published GitHub Release exists, and live 0.9.1 Arma acceptance remains pending. |
 
-The complete release and repository history is in
-[`CHANGELOG.md`](CHANGELOG.md).
+See the [current status and roadmap boundary](docs/papa-bear-v1/current-status.md)
+for the distinction between source version, CI, live acceptance and a published
+release. The complete historical record is in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## How it works
 
@@ -45,12 +46,12 @@ Typed input, local push-to-talk, global push-to-talk, and the opt-in
 voice-activated microphone all enter the same assistant path. Voice does not
 maintain a separate world model or conversation.
 
-## Release 0.8 capabilities
+## Current 0.9.1 capabilities
 
 ### Perspective-bound Arma state
 
 - Explicit mission/session handshake and protocol feature versions.
-- One bounded `state-snapshot-v2` envelope every eight seconds, built from
+- One bounded `state-snapshot-v2` envelope every four seconds, built from
   independently sampled player, environment, time, loadout, friendly-force,
   known-contact, task, and marker sections.
 - Current player side and dynamic `groupId (group player)` callsign.
@@ -233,7 +234,7 @@ for the exact boundaries.
 
 ## Deliberate non-goals
 
-Release 0.8 does not include:
+The current 0.9.1 baseline does not include:
 
 - ACE integration or ballistic/firing-solution calculations;
 - support execution, waypoint assignment, route planning, landing-zone
@@ -272,21 +273,31 @@ matching development artifact upload.
 
 ## Acceptance status
 
-- Releases 0.1–0.3 established the basic addon/native/app/text path.
-- Milestones 1–3 and release 0.7 passed their recorded live acceptance.
-- Release 0.8 deterministic and Windows CI coverage is green.
-- Full live 0.8 acceptance, including the newest Bullseye, fallback,
-  reacquisition, always-on microphone, and reset scenarios, remains a manual
-  gate.
+- Milestones 1–3 and release 0.7 passed their recorded live Arma
+  acceptance.
+- PR #12 (the 0.8 baseline) merged and its Windows build passed. The repository
+  does not record completion of the full later 0.8 live-acceptance matrix.
+- The current 0.9.1 integration commit passed Windows CI. The deterministic
+  suite currently contains 320 passing tests.
+- Full live 0.9.1 acceptance remains pending. No Git tag or published GitHub
+  Release has been created for any product version.
 
 ## Documentation
 
-- [Papa Bear v1 index](docs/papa-bear-v1/README.md)
-- [Arma data contract](docs/papa-bear-v1/arma-data-contract.md)
-- [Voice architecture](docs/papa-bear-v1/voice-architecture.md)
-- [World model](docs/papa-bear-v1/world-model.md)
-- [Privacy and fair play](docs/papa-bear-v1/privacy-and-fair-play.md)
+- [Current release and roadmap status](docs/papa-bear-v1/current-status.md)
 - [Complete changelog and version history](CHANGELOG.md)
+- [Papa Bear v1 specification index](docs/papa-bear-v1/README.md)
+  - [Product vision](docs/papa-bear-v1/product-vision.md)
+  - [Persona and dialogue](docs/papa-bear-v1/persona-and-dialog.md)
+  - [World model](docs/papa-bear-v1/world-model.md)
+  - [Arma data contract](docs/papa-bear-v1/arma-data-contract.md)
+  - [Privacy and fair play](docs/papa-bear-v1/privacy-and-fair-play.md)
+  - [Voice architecture](docs/papa-bear-v1/voice-architecture.md)
+
+There is currently no approved next-milestone roadmap in the repository.
+Superseded milestone and release plans were deliberately removed; the
+changelog records completed history and must not be used as future
+implementation authority.
 
 ## License
 

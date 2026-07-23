@@ -2,91 +2,118 @@
 
 ## Purpose
 
-The world model is the local source of truth for current game state. It absorbs high-frequency Arma/ACE telemetry, normalizes it into entities, tracks changes and provides retrieved context to OpenAI and deterministic services.
+The local world model is the current product's source of truth for authorized
+mission information. It ingests versioned Arma messages, normalizes stable
+mission-scoped identities where available, preserves provenance and age, and
+serves bounded context to deterministic services and OpenAI.
 
-Raw telemetry is evidence, not the long-term representation.
+Raw telemetry is evidence, not provider context. The model never receives a
+direct database export.
 
-## Entity types
+## Information layers
 
-- `PlayerState`
-- `GroupState`
-- `FriendlyUnitState`
-- `FriendlyVehicleState`
-- `KnownContactState`
-- `MissionObjectiveState`
-- `MarkerState`
-- `SupportAssetState`
-- `OperationState`
-- `WeatherState`
-- `WeaponSystemState`
-- `CapabilityState`
+The 0.9.1 baseline maintains four related layers:
 
-## Common entity fields
+1. **Current picture** — the latest accepted `state-snapshot-v2`, published
+   every four seconds with independently sampled sections.
+2. **Developing picture** — bounded consecutive snapshots used for new or
+   reacquired contact development before a detailed proactive report.
+3. **Mission memory** — mission/session-scoped SQLite state containing contact
+   tracks and observations, player-message journal entries, structured
+   reports/corrections/retractions, lore and explicit reported locations.
+4. **Conversation context** — recent typed/transcribed user and assistant turns
+   retained locally and retrieved only when relevant.
 
-Every state record must include:
+Official named locations are a separate in-memory gazetteer assembled from the
+active world's allowed `CfgWorlds` name classes. A separate local
+map-intelligence store can hold explicitly authored information, but model
+access is permission-gated and bounded. Neither is a complete static map index.
+
+## Current state domains
+
+- player side and current Arma group callsign;
+- locally retained player position/grid for authorized deterministic use;
+- overcast and mission time/astronomy;
+- player loadout summary;
+- own-side groups, units and crewed vehicles;
+- side-known hostile and unidentified contacts;
+- mission tasks and locally visible mission references;
+- read-only mission-declared assets and capabilities;
+- official named locations.
+
+The canonical player position is deliberately withheld from ordinary OpenAI
+context. Temperature, wind, ACE data, trajectory data and unrestricted object
+state are not collected.
+
+## Provenance and state semantics
+
+Stored or derived facts carry the fields needed to preserve:
 
 ```text
-entityId             stable local identifier
-source               player | group | side-report | sensor | mission | ACE | derived
-observedAtGameTime   time of observation
-receivedAtUtc        local receipt time
-freshnessClass       live | recent | stale | historical
-confidence           0.0–1.0 or explicit categorical equivalent
-position             exact or estimated position when available
-positionErrorMeters  uncertainty radius when applicable
+mission/session scope
+privacy-safe entity or track identity
+source/provenance class
+observed game time and received UTC time
+current, recent, stale, last-known or historical state
+deterministic confidence
+position uncertainty where applicable
+corroboration, contradiction and reporter callsigns where available
 ```
 
-Derived values must retain references to their inputs. A recommendation must not silently become a fact.
+Current state, a player report and a local derivation are not interchangeable.
+Corroboration may raise confidence; contradiction remains visible until later
+evidence resolves it. A derived relationship retains the authority limits of
+its inputs.
 
-## Friendly-force picture
+## Identity and privacy
 
-For own-side units and vehicles, capture where mission/network locality permits:
+Mission-scoped source identifiers are used only for local joins. The desktop
+hashes or replaces them with local aliases before diagnostics or retrieval.
+Player profile names and UIDs are not collected. Raw netIds, source IDs,
+database aliases and mission/session source identifiers never enter ordinary
+OpenAI context.
 
-- side, faction, group and callsign;
-- current and last-known position;
-- unit class, role and crew role;
-- alive, conscious, mobile and transportable state;
-- damage and ACE medical summary;
-- weapon/ammunition readiness summary;
-- vehicle fuel, damage, crew, passenger capacity and cargo;
-- current task, waypoint and behavior where available;
-- support capability and availability;
-- last update and communication availability.
+The current `groupCallsign` comes from `groupId (group player)` on every player
+collection cycle. It is not permanently cached across group or session changes.
 
-The exact visibility of friendly units is mission-configurable. Papa Bear must not imply a current position when only an old report exists.
+## Friendly-force and known-contact policy
 
-## Known enemy contacts
+Friendly-force state is limited to the player's current side and the existing
+mission/network perspective. It includes groups, units, crewed vehicles and
+bounded equipment summaries needed by read-only resource questions.
 
-Enemy contacts are allowed only when known through the player's side information system, for example:
+Hostile and unidentified contacts come only from own-side
+`targets`/`targetKnowledge` and the engine-estimated knowledge available to
+eligible friendly representatives. The model retains estimated position,
+uncertainty, age, lifecycle and privacy-safe reporter callsigns. It never
+hydrates a contact from hostile `getPos*`, unrestricted server truth,
+waypoints, orders, targets or inventory.
 
-- player or group target knowledge;
-- reports from friendly units explicitly shared with HQ;
-- vehicle sensors available to the player/side;
-- mission-defined intelligence reports.
+## Ingestion and reconciliation
 
-Store perceived type/side, estimated position, position error, reporting source, last-seen age and confidence. Never hydrate an enemy entity from unrestricted server truth.
+The ingestion path:
 
-## State reduction
+1. validates message schema, protocol/session and sequence;
+2. hashes transport identities and normalizes units;
+3. atomically replaces current sections in SQLite;
+4. preserves the last good value when a section fails or becomes unavailable;
+5. applies periodic full reconciliation and mission/session reset;
+6. updates contact tracks and observation history without collapsing distinct
+   evidence;
+7. emits bounded change events for the developing picture.
 
-The ingestion pipeline should:
-
-1. validate schema and source;
-2. normalize units and identifiers;
-3. merge by stable identity;
-4. retain last-known state and uncertainty;
-5. emit meaningful deltas;
-6. expire or downgrade stale data;
-7. update query indexes;
-8. publish events to the orchestrator.
+A successfully sampled empty section authoritatively clears that section.
+Out-of-order snapshots are rejected.
 
 ## Retrieval for reasoning
 
-The orchestrator requests a purpose-built context packet, not the entire world model. Examples:
+OpenAI starts with a small plain-English seed containing the current player
+message or event summary, callsign/side and available information-area names.
+It may inspect the catalogue and request narrow context categories. Local code
+validates every request, applies scope/result limits and privacy projection,
+then formats the selected records as short English facts.
 
-- nearest available transport assets;
-- friendly units within 2 km with casualties;
-- known threats near a proposed route;
-- current weapon/weather profile;
-- active operation involving the player's group.
-
-Every context packet includes time, provenance and uncertainty so Papa Bear can phrase the answer correctly.
+The provider does not receive SQL rows, schemas, aliases, raw timestamps,
+serialized query envelopes, the entire current picture, the complete
+gazetteer, or complete mission memory. Exhausted retrieval ends with a
+tool-free synthesis request so a usable reply is not discarded.

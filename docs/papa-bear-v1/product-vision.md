@@ -2,62 +2,69 @@
 
 ## Mission
 
-Papa Bear is a believable local radio assistant for Arma 3. The product grows
-through small, live-accepted vertical proofs: Arma supplies measured facts,
-local deterministic code establishes relationships, one OpenAI Responses turn
-produces natural language, and ElevenLabs speaks the exact visible answer.
+Papa Bear is a believable local radio assistant for Arma 3. Arma supplies
+perspective-bound facts, local deterministic services retain and relate them,
+OpenAI selects bounded relevant context and produces natural language, and
+ElevenLabs optionally speaks the completed visible answer.
 
-## Current product experience
+## Current 0.9.1 experience
 
-Release 0.8 supports typed and bounded push-to-talk questions about the current
-mission. It maintains privacy-minimized player, known-contact and friendly-force
-state; can perform existing bounded read-only environment and force queries; and
-can describe the player's measured position relative to official named places.
+Papa Bear accepts typed, push-to-talk and opt-in voice-activated input through
+one assistant path. The current product combines:
 
-The contextual interpreter has four explicit fact layers:
+1. a four-second, section-sampled State Mirror of current Arma information;
+2. a short developing picture for contact changes;
+3. mission-scoped contact history, player messages, structured reports,
+   corrections and lore;
+4. an in-memory official named-location gazetteer and locally authorized
+   mission references;
+5. a hierarchical context catalogue from which OpenAI requests only the
+   information groups needed for the current turn;
+6. deterministic local spatial language and a provider-boundary formatter that
+   turns selected records into small English facts.
 
-1. measured Arma telemetry;
-2. official cartographic names from the active world's configuration;
-3. deterministic local distance, bearing, containment, freshness and ranking;
-4. one grounded narrative response.
-
-The complete gazetteer remains local. It contains only official named-location
-configuration, never a scan of buildings, roads, vegetation, terrain, water or
-runtime mission objects.
+The complete State Mirror, database rows, raw telemetry and gazetteer are not
+sent to OpenAI. The model receives a minimal seed and only the bounded,
+privacy-projected facts returned by validated local tools.
 
 ## Product principles
 
 - Arma is authoritative for game state and perspective-bound knowledge.
+- Hidden opposing-side truth is never used to answer the player.
 - Numerical and spatial relationships are computed locally, not estimated by a
   language model.
-- OpenAI receives purpose-specific minimized snapshots and bounded tool results.
-- Typed and spoken turns use the same interpreter and conversation path.
+- Multiple observations, current/last-known state, age, uncertainty and
+  reporting source remain distinguishable.
+- Canonical player coordinates remain local and are excluded from ordinary
+  model context.
+- Typed and spoken turns use the same reasoning, memory and dialogue path.
 - A completed transcript or text answer survives TTS and playback failure.
-- Tools are typed, locally validated and read-only in the current product.
-- Each broader capability requires a focused specification and live gate.
+- Model-selected tools are typed, locally validated and bounded.
+- Every broader capability requires a focused specification and live gate.
 
 ## Current non-goals
 
-- no omniscient or side-wide hostile-state expansion;
-- no arbitrary SQF, native, shell or operating-system execution;
-- no full static map index, runtime terrain-object scan, SQLite map database or
-  persistent operational memory;
-- no player-report memory, proactive contact reports or empty-object perception;
-- no ACE integration, firing-solution calculations, routes, landing-zone
-  scoring or support execution;
-- no always-on listening, wake word, streaming STT or streaming TTS;
-- no anti-cheat bypass or hidden extension loading.
+- no unrestricted server-world export or hidden hostile ground truth;
+- no arbitrary SQF, C++, SQL, PowerShell, shell or operating-system execution;
+- no complete static-map, building, road, vegetation, terrain-object or
+  runtime-object index;
+- no unseen empty-object perception or mission-wide object enumeration;
+- no ACE integration or ballistic/firing-solution calculations;
+- no route generation, waypoint assignment, landing-zone execution, support
+  execution or autonomous game actions;
+- no wake word, streaming STT/TTS, barge-in or radio audio effects;
+- no anti-cheat bypass, hidden extension loading, installer, automatic updater
+  or production signing.
 
-These are not release 0.8 dependencies. Git history preserves prior experiments;
-future proposals must demonstrate a need and define their own fair-play boundary.
+Mission-declared assets and capabilities remain typed, read-only information.
+They do not authorize execution.
 
-## Release 0.8 success
+## Current verification boundary
 
-- the accepted release 0.7 voice pipeline remains green;
-- a bounded official gazetteer loads once for the active mission session;
-- ordinary position questions need one Responses request and no tool round;
-- position relationships, rounding and freshness are deterministic;
-- response profiles change tone only and cannot alter fact or safety policy;
-- visible, historical, synthesized and replayed assistant text is identical;
-- Windows tests, app/native/PBO build and live Stratis plus alternate-map checks
-  pass before the draft PR becomes ready.
+The 0.9.1 source baseline is integrated on `main` and its integration commit
+passed the Windows build workflow. The deterministic desktop suite contains 320
+passing tests at the 2026-07-23 documentation audit. Full live 0.9.1 Arma
+acceptance is still required, and no Git tag or published GitHub Release exists.
+
+This is a description of the current product, not a future roadmap. See
+[`current-status.md`](current-status.md).

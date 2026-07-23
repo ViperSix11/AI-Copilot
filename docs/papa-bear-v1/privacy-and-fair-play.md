@@ -2,69 +2,117 @@
 
 ## Perspective-bound information
 
-Papa Bear may use measured player/current-vehicle state, mission-authorized
-own-side state, eligible actor/platform contacts already available through the
-accepted perspective model, read-only mission assets/capabilities and official
-active-world named-location configuration.
+Papa Bear may use:
 
-Official names are cartographic facts. They reveal no runtime units, objects or
-enemy state. Release 0.8 reads only `CfgWorlds >> worldName >> Names`; it does
-not enumerate terrain objects, mission objects, buildings, roads, vegetation,
-vehicles or units for the gazetteer.
+- measured local player state for authorized local calculations;
+- mission-authorized own-side units, groups and crewed vehicles;
+- hostile/unidentified contacts already available through the own-side
+  `targets`/`targetKnowledge` picture;
+- explicit player reports, corrections and retractions;
+- read-only mission-declared assets and capabilities;
+- locally visible mission tasks and positive-alpha map references;
+- official active-world named locations from an allowed
+  `CfgWorlds >> worldName >> Names` type set.
 
-Papa Bear may not use unrestricted server lists or opposing-side truth to reveal
-unknown enemies, mines, objectives or private state. Public-server use requires
-server/mod approval; the project does not implement injection or anti-cheat
-evasion.
+Papa Bear may not use unrestricted server lists, hostile `getPos*`, opposing
+orders/waypoints/targets/inventories or mission-wide object enumeration to
+reveal unknown enemies, objects, mines or objectives. Public-server use
+requires server/mod approval; the project implements no injection or
+anti-cheat evasion.
+
+Official names reveal no runtime unit or object state. The gazetteer does not
+scan terrain objects, buildings, roads, vegetation, water, vehicles or units.
 
 ## Model boundary
 
-OpenAI receives only the current purpose-specific snapshot and bounded selected
-tool results. The complete local gazetteer, raw pages and raw 4 Hz telemetry are
-never sent. Position context contains the measured position plus no more than
-three deterministic named references.
+OpenAI receives a minimal plain-English seed and only narrow context requested
+through validated local tools. Selected records are privacy-projected and
+formatted as short English facts before leaving the application.
 
-Player profile names, UIDs, raw engine IDs and source mission/session identifiers
-stay out of model context. No trajectory profile, coefficient array or external
-mod state is collected or sent to OpenAI. Map configuration text and custom style text are untrusted data and
-cannot redefine factual, fair-play or tool policy.
+OpenAI does not receive:
 
-Known contacts contain only eligible perceived actors and operational
-platforms. Arbitrary static world objects never enter the State Mirror or
-OpenAI context. Conventional vehicles require living crew; supported active
-UAVs/UGVs use engine control/autonomy state; dead people and ordinary empty
-vehicles are excluded. Relationship follows current engine side relations, so
-GUER is not hard-coded. Official named geography is separate and comes only
-from a closed `CfgWorlds/<world>/Names` type allowlist.
+- raw `state-snapshot-v2` payloads or complete current-state sections;
+- SQL rows, table/schema data or complete SQLite databases;
+- the complete named-location gazetteer or map-intelligence store;
+- raw aliases, source IDs, netIds or source mission/session identifiers;
+- player profile names or UIDs;
+- API keys, provider settings or application paths;
+- canonical current player coordinates, grid or elevation;
+- temperature, wind, ACE state or trajectory/ballistic data;
+- hidden opposing-side ground truth.
+
+The current dynamic Arma group callsign may be supplied for natural radio
+address. Marker, task, mission, lore and custom prompt text are untrusted data,
+not system instructions.
+
+## Contact visibility
+
+Known contacts contain only eligible perceived actors and operational platforms
+already shared through the accepted own-side information picture.
+Conventional vehicles require living crew; supported active UAV/UGV state must
+come through authorized engine control/knowledge. Dead people and ordinary
+empty vehicles are not promoted as live contacts.
+
+Relationship follows current engine side relations; GUER is not hard-coded.
+Contact position is the engine estimate plus uncertainty and age, not a hidden
+actual position. Reporter callsigns may be retained; raw reporter identity may
+not leave the local boundary.
 
 ## Tool and prompt security
 
-- strict local schemas, allowlists, numeric bounds, result limits and timeouts;
-- no arbitrary SQF, C++, PowerShell, shell or operating-system commands;
-- current tools remain read-only;
-- immutable rules precede measured/derived facts, style profile and question;
-- custom profile text is capped at 2,000 characters, sanitized and style-only;
-- distances, bearings, directions, containment and freshness are local results,
-  not model calculations.
+- fixed tool names, strict JSON schemas, enums, numeric bounds, result limits
+  and timeouts;
+- no arbitrary SQF, C++, SQL, PowerShell, shell, file or operating-system
+  command;
+- no game-state mutation, support execution or autonomous action tool;
+- local authorization before any memory write or long-term map-intelligence
+  query;
+- original player wording retained separately from model-authored semantic
+  interpretation;
+- immutable privacy/fair-play rules precede custom operator text and retrieved
+  facts;
+- custom response-profile text is capped and style-only;
+- distances, directions, containment, grids, freshness and uncertainty are
+  local deterministic results.
 
-## Retention and logging
+The model may write only controlled local records for explicit player
+information, corrections/retractions and current-event assessment. It cannot
+rewrite canonical Arma state.
 
-- API keys are DPAPI-encrypted; response profiles are ordinary local settings;
-- world state, conversation and the named-location gazetteer are memory-only for
-  their current scopes;
-- no SQLite map index, map fingerprint cache or operational-memory database is
-  active in release 0.8;
-- audio, questions, transcripts, answers, custom style, full prompts, snapshots,
-  tool payloads, raw gazetteer pages, provider bodies and credentials are not
-  logged;
-- temporary WAV files are deleted after success, failure or cancellation;
-- background Raw Input retains only current bounded chord state; it never logs
-  arbitrary keys, text, scan-code history, device names or device identifiers;
-- OpenAI Responses uses `store: false`; provider retention policy remains an
-  external account/data-control consideration.
+## Retention
+
+- API keys are encrypted with Windows DPAPI for the current user;
+- current State Mirror rows, contact observations, player-message journal,
+  structured mission memory and lore are mission/session-scoped in local
+  SQLite;
+- recent conversation is kept locally for bounded follow-up context;
+- reset/session-change rules prevent canonical state and callsign reuse across
+  missions;
+- the official named-location gazetteer is in memory for the current world;
+- a separate local map-intelligence store contains only explicitly authored
+  information and is not a static world index;
+- no complete map fingerprint cache, terrain-object database or hidden
+  operational ground-truth store is active.
+
+## Logging and providers
+
+Audio, questions, transcripts, answers, pre-prompts, full prompts, snapshots,
+tool payloads, raw gazetteer pages, provider bodies, API keys, voice IDs and
+conversation content are not written to application logs.
+
+Temporary WAV files are bounded and deleted after success, failure or
+cancellation. Background Raw Input retains only current bounded chord state and
+never logs arbitrary keys, text, scan-code history, device names or device
+identifiers.
+
+ElevenLabs receives only the text selected for speech. OpenAI receives audio
+only for an explicit PTT or explicitly enabled voice-activated utterance.
+Responses uses `store: false`; provider/account retention policy remains an
+external data-control consideration.
 
 ## Transparency
 
-Papa Bear must preserve live versus last-known status, disclose unavailable or
-stale information, fall back to world/grid when no valid name exists and never
-invent a place, distance, bearing, coordinate or hidden contact.
+Papa Bear must preserve current versus last-known state, disclose material age
+or uncertainty, distinguish a player report from independent confirmation and
+say when information is unavailable. It must not invent a place, distance,
+direction, grid, identity or hidden contact.

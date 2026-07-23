@@ -3,12 +3,21 @@
 This file records notable product, protocol, privacy, build, and user-visible
 changes for ArmA AI Bridge.
 
-The repository did not create Git tags for releases 0.1 through 0.8. The
-version boundaries below are reconstructed from the assembly version, merged
-pull requests, first-parent history, and the authoritative documents under
-`docs/papa-bear-v1/`.
+As of 2026-07-23, the repository has no Git tags and no published GitHub
+Releases. The version boundaries below describe source baselines reconstructed
+from application version metadata, merged pull requests, first-parent history
+and the authoritative documents under `docs/papa-bear-v1/`. A source version
+does not imply published-release or live-acceptance status.
 
-## 0.9.1 — Robust Context-on-Demand — Unreleased
+Current status and the roadmap boundary are maintained in
+[`docs/papa-bear-v1/current-status.md`](docs/papa-bear-v1/current-status.md).
+
+## 0.9.1 — Robust Context-on-Demand — Current main baseline — 2026-07-23
+
+Integrated directly into `main` by commit `d7269ad`; there was no separate pull
+request, Git tag or published GitHub Release. The Windows `build` workflow
+passed for that integration commit. Full live 0.9.1 Arma acceptance remains
+pending.
 
 - Retains every typed and transcribed player message in current-mission memory
   before model interpretation, while storing model-selected semantic
@@ -30,7 +39,18 @@ pull requests, first-parent history, and the authoritative documents under
   Internal typed records remain local. Exhausted retrieval now ends with a
   tool-free synthesis request instead of discarding the interaction.
 
-## 0.9.0 — Hierarchical Context-on-Demand
+### Current deterministic validation
+
+- Repository verifier: 178 UTF-8 files after this documentation correction.
+- Deterministic Release suite: 320 passing tests.
+- The matching WPF app, native x64 extension and PBO were built and deployed
+  locally from the 0.9.1 integration before this documentation audit.
+
+## 0.9.0 — Hierarchical Context-on-Demand development phase — 2026-07-23
+
+This was an internal design/development phase folded into 0.9.1. The application
+version moved directly from 0.8.1 to 0.9.1, so 0.9.0 was never an independent
+assembly version, tag, published release or live-acceptance target.
 
 ### Added
 
@@ -61,7 +81,11 @@ pull requests, first-parent history, and the authoritative documents under
 - No native DLL, Named Pipe, SQF collection, ACE, ballistics, route, support,
   map-scanning or arbitrary-command expansion.
 
-## 0.8.1 — Natural Dynamic Radio Hotfix — Unreleased
+## 0.8.1 — Natural Dynamic Radio Hotfix — Integrated, then superseded — 2026-07-23
+
+The application version was set to 0.8.1 on `main` beginning at commit
+`3c6dbc2`. The hotfix was not tagged or published independently and is now part
+of the 0.9.1 baseline.
 
 ### Added
 
@@ -334,11 +358,17 @@ Foundation PRs:
 | [#9](https://github.com/ViperSix11/AI-Copilot/pull/9) | 2026-07-22 | Closed, unmerged | Superseded full static-map indexing draft |
 | [#10](https://github.com/ViperSix11/AI-Copilot/pull/10) | 2026-07-22 | Closed, unmerged | Superseded observation-memory draft |
 | [#11](https://github.com/ViperSix11/AI-Copilot/pull/11) | 2026-07-22 | Merged | Release 0.7 Voice Position MVP |
-| [#12](https://github.com/ViperSix11/AI-Copilot/pull/12) | 2026-07-23 | Release closeout | Release 0.8 Unified State Mirror & Interpreter |
+| [#12](https://github.com/ViperSix11/AI-Copilot/pull/12) | 2026-07-23 | Merged | Release 0.8 Unified State Mirror & Interpreter |
+
+Post-PR #12 work was integrated directly on `main`: the 0.8.1 radio hotfix
+series (`3c6dbc2` through `0d14285`) and the 0.9.1 context-on-demand integration
+(`d7269ad`). Neither has a separate GitHub pull request.
 
 ## Versioning notes
 
 - Application/product versions use semantic `major.minor.patch` form.
+- The assembly/source version, a Git tag, a published GitHub Release, CI
+  completion and live Arma acceptance are independent states.
 - Arma wire schemas, SQLite schema versions, protocol features, and product
   versions are independent and must not be inferred from one another.
 - Matching application, native DLL, and PBO artifacts must always be deployed

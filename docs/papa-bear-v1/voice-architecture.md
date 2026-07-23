@@ -1,122 +1,109 @@
 # Voice architecture
 
-## Active release 0.8 pipeline
+## Active 0.9.1 pipeline
 
 Voice is an adapter around the same turn service used by typed chat. It owns no
-world state, interpreter, conversation history or tool policy.
+separate world model, memory, context policy or dialogue history.
 
 ```text
-hold local button or background Raw Input push-to-talk
+hold local/global push-to-talk
 OR explicitly enable local voice-activated listening
 -> one completed utterance (maximum 15 seconds)
--> bounded WAV
+-> bounded temporary WAV
 -> OpenAI completed-utterance transcription
 -> visible final transcript
+-> retain the player message in current-mission memory
 -> shared AssistantTurnService
--> frozen fixed compact operational snapshot when operational
--> start one OpenAI Responses/tool loop and 5,000-millisecond timer concurrently
--> conditional local English acknowledgement if final text remains pending
--> cached acknowledgement ElevenLabs speech, cancellable before playback
--> locally normalized final visible answer
+-> minimal plain-English context seed
+-> OpenAI Responses with validated local context/memory tools
+-> selected records formatted locally as short English facts
+-> visible final answer
 -> local context-dependent one-or-more-transmission plan
--> final ElevenLabs speech per transmission after acknowledgement playback
--> bounded local pause between calls
--> sequential Windows playback
+-> ElevenLabs synthesis per transmission
+-> bounded local pause and sequential Windows playback
 ```
 
-An ordinary operational question has no tool round because all fixed compact
-domains are in the initial snapshot. Arbitrary terrain-object enumeration and
-firing-solution calculations are not model-facing. Transcription is a separate OpenAI request. One
-bounded max-token retry may repeat the frozen Responses input without creating
-a second turn, history entry or acknowledgement.
+The model does not receive a fixed broad tactical snapshot or direct database
+export. It starts with the actual message, current callsign/side and available
+information-area names, then requests narrow context when required. One bounded
+max-token retry may repeat the same frozen provider input without creating a
+second user turn or history entry.
 
 ## Shared turn behavior
 
-- typed and spoken input use the same frozen compact snapshot, response profile,
-  bounded OpenAI history and strict exceptional-tool dispatcher;
-- acknowledgements are local, English-only, delayed, absent for a fast answer,
-  absent from model history and do not count as the final answer;
+- typed and spoken input use the same context broker, response profile,
+  bounded recent conversation and mission-memory services;
+- all typed/transcribed messages are retained locally before model
+  interpretation; the model's structured interpretation is a separate record;
+- optional acknowledgements are local, English-only, delayed, absent for a
+  fast answer and absent from model history;
 - exact `groupCallsign` comes from current Arma state; speech alone may
   deterministically pronounce digits without changing visible identity;
-- acknowledgement audio is cached after first synthesis and final audio never
-  overlaps acknowledgement playback;
-- response profiles are local style data and cannot override immutable rules;
-- the model answer is normalized once; the local planner may use only the exact
-  current callsign and never an older address from history; it does not force
-  direct address into every response; ElevenLabs/replay may use only the
-  speech-formatted current callsign, numbers and units;
-- Over/Out suffixes are removed and the configured terminator is appended once;
-- replay synthesizes or replays the last final answer and never repeats STT,
-  acknowledgement or Responses.
-- receipt confirmation and repeat state are local, expire after five minutes,
-  clear on callsign/conversation reset, and never become hidden model tools;
-- a locally handled repeat does not call Responses again and removes filler
-  while preserving the relevant completed information;
-- every ElevenLabs payload is deterministically normalized to contain English
-  number words rather than ASCII digits.
+- response profiles and operator pre-prompts are local style/behavior inputs
+  and cannot override immutable privacy, fair-play or tool rules;
+- the model answer is normalized once; the local planner may split it into
+  bounded calls without changing facts;
+- every ElevenLabs payload converts supported numbers to English words;
+- receipt-confirmation and repeat state are local, expire after five minutes
+  and cannot block substantive questions or reports;
+- a locally handled repeat does not call transcription or Responses again.
 
 ## State and failure behavior
 
 ```text
 ready -> recording/listening -> transcribing -> thinking
-      -> acknowledgement voice -> thinking
+      -> optional acknowledgement voice -> thinking
       -> final generating-voice -> speaking -> ready
 ```
 
 The transcript becomes visible immediately after successful transcription. The
-acknowledgement timer follows only a valid transcript or accepted typed turn.
-The final answer becomes visible immediately after successful Responses. TTS or
-playback failure is partial success: text remains usable and retryable.
-Cancellation is available at every asynchronous stage and does not block bridge
-ingestion.
+final answer becomes visible immediately after successful Responses. TTS or
+playback failure is partial success: the visible conversation and assistant
+history remain intact, and **Replay Last Answer** retries speech without
+repeating transcription or reasoning.
+
+Cancellation is available at every asynchronous stage and does not block State
+Mirror ingestion.
+
+## Input modes
+
+### Push-to-talk
+
+Local press-and-hold capture and configurable global PTT share the same
+15-second cap. Global PTT registers the generic keyboard once with
+`RegisterRawInputDevices` and `RIDEV_INPUTSINK`. `WM_INPUT` make/break events
+drive a bounded in-memory chord matcher while leaving normal keyboard input
+untouched. It uses no `RegisterHotKey`, polling, keyboard hook, injection,
+device-name lookup or arbitrary key logging.
+
+### Opt-in voice activation
+
+**Mic always on** is persisted, explicitly opt-in and off by default. There is
+no wake word. A deterministic local PCM detector requires two consecutive
+100-millisecond buffers above RMS `0.025`, keeps at most 300 milliseconds of
+pre-roll, rejects candidates with less than 300 milliseconds of voiced audio,
+and completes after 900 milliseconds of silence or the 15-second hard limit.
+
+Silence and rejected noise bursts are never written to WAV or sent to a
+provider. Listening pauses during transcription, reasoning, acknowledgement,
+speech generation and playback so Papa Bear cannot transcribe its own output.
+A microphone failure disables the mode instead of entering a retry loop.
 
 ## Providers and privacy
 
-- one DPAPI-protected OpenAI key is used for transcription and Responses;
+- the DPAPI-protected OpenAI key is used for transcription and Responses;
 - ElevenLabs is the only active speech-output provider;
-- microphone data is transmitted only for explicit transcription,
-  push-to-talk, or explicitly enabled voice-activated listening;
-- questions, transcripts, answers, callsigns, style text, prompts, snapshots,
-  provider bodies, credentials and audio content are not logged;
-- safe logs contain only snapshot bytes/counts, bounded history counts, selected
-  tool count, provider token totals, acknowledgement eligibility/emission/
-  threshold/variation, answer latency and bounded retry metadata;
+- microphone audio is transmitted only for an explicit PTT utterance or
+  explicitly enabled voice-activated utterance;
+- questions, transcripts, answers, callsigns, pre-prompts, context, provider
+  bodies, credentials and audio content are not logged;
+- safe diagnostics contain state/count/timing data and provider token totals,
+  never conversation content;
 - temporary recordings are bounded and deleted on success, failure or cancel;
-- Responses uses `store: false`, which is not a Zero Data Retention promise.
-
-## Opt-in voice-activated listening
-
-**Mic always on** is a persisted, explicit opt-in and is off by default. Enabling
-it displays a warning that there is no wake word. The default microphone remains
-open while the Assistant is idle. A deterministic local PCM detector requires
-two consecutive 100-millisecond buffers above an RMS threshold of `0.025`, keeps
-at most 300 milliseconds of pre-roll, discards candidates with less than 300
-milliseconds of voiced audio, and completes an utterance after 900 milliseconds
-of silence or at the existing 15-second hard limit. Silence and rejected noise
-bursts are never written to a WAV and never sent to a provider.
-
-Only a completed utterance enters the existing transcription and shared
-assistant-turn path. Listening stops before transcription and remains paused
-through Responses, acknowledgement, ElevenLabs synthesis and Windows playback,
-preventing Papa Bear's own speech from becoming a new turn. It resumes after
-the operation and any queued contact announcement finish. Push-to-talk remains
-configured but cannot start concurrently; disabling **Mic always on** restores
-the existing manual and global PTT behavior. Unchecking the option cancels the
-current always-on capture or turn. A microphone failure turns the option off
-instead of retrying in a failure loop.
-
-The UI always shows `Voice: listening` while the local detector owns the
-microphone and shows a separate always-on status. Completed transcripts and
-answers follow the same immediate visibility, retry and partial-success rules
-as push-to-talk. No audio, voice-activity samples, transcript, answer or provider
-body is written to application logs.
+- Responses uses `store: false`, which is not a provider-wide Zero Data
+  Retention promise.
 
 ## Deferred voice work
 
-Wake words, streaming STT/TTS, device selection, adjustable VAD sensitivity,
-barge-in and audio effects remain deferred. Global PTT registers the generic
-keyboard once with `RegisterRawInputDevices`, exactly `RIDEV_INPUTSINK`, and a
-process-lifetime hidden `HwndSource`. `WM_INPUT` make/break events drive a bounded
-in-memory chord matcher while leaving normal keyboard input untouched. It uses
-no `RegisterHotKey`, polling, keyboard hook, injection, device-name lookup or
-arbitrary key logging.
+Wake words, streaming STT/TTS, microphone/output-device selection, adjustable
+VAD sensitivity, barge-in and radio audio effects remain deferred.
