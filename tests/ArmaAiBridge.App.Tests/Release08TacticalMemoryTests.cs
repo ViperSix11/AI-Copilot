@@ -55,7 +55,7 @@ public sealed class Release08TacticalMemoryTests
         {
             ["player"] = Section("player", Json("""{"sourceId":"player","side":"WEST","groupSourceId":"self-group","groupCallsign":"Alpha 1-1","positionATL":[6830,9990,0],"positionASL":[6830,9990,25],"grid":"068099"}""")),
             ["friendlyForces"] = Section("friendlyForces", Json("""
-            {"groups":[{"sourceId":"self-group","callsign":"Alpha 1-1","leaderSourceId":"player","memberSourceIds":["player"],"leaderPosition":[6830,9990,0],"behaviour":"AWARE","combatMode":"YELLOW","formation":"WEDGE","assignedTargetSourceIds":[]}],"units":[{"sourceId":"player","groupSourceId":"self-group","class":"B_Soldier_F","displayRole":"rifleman","position":[6830,9990,0],"alive":true,"lifeState":"HEALTHY","mobile":true,"damage":0,"currentCommand":"MOVE","assignedTargetSourceId":"","vehicleSourceId":"","vehicleRole":""}]}
+            {"groups":[{"sourceId":"self-group","callsign":"Alpha 1-1","leaderSourceId":"player","memberSourceIds":["player"],"leaderPosition":[6830,9990,0],"leaderSpeedKph":0,"behaviour":"AWARE","combatMode":"YELLOW","formation":"WEDGE","assignedTargetSourceIds":[]}],"units":[{"sourceId":"player","groupSourceId":"self-group","class":"B_Soldier_F","displayRole":"rifleman","position":[6830,9990,0],"alive":true,"lifeState":"HEALTHY","mobile":true,"damage":0,"currentCommand":"MOVE","assignedTargetSourceId":"","vehicleSourceId":"","vehicleRole":""}]}
             """))
         };
         Assert.Equal(TelemetryIngestStatus.Applied, repository.ApplySnapshot(Snapshot(2, sections)).Status);
@@ -642,7 +642,7 @@ public sealed class Release08TacticalMemoryTests
     private static JsonElement Json(string value) => JsonDocument.Parse(value).RootElement.Clone();
     private static JsonElement Friendly(int count) => Json(JsonSerializer.Serialize(new
     {
-        groups = Enumerable.Range(0, count).Select(i => new { sourceId = $"g-{i}", callsign = $"Alpha 1-{i + 2}", leaderSourceId = $"u-{i}", memberSourceIds = new[] { $"u-{i}" }, leaderPosition = new[] { 1104.4 + i * 25, 1206.6 + i * 25, 0 }, behaviour = "AWARE", combatMode = "YELLOW", formation = "WEDGE", assignedTargetSourceIds = Array.Empty<string>() }),
+        groups = Enumerable.Range(0, count).Select(i => new { sourceId = $"g-{i}", callsign = $"Alpha 1-{i + 2}", leaderSourceId = $"u-{i}", memberSourceIds = new[] { $"u-{i}" }, leaderPosition = new[] { 1104.4 + i * 25, 1206.6 + i * 25, 0 }, leaderSpeedKph = 0, behaviour = "AWARE", combatMode = "YELLOW", formation = "WEDGE", assignedTargetSourceIds = Array.Empty<string>() }),
         units = Enumerable.Range(0, count).Select(i => new { sourceId = $"u-{i}", groupSourceId = $"g-{i}", @class = "B_Soldier_F", displayRole = "rifleman", position = new[] { 1104.4 + i * 25, 1206.6 + i * 25, 0 }, alive = true, lifeState = "HEALTHY", mobile = true, damage = 0, currentCommand = "MOVE", assignedTargetSourceId = "", vehicleSourceId = "", vehicleRole = "" })
     }));
     private static JsonElement Contacts(int count) => Json(JsonSerializer.Serialize(new
@@ -651,7 +651,7 @@ public sealed class Release08TacticalMemoryTests
     }));
     private static JsonElement Markers(int count) => Json(JsonSerializer.Serialize(new
     {
-        markers = Enumerable.Range(0, count).Select(i => new { sourceId = $"m-{i}", text = new string('M', 150) + i, position = new[] { 1300d + i, 1300d + i, 0 }, type = "mil_dot", color = "ColorRed", shape = "ICON", size = new[] { 1, 1 }, direction = 45, alpha = 1, polyline = Array.Empty<double>() })
+        markers = Enumerable.Range(0, count).Select(i => new { sourceId = $"m-{i}", text = new string('M', 150) + i, position = new[] { 1300d + i, 1300d + i, 0 }, type = "mil_dot", color = "ColorRed", shape = "ICON", size = new[] { 1, 1 }, direction = 45, alpha = 1, channel = 1, polyline = Array.Empty<double>() })
     }));
     private static void ApplyObservation(SqliteStateRepository repository, long sequence, WorldPosition player, WorldPosition contact, DateTimeOffset received)
     {
@@ -669,7 +669,7 @@ public sealed class Release08TacticalMemoryTests
         {
             ["markers"] = Section("markers", Json(JsonSerializer.Serialize(new
             {
-                markers = new[] { new { sourceId = "mission-airport", text = "Airport", position = new[] { 1500d, 1500d, 0 }, type = "Empty", color = "ColorBlack", shape = "RECTANGLE", size = new[] { 100d, 80d }, direction = 0, alpha = 1, polyline = Array.Empty<double>() } }
+                markers = new[] { new { sourceId = "mission-airport", text = "Airport", position = new[] { 1500d, 1500d, 0 }, type = "Empty", color = "ColorBlack", shape = "RECTANGLE", size = new[] { 100d, 80d }, direction = 0, alpha = 1, channel = 1, polyline = Array.Empty<double>() } }
             }))),
             ["knownContacts"] = Section("knownContacts", Contacts(contacts))
         };

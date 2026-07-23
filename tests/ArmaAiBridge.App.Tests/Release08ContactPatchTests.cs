@@ -73,7 +73,8 @@ public sealed class Release08ContactPatchTests
     [Fact]
     public void ContactAnnouncements_SilenceBaselineDeduplicateAndResetPerSession()
     {
-        ContactAnnouncementDetector detector = new();
+        ManualTimeProvider time = new(Start);
+        ContactAnnouncementDetector detector = new(new FixedPositionReporter(), time);
         MissionContactTrack first = Track("contact-a", "hostile", "current", 2550, 6450);
         Assert.Empty(detector.Evaluate("session-a", 1, [first], "Alpha 1-1"));
         Assert.Empty(detector.Evaluate("session-a", 2, [first], "Alpha 1-1"));
@@ -81,15 +82,17 @@ public sealed class Release08ContactPatchTests
         MissionContactTrack unknown = Track("contact-b", "unknown", "current", 3050, 7050);
         ContactAnnouncement added = Assert.Single(detector.Evaluate("session-a", 3, [first, unknown], "Alpha 1-1"));
         Assert.Equal("new", added.Kind);
-        Assert.Contains("New unknown infantry contact, grid 030070", added.VisibleText, StringComparison.Ordinal);
+        Assert.Equal("Alpha 1-1, unknown infantry, 600 metres northeast of Bullseye Alpha.", added.VisibleText);
+        Assert.DoesNotContain("Papa Bear", added.VisibleText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Over", added.VisibleText, StringComparison.OrdinalIgnoreCase);
 
         MissionContactTrack stale = first with { Status = "last-known" };
         Assert.Empty(detector.Evaluate("session-a", 4, [stale, unknown], "Alpha 1-1"));
+        time.Advance(TimeSpan.FromSeconds(31));
         ContactAnnouncement reacquired = Assert.Single(detector.Evaluate("session-a", 5, [first, unknown], "Alpha 1-1"));
         Assert.Equal("reacquired", reacquired.Kind);
-        Assert.Contains("grid 025064", reacquired.VisibleText, StringComparison.Ordinal);
+        Assert.Equal("Alpha 1-1, previously reported enemy infantry reacquired, 600 metres northeast of Bullseye Alpha.", reacquired.VisibleText);
         Assert.DoesNotContain("bearing", reacquired.VisibleText, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("metres", reacquired.VisibleText, StringComparison.OrdinalIgnoreCase);
 
         Assert.Empty(detector.Evaluate("session-b", 1, [first, unknown], "Alpha 1-1"));
     }
@@ -97,18 +100,50 @@ public sealed class Release08ContactPatchTests
     [Fact]
     public void ContactAnnouncements_GroupCompatibleTracksIntoOneRadioMessage()
     {
-        ContactAnnouncementDetector detector = new();
+        ManualTimeProvider time = new(Start);
+        ContactAnnouncementDetector detector = new(new FixedPositionReporter(), time);
         MissionContactTrack[] stale = Enumerable.Range(0, 4)
             .Select(index => Track($"contact-{index}", "hostile", "last-known", 6250 + index * 5, 5550 + index * 5))
             .ToArray();
         Assert.Empty(detector.Evaluate("session-a", 1, stale, "Alpha 1-1"));
 
+        time.Advance(TimeSpan.FromSeconds(31));
         MissionContactTrack[] current = stale.Select(track => track with { Status = "current" }).ToArray();
         ContactAnnouncement announcement = Assert.Single(
             detector.Evaluate("session-a", 2, current, "Alpha 1-1"));
 
         Assert.Equal("reacquired", announcement.Kind);
-        Assert.Contains("Enemy infantry group reacquired, four contacts, grid 062055", announcement.VisibleText, StringComparison.Ordinal);
+        Assert.Equal("Alpha 1-1, previously reported enemy infantry group, approximately four contacts reacquired, 600 metres northeast of Bullseye Alpha.", announcement.VisibleText);
+    }
+
+    [Fact]
+    public void ContactAnnouncements_ConsolidateRelatedInfantryAndVehicle()
+    {
+        ContactAnnouncementDetector detector = new(new FixedPositionReporter(), new ManualTimeProvider(Start));
+        Assert.Empty(detector.Evaluate("session-a", 1, [], "Alpha 1-1"));
+        MissionContactTrack infantry = Track("contact-a", "hostile", "current", 1000, 1000);
+        MissionContactTrack vehicle = Track("contact-b", "hostile", "current", 1020, 1020) with
+        {
+            ContactType = "ground-vehicle",
+            Description = "hostile vehicle"
+        };
+        ContactAnnouncement announcement = Assert.Single(
+            detector.Evaluate("session-a", 2, [infantry, vehicle], "Alpha 1-1"));
+        Assert.Equal(
+            "Alpha 1-1, enemy infantry and vehicle, approximately two contacts, 600 metres northeast of Bullseye Alpha.",
+            announcement.VisibleText);
+    }
+
+    [Fact]
+    public void ContactAnnouncements_DoNotCallABriefLastKnownFlickerAReacquisition()
+    {
+        ManualTimeProvider time = new(Start);
+        ContactAnnouncementDetector detector = new(new FixedPositionReporter(), time);
+        MissionContactTrack current = Track("contact-a", "hostile", "current", 2550, 6450);
+        Assert.Empty(detector.Evaluate("session-a", 1, [current], "Alpha 1-1"));
+        Assert.Empty(detector.Evaluate("session-a", 2, [current with { Status = "last-known" }], "Alpha 1-1"));
+        time.Advance(TimeSpan.FromSeconds(10));
+        Assert.Empty(detector.Evaluate("session-a", 3, [current], "Alpha 1-1"));
     }
 
     [Fact]
@@ -162,7 +197,7 @@ public sealed class Release08ContactPatchTests
         Dictionary<string, StateSnapshotSection> sections = new()
         {
             ["player"] = Section("player", Json("""{"sourceId":"player","side":"WEST","groupSourceId":"self-group","groupCallsign":"Alpha 1-1","positionATL":[1000,1000,0],"positionASL":[1000,1000,0],"grid":"010010"}""")),
-            ["friendlyForces"] = Section("friendlyForces", Json("""{"groups":[{"sourceId":"observer-group-raw","callsign":"Bravo 2-1","leaderSourceId":"observer-unit","memberSourceIds":["observer-unit"],"leaderPosition":[1200,1200,0],"behaviour":"AWARE","combatMode":"YELLOW","formation":"WEDGE","assignedTargetSourceIds":[]}],"units":[{"sourceId":"observer-unit","groupSourceId":"observer-group-raw","class":"B_Soldier_F","displayRole":"rifleman","position":[1200,1200,0],"alive":true,"lifeState":"HEALTHY","mobile":true,"damage":0,"currentCommand":"MOVE","assignedTargetSourceId":"","vehicleSourceId":"","vehicleRole":""}]}""")),
+            ["friendlyForces"] = Section("friendlyForces", Json("""{"groups":[{"sourceId":"observer-group-raw","callsign":"Bravo 2-1","leaderSourceId":"observer-unit","memberSourceIds":["observer-unit"],"leaderPosition":[1200,1200,0],"leaderSpeedKph":0,"behaviour":"AWARE","combatMode":"YELLOW","formation":"WEDGE","assignedTargetSourceIds":[]}],"units":[{"sourceId":"observer-unit","groupSourceId":"observer-group-raw","class":"B_Soldier_F","displayRole":"rifleman","position":[1200,1200,0],"alive":true,"lifeState":"HEALTHY","mobile":true,"damage":0,"currentCommand":"MOVE","assignedTargetSourceId":"","vehicleSourceId":"","vehicleRole":""}]}""")),
             ["knownContacts"] = Section("knownContacts", Json(JsonSerializer.Serialize(new
             {
                 contacts = new[] { new { sourceId = "contact-raw", @class = "O_Soldier_F", displayName = "Rifleman", contactType = "person", perceivedSide, relationship, estimatedPosition = new[] { 2550d, 6450d, 0 }, positionErrorMeters = 10, lastSeenAgeSeconds = 0, lastThreatAgeSeconds = 0, observerGroupSourceIds = new[] { "observer-group-raw" } } }
@@ -179,6 +214,13 @@ public sealed class Release08ContactPatchTests
     private static StateSnapshotSection Section(string name, JsonElement payload)
         => new(name, StateSectionReadiness.Ready, 1, payload);
     private static JsonElement Json(string value) => JsonDocument.Parse(value).RootElement.Clone();
+
+    private sealed class FixedPositionReporter : ITacticalPositionReporter
+    {
+        public TacticalPositionDescription Describe(WorldPosition target)
+            => new("600 metres northeast of Bullseye Alpha",
+                TacticalPositionReportingService.Grid(target), "bullseye", "Bullseye Alpha");
+    }
 
     private sealed class TestDatabase : IDisposable
     {

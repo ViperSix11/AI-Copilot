@@ -27,6 +27,7 @@ public sealed class TacticalSnapshotBuilder
     private readonly IStateRepository _state;
     private readonly IMissionMemoryRepository? _memory;
     private readonly TimeProvider _timeProvider;
+    private readonly TacticalPositionReportingService _positionReports;
     private readonly object _focusGate = new();
     private string _focusMission = string.Empty;
     private string _lastQuestion = string.Empty;
@@ -39,6 +40,7 @@ public sealed class TacticalSnapshotBuilder
         _state = state ?? throw new ArgumentNullException(nameof(state));
         _memory = memory;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _positionReports = new TacticalPositionReportingService(state);
     }
 
     public void ResetDialogueFocus()
@@ -58,6 +60,7 @@ public sealed class TacticalSnapshotBuilder
         object dialogueFocus = UpdateDialogueFocus(question, player, commitDialogueFocus);
         (object friendlyForces, int groups, int units) = BuildFriendlies(player);
         (object enemyContacts, int contacts) = BuildContacts();
+        object[] objectives = BuildObjectives();
         object[] markers = BuildMarkers();
         object[] memories = BuildMemory(question);
         object[] lore = BuildLore(question);
@@ -69,6 +72,7 @@ public sealed class TacticalSnapshotBuilder
             ["time"] = Time(),
             ["friendlyForces"] = friendlyForces,
             ["enemyContacts"] = enemyContacts,
+            ["objectives"] = new { count = objectives.Length, records = objectives },
             ["markers"] = new { count = markers.Length, records = markers },
             ["retrievedMemory"] = new { count = memories.Length, records = memories, dialogueFocus },
             ["lore"] = new { count = lore.Length, sections = lore, untrustedContext = true },
@@ -78,6 +82,7 @@ public sealed class TacticalSnapshotBuilder
                 friendlyGroups = new { original = groups, included = groups },
                 friendlyUnits = new { original = units, included = units },
                 enemyContacts = new { original = contacts, included = contacts },
+                objectives = new { original = objectives.Length, included = objectives.Length },
                 markers = new { original = markers.Length, included = markers.Length },
                 memoryEntries = new { original = memories.Length, included = memories.Length },
                 loreSections = new { original = lore.Length, included = lore.Length }
@@ -190,6 +195,7 @@ public sealed class TacticalSnapshotBuilder
             if (!playerGroup)
             {
                 record["approximatePosition"] = new { x = RoundTo(group.LeaderPosition.X, 10), y = RoundTo(group.LeaderPosition.Y, 10), precisionMeters = 10 };
+                record["positionDescription"] = _positionReports.Describe(group.LeaderPosition).Text;
             }
             return (object)record;
         }).ToArray();
@@ -202,6 +208,18 @@ public sealed class TacticalSnapshotBuilder
             groups = records
         }, groups.Length, units.Length);
     }
+
+    private object[] BuildObjectives() => _state.GetTasks(32, includeStale: true)
+        .Where(task => task.Active && task.Destination is not null)
+        .Take(32)
+        .Select(task => (object)new
+        {
+            title = Truncate(string.IsNullOrWhiteSpace(task.Title) ? task.Description.Trim() : task.Title.Trim(), 160),
+            type = Truncate(task.Type, 80),
+            status = Truncate(task.Status, 80),
+            positionDescription = _positionReports.Describe(task.Destination!).Text,
+            stale = task.Metadata.IsStale
+        }).ToArray();
 
     private (object Snapshot, int Contacts) BuildContacts()
     {
@@ -218,6 +236,7 @@ public sealed class TacticalSnapshotBuilder
                 status = track.Status,
                 focused = string.Equals(track.TrackId, _hostileFocus, StringComparison.Ordinal),
                 estimatedPosition = new { x = track.EstimatedPosition.X, y = track.EstimatedPosition.Y, z = track.EstimatedPosition.Z },
+                positionDescription = _positionReports.Describe(track.EstimatedPosition).Text,
                 positionUncertaintyMeters = track.UncertaintyRadiusMeters,
                 lastSeenSecondsAgo = Math.Max(0, Math.Round((now - track.LastObservedAtUtc).TotalSeconds)),
                 lastThreatSecondsAgo = Math.Max(0, Math.Round((now - track.LastThreatAtUtc).TotalSeconds)),
@@ -256,6 +275,7 @@ public sealed class TacticalSnapshotBuilder
             shape = marker.Shape,
             size = marker.Size.Take(2).Select(value => Round(Math.Max(0, value), 2)).ToArray(),
             direction = marker.Direction,
+            positionDescription = _positionReports.Describe(marker.Position).Text,
             approximatePosition = new { x = RoundTo(marker.Position.X, 10), y = RoundTo(marker.Position.Y, 10), precisionMeters = 10 },
             stale = marker.Metadata.IsStale
         }).ToArray();
@@ -292,7 +312,6 @@ public sealed class TacticalSnapshotBuilder
         foreach (MissionContactTrack contact in contacts.Where(x => x.Status != "dead").OrderBy(x => x.TrackId, StringComparer.Ordinal))
         {
             List<MissionContactTrack>? group = groups.FirstOrDefault(g => g.All(x =>
-                string.Equals(x.ContactType, contact.ContactType, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(x.Relationship, contact.Relationship, StringComparison.Ordinal) &&
                 Math.Abs((x.LastObservedAtUtc - contact.LastObservedAtUtc).TotalSeconds) <= 120 &&
                 Distance(x.EstimatedPosition, contact.EstimatedPosition) <= 40));
@@ -305,8 +324,10 @@ public sealed class TacticalSnapshotBuilder
             return (object)new
             {
                 groupReference = $"hostile-group-{index + 1}", memberCount = group.Count,
-                description = $"{group[0].Relationship} {GroupNoun(group[0].ContactType)} group",
+                memberTrackReferences = group.Select(item => item.TrackId).ToArray(),
+                description = GroupDescription(group),
                 grid = Grid(center),
+                positionDescription = _positionReports.Describe(center).Text,
                 estimatedCentroid = new { x = RoundTo(center.X, 10), y = RoundTo(center.Y, 10) },
                 positionUncertaintyMeters = Math.Ceiling(group.Max(x => x.UncertaintyRadiusMeters) / 10) * 10,
                 status = group.Any(x => x.Status == "current") ? "current" : "last-known",
@@ -328,6 +349,24 @@ public sealed class TacticalSnapshotBuilder
 
     private static string GroupNoun(string type) => type.ToLowerInvariant() switch
     { "person" or "man" => "infantry", "air" or "aircraft" => "aircraft", "ship" or "naval" => "naval", _ => "vehicle" };
+    private static string GroupDescription(IReadOnlyList<MissionContactTrack> group)
+    {
+        string[] nouns = group.GroupBy(item => GroupNoun(item.ContactType), StringComparer.Ordinal)
+            .OrderBy(item => item.Key, StringComparer.Ordinal)
+            .Select(item => item.Key == "infantry" && item.Count() > 1
+                ? "infantry group"
+                : item.Count() > 1 && item.Key is not ("infantry" or "aircraft")
+                    ? item.Key + "s"
+                    : item.Key)
+            .ToArray();
+        string subject = nouns.Length switch
+        {
+            1 => nouns[0],
+            2 => $"{nouns[0]} and {nouns[1]}",
+            _ => $"{string.Join(", ", nouns[..^1])} and {nouns[^1]}"
+        };
+        return $"{group[0].Relationship} {subject}";
+    }
     private static string NumberWord(int value) => value switch
     { 0 => "no", 1 => "one", 2 => "two", 3 => "three", 4 => "four", 5 => "five", 6 => "six", 7 => "seven", 8 => "eight", 9 => "nine", 10 => "ten", 11 => "eleven", 12 => "twelve", _ => value.ToString(System.Globalization.CultureInfo.InvariantCulture) };
     private static string Grid(WorldPosition value) => $"{Math.Clamp((int)Math.Floor(value.X / 100), 0, 999):000}{Math.Clamp((int)Math.Floor(value.Y / 100), 0, 999):000}";

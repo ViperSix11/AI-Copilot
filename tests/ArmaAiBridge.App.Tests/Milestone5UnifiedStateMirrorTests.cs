@@ -67,6 +67,14 @@ public sealed class Milestone5UnifiedStateMirrorTests
         StateSnapshotMessage failedMessage = Parse(failedAstronomy, new ManualTimeProvider(Start));
         Assert.Equal(8, failedMessage.Sections.Count);
         Assert.Equal(StateSectionReadiness.Failed, failedMessage.Sections["timeAstronomy"].Readiness);
+
+        JsonNode missingSpeed = SnapshotNode();
+        missingSpeed["sections"]!["friendlyForces"]!["groups"]![0]!.AsObject().Remove("leaderSpeedKph");
+        Assert.Equal("state_number_invalid", ParseFailure(missingSpeed));
+
+        JsonNode missingChannel = SnapshotNode();
+        missingChannel["sections"]!["markers"]!["markers"]![0]!.AsObject().Remove("channel");
+        Assert.Equal("state_integer_invalid", ParseFailure(missingChannel));
     }
 
     [Fact]
@@ -96,6 +104,127 @@ public sealed class Milestone5UnifiedStateMirrorTests
         Assert.DoesNotContain("net:9:1", databaseBytes, StringComparison.Ordinal);
         Assert.DoesNotContain("task-main", databaseBytes, StringComparison.Ordinal);
         Assert.DoesNotContain("marker-objective", databaseBytes, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BullseyeIdentifier_IsClassifiedLocallyAndRawIdentifierIsDiscarded()
+    {
+        using TempDatabase database = new();
+        ManualTimeProvider time = new(Start);
+        using SqliteStateRepository repository = new(database.Path, time);
+        Activate(repository);
+        JsonNode snapshot = SnapshotNode();
+        JsonObject marker = snapshot["sections"]!["markers"]!["markers"]![0]!.AsObject();
+        marker["sourceId"] = "mission_bullseye_west";
+        marker["text"] = "";
+        marker["position"] = new JsonArray(1000, 1000, 0);
+        Assert.Equal(TelemetryIngestStatus.Applied, repository.ApplySnapshot(Parse(snapshot, time)).Status);
+
+        StateMarker stored = Assert.Single(repository.GetMarkers());
+        Assert.Equal("bullseye", stored.ReferenceRole);
+        Assert.Equal("Bullseye West", stored.ReferenceLabel);
+        TacticalPositionDescription report = new TacticalPositionReportingService(repository)
+            .Describe(new WorldPosition(1425, 1425, 0));
+        Assert.Equal("600 metres northeast of Bullseye West", report.Text);
+        Assert.Equal("bullseye", report.ReferenceKind);
+
+        string tacticalSnapshot = JsonSerializer.Serialize(
+            new TacticalSnapshotBuilder(repository, repository, time).Build("Where is the enemy contact?"));
+        TacticalEvidenceReport contactContext =
+            TacticalEvidencePipeline.Build(tacticalSnapshot, "Where is the enemy contact?");
+        Assert.Contains("Bullseye West", contactContext.ModelContext, StringComparison.Ordinal);
+        Assert.DoesNotContain("mission_bullseye_west", contactContext.ModelContext, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"x\"", contactContext.ModelContext, StringComparison.Ordinal);
+
+        string objectiveSnapshot = JsonSerializer.Serialize(
+            new TacticalSnapshotBuilder(repository, repository, time).Build("Where is my mission objective?"));
+        TacticalEvidenceReport objectiveContext =
+            TacticalEvidencePipeline.Build(objectiveSnapshot, "Where is my mission objective?");
+        Assert.Contains("Objective Secure the village", objectiveContext.ModelContext, StringComparison.Ordinal);
+        Assert.Contains("of Bullseye West", objectiveContext.ModelContext, StringComparison.Ordinal);
+
+        repository.Dispose();
+        Assert.DoesNotContain("mission_bullseye_west", Encoding.UTF8.GetString(File.ReadAllBytes(database.Path)),
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(426, "450 metres")]
+    [InlineData(576, "600 metres")]
+    [InlineData(1490, "1,500 metres")]
+    [InlineData(2780, "3 kilometres")]
+    [InlineData(4240, "4 kilometres")]
+    public void TacticalPositionDistance_UsesRequiredRounding(double metres, string expected)
+        => Assert.Equal(expected, TacticalPositionReportingService.FormatDistance(metres));
+
+    [Fact]
+    public void TacticalPositionDirection_IsFromReferenceToTargetAndUsesCardinals()
+    {
+        WorldPosition origin = new(1000, 1000, 0);
+        Assert.Equal("north", TacticalPositionReportingService.Direction(origin, new WorldPosition(1000, 1500, 0)));
+        Assert.Equal("northeast", TacticalPositionReportingService.Direction(origin, new WorldPosition(1500, 1500, 0)));
+        Assert.Equal("west", TacticalPositionReportingService.Direction(origin, new WorldPosition(500, 1000, 0)));
+    }
+
+    [Fact]
+    public void TacticalPosition_UsesNamedMissionLocationThenGridFallback()
+    {
+        using TempDatabase database = new();
+        ManualTimeProvider time = new(Start);
+        using SqliteStateRepository repository = new(database.Path, time);
+        Activate(repository);
+        JsonNode named = SnapshotNode();
+        JsonObject marker = named["sections"]!["markers"]!["markers"]![0]!.AsObject();
+        marker["sourceId"] = "checkpoint-alpha";
+        marker["text"] = "Checkpoint Alpha";
+        marker["position"] = new JsonArray(1000, 1000, 0);
+        Assert.Equal(TelemetryIngestStatus.Applied, repository.ApplySnapshot(Parse(named, time)).Status);
+        TacticalPositionReportingService service = new(repository);
+        Assert.Equal("600 metres northeast of Checkpoint Alpha",
+            service.Describe(new WorldPosition(1425, 1425, 0)).Text);
+
+        JsonNode empty = SnapshotNode(sequence: 43);
+        empty["sections"]!["markers"]!["markers"] = new JsonArray();
+        empty["sections"]!["tasks"]!["tasks"]![0]!["active"] = false;
+        Assert.Equal(TelemetryIngestStatus.Applied, repository.ApplySnapshot(Parse(empty, time)).Status);
+        Assert.Equal("grid 014014", service.Describe(new WorldPosition(1425, 1425, 0)).Text);
+    }
+
+    [Fact]
+    public void TacticalPosition_UsesOnlyLivingStationaryNonPlayerFriendlyReference()
+    {
+        using TempDatabase database = new();
+        ManualTimeProvider time = new(Start);
+        using SqliteStateRepository repository = new(database.Path, time);
+        Activate(repository);
+        JsonNode snapshot = SnapshotNode();
+        snapshot["sections"]!["markers"]!["markers"] = new JsonArray();
+        snapshot["sections"]!["tasks"]!["tasks"]![0]!["active"] = false;
+        JsonArray groups = snapshot["sections"]!["friendlyForces"]!["groups"]!.AsArray();
+        JsonObject group = groups[0]!.DeepClone().AsObject();
+        group["sourceId"] = "bravo-group";
+        group["callsign"] = "Bravo 1-2";
+        group["leaderSourceId"] = "bravo-leader";
+        group["memberSourceIds"] = new JsonArray("bravo-leader");
+        group["leaderPosition"] = new JsonArray(1000, 1000, 0);
+        group["leaderSpeedKph"] = 0;
+        groups.Add(group);
+        JsonArray units = snapshot["sections"]!["friendlyForces"]!["units"]!.AsArray();
+        JsonObject unit = units[0]!.DeepClone().AsObject();
+        unit["sourceId"] = "bravo-leader";
+        unit["groupSourceId"] = "bravo-group";
+        unit["position"] = new JsonArray(1000, 1000, 0);
+        units.Add(unit);
+        Assert.Equal(TelemetryIngestStatus.Applied, repository.ApplySnapshot(Parse(snapshot, time)).Status);
+        TacticalPositionReportingService service = new(repository);
+        Assert.Equal("600 metres northeast of Bravo 1-2",
+            service.Describe(new WorldPosition(1425, 1425, 0)).Text);
+
+        JsonNode moving = snapshot.DeepClone();
+        moving["sequence"] = 43;
+        moving["sections"]!["friendlyForces"]!["groups"]![1]!["leaderSpeedKph"] = 80;
+        Assert.Equal(TelemetryIngestStatus.Applied, repository.ApplySnapshot(Parse(moving, time)).Status);
+        Assert.Equal("grid 014014", service.Describe(new WorldPosition(1425, 1425, 0)).Text);
     }
 
     [Fact]
@@ -272,7 +401,7 @@ public sealed class Milestone5UnifiedStateMirrorTests
         Assert.Equal(OperationalSnapshotBuilder.Schema, root.GetProperty("schema").GetString());
         foreach (string domain in new[]
         {
-            "player", "environment", "time", "friendlyForces", "enemyContacts", "markers", "retrievedMemory", "lore"
+            "player", "environment", "time", "friendlyForces", "enemyContacts", "objectives", "markers", "retrievedMemory", "lore"
         })
             Assert.True(root.TryGetProperty(domain, out _), domain);
         Assert.Equal("Alpha 1-1", root.GetProperty("player").GetProperty("groupCallsign").GetString());

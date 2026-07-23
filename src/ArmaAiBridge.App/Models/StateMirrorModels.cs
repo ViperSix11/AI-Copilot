@@ -93,6 +93,7 @@ public sealed record StateFriendlyGroup(
     string LeaderAlias,
     IReadOnlyList<string> MemberAliases,
     WorldPosition LeaderPosition,
+    double LeaderSpeedKph,
     string Behaviour,
     string CombatMode,
     string Formation,
@@ -145,6 +146,9 @@ public sealed record StateTask(
 public sealed record StateMarker(
     string Alias,
     string Text,
+    string ReferenceRole,
+    string ReferenceLabel,
+    int Channel,
     WorldPosition Position,
     string Type,
     string Color,

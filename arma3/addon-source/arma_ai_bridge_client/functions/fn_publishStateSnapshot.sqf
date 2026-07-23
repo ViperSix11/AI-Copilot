@@ -235,7 +235,7 @@ private _runSection =
                 ["sourceId", [_group, "group"] call AAB_fnc_getStableEntityId], ["callsign", groupId _group],
                 ["leaderSourceId", [_leader, "unit"] call AAB_fnc_getStableEntityId],
                 ["memberSourceIds", _members apply { [_x, "unit"] call AAB_fnc_getStableEntityId }],
-                ["leaderPosition", getPosATL _leader], ["behaviour", behaviour _leader],
+                ["leaderPosition", getPosATL _leader], ["leaderSpeedKph", abs (speed _leader)], ["behaviour", behaviour _leader],
                 ["combatMode", combatMode _group], ["formation", formation _group], ["waypoint", _waypoint],
                 ["expectedDestination", _destination param [0, [0, 0, 0]]],
                 ["assignedTargetSourceIds", _targets]
@@ -388,6 +388,7 @@ private _runSection =
                 ["sourceId", _x], ["text", (markerText _x) select [0, 512]], ["position", getMarkerPos _x],
                 ["type", markerType _x], ["color", markerColor _x], ["shape", markerShape _x],
                 ["size", markerSize _x], ["direction", markerDir _x], ["alpha", markerAlpha _x],
+                ["channel", markerChannel _x],
                 ["polyline", _polyline]
             ]);
         };

@@ -68,6 +68,26 @@ state, and it defines no firing-solution or terrain-height command.
 The snapshot exports own-side groups and units. Raw netIds are transport-only
 source references: the desktop hashes them for joins and exposes only
 mission-scoped aliases. Player profile names and UIDs are never collected.
+Each group also exports `leaderSpeedKph = abs (speed (leader _group))`. This is
+used only by the local deterministic position-reference policy to exclude
+moving groups; it does not broaden friendly-force visibility.
+
+## Mission marker position references
+
+The marker record includes `channel = markerChannel _marker` together with its
+existing text, position and geometry. Collection remains bounded to the local
+client's `allMapMarkers` result and positive-alpha markers. Bullseye recognition
+is case-insensitive across visible text and the transport-only source
+identifier. The desktop derives a safe `referenceRole` and `referenceLabel`
+before hashing and discarding that identifier. Raw identifiers never reach
+OpenAI or speech. `_USER_DEFINED` identifiers are not converted to labels
+without visible Bullseye text.
+
+Purpose-specific contact position output is a locally formatted natural phrase.
+The resolver selects nearest Bullseye first, then a nearby semantic
+location/objective/official named location/stationary friendly reference, then
+six-digit grid fallback. OpenAI receives the phrase, not marker geometry or raw
+coordinates.
 
 ## Known contact data
 

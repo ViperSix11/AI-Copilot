@@ -278,7 +278,7 @@ public sealed class SqliteStateRepository : IStateRepository, IMissionMemoryRepo
                 StateWaypoint? waypoint = root.TryGetProperty("waypoint", out JsonElement wp) && wp.ValueKind == JsonValueKind.Object
                     ? new StateWaypoint(Integer(wp, "index"), Vector(wp, "position"), Text(wp, "type")) : null;
                 return new StateFriendlyGroup(Text(root, "alias"), Text(root, "callsign"), Text(root, "leaderAlias"),
-                    Strings(root, "memberAliases"), Vector(root, "leaderPosition"), Text(root, "behaviour"),
+                    Strings(root, "memberAliases"), Vector(root, "leaderPosition"), Number(root, "leaderSpeedKph"), Text(root, "behaviour"),
                     Text(root, "combatMode"), Text(root, "formation"), waypoint,
                     OptionalVector(root, "expectedDestination"), Strings(root, "assignedTargetAliases"), metadata);
             }).ToArray();
@@ -334,7 +334,8 @@ public sealed class SqliteStateRepository : IStateRepository, IMissionMemoryRepo
             StateSectionMetadata? metadata = GetMetadata("markers");
             if (metadata is null || (!includeStale && metadata.IsStale)) return System.Array.Empty<StateMarker>();
             return ReadRows("current_markers", limit).Select(root => new StateMarker(Text(root, "alias"),
-                Text(root, "text"), Vector(root, "position"), Text(root, "type"), Text(root, "color"),
+                Text(root, "text"), Text(root, "referenceRole"), Text(root, "referenceLabel"), Integer(root, "channel"),
+                Vector(root, "position"), Text(root, "type"), Text(root, "color"),
                 Text(root, "shape"), Numbers(root, "size", 2), Number(root, "direction"), Number(root, "alpha"),
                 Numbers(root, "polyline", 128), metadata)).ToArray();
         }
@@ -357,6 +358,34 @@ public sealed class SqliteStateRepository : IStateRepository, IMissionMemoryRepo
             string normalized = (query ?? string.Empty).Trim().ToUpperInvariant().Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
             command.Parameters.AddWithValue("$query", normalized);
             command.Parameters.AddWithValue("$pattern", "%" + normalized + "%");
+            command.Parameters.AddWithValue("$limit", bounded);
+            using SqliteDataReader reader = command.ExecuteReader();
+            List<MapGazetteerLocation> result = new();
+            while (reader.Read())
+            {
+                MapGazetteerLocation location = new(reader.GetString(0), reader.GetString(1), reader.GetString(2),
+                    reader.GetDouble(3), reader.GetDouble(4), reader.GetDouble(5), reader.GetDouble(6), reader.GetDouble(7));
+                if (NamedLocationEligibilityPolicy.IsAllowed(location.Type)) result.Add(location);
+            }
+            return result;
+        }
+    }
+
+    public IReadOnlyList<MapGazetteerLocation> GetNearestNamedLocations(WorldPosition position, int limit = 10)
+    {
+        lock (_gate)
+        {
+            if (!EnsureReady() || _worldName.Length == 0) return System.Array.Empty<MapGazetteerLocation>();
+            int bounded = Math.Clamp(limit, 1, 100);
+            using SqliteCommand command = _connection!.CreateCommand();
+            command.CommandText = """
+                SELECT alias, official_name, location_type, x, y, radius_a, radius_b, angle
+                FROM named_locations WHERE world_key=$world
+                ORDER BY ((x-$x)*(x-$x))+((y-$y)*(y-$y)), alias LIMIT $limit;
+                """;
+            command.Parameters.AddWithValue("$world", WorldKey(_worldName, _worldSize));
+            command.Parameters.AddWithValue("$x", position.X);
+            command.Parameters.AddWithValue("$y", position.Y);
             command.Parameters.AddWithValue("$limit", bounded);
             using SqliteDataReader reader = command.ExecuteReader();
             List<MapGazetteerLocation> result = new();
@@ -469,6 +498,7 @@ public sealed class SqliteStateRepository : IStateRepository, IMissionMemoryRepo
                 ["leaderAlias"] = Alias("unit", Text(item, "leaderSourceId")),
                 ["memberAliases"] = new JsonArray(Strings(item, "memberSourceIds").Select(id => (JsonNode?)Alias("unit", id)).ToArray()),
                 ["leaderPosition"] = Clone(item, "leaderPosition"),
+                ["leaderSpeedKph"] = Number(item, "leaderSpeedKph"),
                 ["behaviour"] = Text(item, "behaviour"),
                 ["combatMode"] = Text(item, "combatMode"),
                 ["formation"] = Text(item, "formation"),
@@ -620,9 +650,13 @@ public sealed class SqliteStateRepository : IStateRepository, IMissionMemoryRepo
         foreach (JsonElement item in Array(section, "markers").Take(256))
         {
             string raw = RequiredText(item, "sourceId");
+            (string referenceRole, string referenceLabel) =
+                TacticalPositionReportingService.ClassifyMarker(Text(item, "text"), raw);
             JsonObject value = new()
             {
                 ["alias"] = Alias("marker", raw), ["text"] = Text(item, "text"),
+                ["referenceRole"] = referenceRole, ["referenceLabel"] = referenceLabel,
+                ["channel"] = Integer(item, "channel"),
                 ["position"] = Clone(item, "position"), ["type"] = Text(item, "type"),
                 ["color"] = Text(item, "color"), ["shape"] = Text(item, "shape"),
                 ["size"] = Clone(item, "size"), ["direction"] = Number(item, "direction"),

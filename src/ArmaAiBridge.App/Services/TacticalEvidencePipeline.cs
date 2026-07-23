@@ -114,6 +114,7 @@ public static class TacticalEvidencePipeline
 
         ProjectFriendlies(root, Add);
         ProjectContacts(root, Add);
+        ProjectObjectives(root, Add);
         ProjectMarkers(root, Add);
         ProjectSpatialCorroboration(root, input, Add);
         ProjectMemory(root, Add);
@@ -146,9 +147,31 @@ public static class TacticalEvidencePipeline
                 .Append(ValueOrUnavailable(Text(group, "elementType"))).Append("; composition ")
                 .Append(ValueOrUnavailable(Text(group, "compositionSummary")));
             bool stale = True(group, "stale");
+            string position = Text(group, "positionDescription");
+            if (position.Length > 0) statement.Append("; ").Append(position);
             if (stale) statement.Append("; last-known/stale");
             statement.Append('.');
             add("friendly-force", "canonical-state", statement.ToString(), stale ? "medium" : "high", stale ? "stale" : "current", false, false, false, null);
+        }
+    }
+
+    private static void ProjectObjectives(JsonElement root, Action<string, string, string, string, string, bool, bool, bool, string?> add)
+    {
+        if (!Object(root, "objectives", out JsonElement objectives) ||
+            !Array(objectives, "records", out JsonElement records)) return;
+        foreach (JsonElement objective in records.EnumerateArray())
+        {
+            string title = Text(objective, "title").Trim();
+            if (title.Length == 0) continue;
+            StringBuilder statement = new($"Objective {title}");
+            string position = Text(objective, "positionDescription");
+            if (position.Length > 0) statement.Append("; ").Append(position);
+            string status = Text(objective, "status");
+            if (status.Length > 0) statement.Append("; status ").Append(status);
+            statement.Append('.');
+            bool stale = True(objective, "stale");
+            add("objective", "canonical-state", statement.ToString(), stale ? "medium" : "high",
+                stale ? "stale" : "current", false, false, false, title);
         }
     }
 
@@ -180,16 +203,21 @@ public static class TacticalEvidencePipeline
                 : $"Current unidentified-contact picture: {currentUnknown} current and {lastKnownUnknown} last-known.",
             "high", "current", unknownTotal == 0, false, false, null);
 
+        HashSet<string> groupedTrackReferences = new(StringComparer.Ordinal);
         if (Array(contacts, "groups", out JsonElement groups))
         {
             foreach (JsonElement group in groups.EnumerateArray())
             {
+                if (Array(group, "memberTrackReferences", out JsonElement members))
+                    foreach (JsonElement member in members.EnumerateArray())
+                        if (member.ValueKind == JsonValueKind.String)
+                            groupedTrackReferences.Add(member.GetString() ?? string.Empty);
                 StringBuilder statement = new();
                 statement.Append(ValueOrUnavailable(Text(group, "description"))).Append(" with ")
                     .Append(IntegerValue(group, "memberCount")).Append(" members; status ")
                     .Append(ValueOrUnavailable(Text(group, "status")));
-                string grid = Text(group, "grid");
-                if (grid.Length > 0) statement.Append("; map grid ").Append(grid);
+                string position = Text(group, "positionDescription");
+                if (position.Length > 0) statement.Append("; ").Append(position);
                 statement.Append("; uncertainty about ").Append(Number(group, "positionUncertaintyMeters"))
                     .Append(" metres; last seen ").Append(Number(group, "lastSeenSecondsAgo")).Append(" seconds ago.");
                 bool stale = Text(group, "status") != "current";
@@ -202,9 +230,13 @@ public static class TacticalEvidencePipeline
         if (!Array(contacts, "records", out JsonElement records)) return;
         foreach (JsonElement contact in records.EnumerateArray())
         {
+            if (!True(contact, "focused") &&
+                groupedTrackReferences.Contains(Text(contact, "contactTrackReference"))) continue;
             StringBuilder statement = new();
             statement.Append(ValueOrUnavailable(Text(contact, "description"))).Append("; status ")
                 .Append(ValueOrUnavailable(Text(contact, "status")));
+            string position = Text(contact, "positionDescription");
+            if (position.Length > 0) statement.Append("; ").Append(position);
             statement.Append("; uncertainty about ").Append(Number(contact, "positionUncertaintyMeters"))
                 .Append(" metres; last seen ").Append(Number(contact, "lastSeenSecondsAgo"))
                 .Append(" seconds ago");
@@ -239,7 +271,11 @@ public static class TacticalEvidencePipeline
                 _ => "point location"
             };
             bool stale = True(marker, "stale");
-            add("location", "mission-annotation", $"{name} is a known {shape}.", stale ? "medium" : "high",
+            string position = Text(marker, "positionDescription");
+            string statement = position.Length == 0
+                ? $"{name} is a known {shape}."
+                : $"{name} is a known {shape}; {position}.";
+            add("location", "mission-annotation", statement, stale ? "medium" : "high",
                 stale ? "stale" : "current", false, false, false, name);
         }
     }
@@ -442,9 +478,10 @@ public static class TacticalEvidencePipeline
         "environment" => ContainsAny(input, "weather", "overcast", "cloud", "storm", "calm"),
         "mission-time" => ContainsAny(input, "time", "date", "daylight", "night", "dawn", "dusk", "morning", "evening"),
         "friendly-force" => ContainsAny(input, "friendly", "friendlies", "unit", "group", "team", "callsign", "wounded", "casualt", "force"),
+        "objective" => ContainsAny(input, "objective", "mission", "task", "goal", "destination", "target"),
         "hostile-summary" => ContainsAny(input, "enemy", "hostile", "hostiles", "threat", "opfor"),
         "unknown-summary" => ContainsAny(input, "unknown", "unidentified"),
-        "hostile-focus" => ContainsAny(input, "who reported", "who saw", "who observed", "this enemy", "this hostile", "this contact"),
+        "hostile-focus" => ContainsAny(input, "where", "grid", "last seen", "who reported", "who saw", "who observed", "this enemy", "this hostile", "this contact", "enemy contact"),
         "hostile-contact" => ContainsAny(input, "where", "which", "describe", "details", "grid", "who reported", "who saw", "who observed", "last seen"),
         "unknown-contact" => ContainsAny(input, "unknown", "unidentified", "where", "grid", "who reported", "who saw"),
         "location" => ContainsAny(input, "location", "place", "area", "airport", "airfield", "base", "camp", "harbor", "harbour", "port"),
@@ -466,7 +503,7 @@ public static class TacticalEvidencePipeline
     private static string NormalizeForComparison(string value)
         => string.Join(' ', Terms(value).OrderBy(x => x, StringComparer.Ordinal));
     private static int CategoryOrder(string category) => category switch
-    { "player-report" => 0, "player" => 1, "dialogue-focus" => 2, "corroboration" => 3, "session-memory" => 4, "hostile-summary" => 5, "unknown-summary" => 6, "hostile-focus" => 7, "hostile-contact" => 8, "unknown-contact" => 9, "friendly-force" => 10, "location" => 11, "environment" => 12, "mission-time" => 13, "lore" => 14, "privacy-boundary" => 98, _ => 99 };
+    { "player-report" => 0, "player" => 1, "dialogue-focus" => 2, "corroboration" => 3, "session-memory" => 4, "hostile-summary" => 5, "unknown-summary" => 6, "hostile-focus" => 7, "hostile-contact" => 8, "unknown-contact" => 9, "friendly-force" => 10, "objective" => 11, "location" => 12, "environment" => 13, "mission-time" => 14, "lore" => 15, "privacy-boundary" => 98, _ => 99 };
 
     private static HashSet<string> Terms(string value) => value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
         .Select(x => new string(x.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant())

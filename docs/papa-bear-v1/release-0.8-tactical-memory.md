@@ -6,7 +6,14 @@ This is the active release 0.8 model-context boundary. It supersedes the broad o
 
 Every model turn starts from the closed `arma-ai-bridge/tactical-snapshot-v2` schema. It contains only the player's exact current Arma group callsign and side, essential weather and mission time, every accepted friendly group (maximum 128), retained eligible hostile tracks (maximum 256), text-bearing visible mission annotations interpreted as semantic locations (maximum 256), relevant mission memory (maximum 12 entries and 6,000 characters), and selected lore (2,000 characters per section and 8,000 total).
 
-World identity/size, player position/grid/elevation, named locations, capabilities, loadout, tasks, orders, raw identities, and exact friendly identities stay local. Canonical player position may be used by local deterministic services, but no ordinary model context contains player-relative range, bearing, direction, movement, or another combination from which the player's position can be reconstructed. There is no broad-snapshot fallback.
+World identity/size, player position/grid/elevation, the complete named-location
+gazetteer, capabilities, loadout, task internals, orders, raw identities, and
+exact friendly identities stay local. An active objective may contribute only
+its bounded title, status and locally completed natural position phrase.
+Canonical player position may be used by local deterministic services, but no
+ordinary model context contains player-relative range, bearing, direction,
+movement, or another combination from which the player's position can be
+reconstructed. There is no broad-snapshot fallback.
 
 The UTF-8 limit is 256 KiB. Summary totals and original/included counts are explicit. Deterministic truncation removes confirmed-dead and oldest last-known contacts first, then low-relevance memory/lore. Current friendly groups remain. `modelPayloadTruncated` prevents a subset from appearing complete.
 
@@ -126,7 +133,74 @@ Candidate, selection and fusion diagnostics retain technical terms needed to aud
 
 The editable Assistant model field and empty-value runtime fallback default to `gpt-5.6-luna` through the existing stateless Responses API loop. The existing explicit low reasoning effort, closed memory tools, local history management, output limits, privacy rules and no-content logging policy remain unchanged.
 
+### Tactical position reports
+
+Position wording is resolved deterministically before OpenAI. The local resolver
+uses this strict hierarchy:
+
+1. the nearest authorized Bullseye;
+2. the nearest useful text-bearing mission location, active objective, official
+   named location, or stable friendly group;
+3. a six-digit map grid only when no useful named reference exists.
+
+A Bullseye is a locally present, visible marker whose text or script identifier
+contains `Bullseye`, case-insensitively. Visible marker text is preferred as its
+label. When text is blank, the desktop derives a bounded label beginning at the
+`Bullseye` portion of the identifier, for example `bullseye_west` becomes
+`Bullseye West`. `_USER_DEFINED` identifiers are never converted into labels
+unless their visible marker text itself says Bullseye. The raw marker identifier
+is hashed and discarded during ingestion and never reaches diagnostics, SQLite
+payloads, OpenAI, logs, visible answers, or speech. Marker channel is retained
+locally for authority diagnostics. Authorization is limited to markers present
+in the local player's `allMapMarkers` result with positive alpha; this does not
+introduce server-world enumeration or hidden opposing-side state.
+
+Non-Bullseye references must be within five kilometres. A friendly group must
+be current, have a privacy-safe callsign and a living member, differ from the
+player's group, be within 1,500 metres, and have leader speed no greater than
+five kilometres per hour. The existing `mobile` field is not used as a speed
+estimate. The friendly collector therefore adds only `leaderSpeedKph`, computed
+from `abs (speed (leader _group))`, to the already authorized own-side group
+record.
+
+Direction is the eight-point cardinal direction from the reference to the
+reported entity. Numeric bearings are not used in ordinary position reports.
+Distances below 500 metres round to 50 metres, distances from 500 through 2,000
+metres round to 100 metres, and greater distances round to the nearest practical
+kilometre. Examples are `600 metres northeast of Bullseye Alpha`,
+`1,500 metres south of the Old Church`, and, only as fallback, `grid 083071`.
+
+Proactive contact messages use the current Arma group callsign once, do not
+introduce the assistant as Papa Bear, and do not add an automatic radio
+terminator. Spatially and temporally compatible transitions are consolidated
+into one message, including a mixed infantry/vehicle set. A current contact is
+not called reacquired until it was continuously last-known for at least 30
+seconds. The first reconciliation in every session remains a silent baseline,
+and unchanged or briefly flickering tracks do not repeat.
+
 ## Acceptance
+
+Position-reporting tests prove Bullseye recognition from text and identifier,
+raw-identifier disposal, nearest-Bullseye precedence, cardinal direction from
+reference to contact, required tactical distance rounding, named-reference and
+grid fallbacks, stable-friendly eligibility, schema rejection when marker
+channel or leader speed is absent, grouped contact announcements, 30-second
+reacquisition gating, session-baseline silence, and the absence of automatic
+`Papa Bear`/`Over` wording. The interpreted OpenAI context contains the same
+locally completed position phrase and no coordinate pair or raw marker ID.
+
+Live acceptance places two visible WEST-authorized markers named `Bullseye
+Alpha` and `Bullseye Bravo`, one text-bearing objective, one stationary friendly
+group, and one fast-moving friendly group. Reveal an own-side-known EAST contact
+and verify one concise announcement uses the nearest Bullseye, rounded range,
+and reference-to-contact cardinal direction. Move the contact without changing
+its identity and verify no repeat. Hide it for less than 30 seconds and reveal
+it: no reacquisition announcement. Hide it for more than 30 seconds and reveal
+it: exactly one `previously reported ... reacquired` message. Remove Bullseyes
+and repeat to verify the objective or stationary friendly is chosen; the moving
+group is never used. Remove all useful references and verify grid fallback.
+Inspect AI Context and the SQLite file to confirm that raw marker identifiers,
+coordinate pairs and the player's position are absent from transmitted facts.
 
 The focused contact patch additionally proves: schema-v5 migration preserves existing rows; explicit `grid 027067` and contextual bare `038084` reports create structured session anchors with deterministic uncertainty; a grid-to-grid question produces a local distance/cardinal answer without reading canonical Arma position; stale reported position requests an update; and a new session cannot retrieve the previous session's anchors. Tactical-schema tests reject all player-relative range, bearing, direction and movement fields for friendly groups, contacts, contact groups and semantic locations. `Do we have hostiles?` selects counts/status only.
 

@@ -95,7 +95,7 @@ public static class StateSnapshotParser
                     if (group.ValueKind != JsonValueKind.Object) throw Invalid("state_group_invalid");
                     RequiredString(group, "sourceId", 128); RequiredString(group, "callsign", 160, allowEmpty: true);
                     RequiredString(group, "leaderSourceId", 128, allowEmpty: true); ArrayLength(group, "memberSourceIds", 0, 512);
-                    Vector(group, "leaderPosition");
+                    Vector(group, "leaderPosition"); RequiredNumber(group, "leaderSpeedKph", 0, 2000);
                 }
                 foreach (JsonElement unit in section.GetProperty("units").EnumerateArray())
                 {
@@ -149,7 +149,8 @@ public static class StateSnapshotParser
                 foreach (JsonElement marker in section.GetProperty("markers").EnumerateArray())
                 {
                     RequiredString(marker, "sourceId", 128); RequiredString(marker, "text", 512, allowEmpty: true);
-                    Vector(marker, "position"); ArrayLength(marker, "polyline", 0, 128);
+                    Vector(marker, "position"); RequiredInteger(marker, "channel", -1, 9999);
+                    ArrayLength(marker, "polyline", 0, 128);
                 }
                 break;
         }

@@ -32,7 +32,7 @@ public sealed class StateQueryService
             "friendly_forces" => Friendly(limit, includeStale),
             "contacts" => Contacts(limit, includeStale),
             "tasks" => _repository.GetTasks(limit, includeStale).Select(item => new { item.Alias, title = Truncate(item.Title, 160), description = Truncate(item.Description, 256), item.Destination, item.Type, item.Status, item.ParentAlias, item.Active, item.Metadata.AgeSeconds, item.Metadata.IsStale }),
-            "markers" => _repository.GetMarkers(limit, includeStale).Select(item => new { item.Alias, text = Truncate(item.Text, 160), item.Position, item.Type, item.Color, item.Shape, item.Size, item.Direction, item.Alpha, polyline = item.Polyline.Take(32), item.Metadata.AgeSeconds, item.Metadata.IsStale }),
+            "markers" => _repository.GetMarkers(limit, includeStale).Select(item => new { item.Alias, text = Truncate(item.Text, 160), item.ReferenceRole, item.ReferenceLabel, item.Channel, item.Position, item.Type, item.Color, item.Shape, item.Size, item.Direction, item.Alpha, polyline = item.Polyline.Take(32), item.Metadata.AgeSeconds, item.Metadata.IsStale }),
             "named_locations" => _repository.GetNamedLocations(limit: limit).Select(item => new { item.Name, item.Type, position = new[] { item.X, item.Y }, item.RadiusA, item.RadiusB, item.Angle }),
             _ => null
         };

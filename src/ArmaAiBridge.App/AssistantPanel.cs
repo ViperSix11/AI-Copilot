@@ -23,7 +23,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private readonly MissionMemoryToolService? _memoryTools;
     private readonly IGlobalPushToTalkInputService _globalPttInput;
     private readonly SqliteStateRepository _stateRepository;
-    private readonly ContactAnnouncementDetector _contactAnnouncements = new();
+    private readonly ContactAnnouncementDetector _contactAnnouncements;
     private readonly Queue<string> _contactSpeechQueue = new();
     private readonly CancellationTokenSource _contactSpeechCancellation = new();
     private readonly TextBox _conversation = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
@@ -79,6 +79,8 @@ public sealed class AssistantPanel : UserControl, IDisposable
         _snapshots = snapshots;
         _globalPttInput = globalPttInput;
         _stateRepository = stateRepository;
+        _contactAnnouncements = new ContactAnnouncementDetector(
+            new TacticalPositionReportingService(stateRepository));
         _queries = new ArmaQueryCoordinator(pipe);
         _memoryTools = snapshots.MissionMemory is null ? null : new MissionMemoryToolService(snapshots.MissionMemory);
         _capture = new PushToTalkCaptureCoordinator(new WindowsMicrophoneCaptureService());
