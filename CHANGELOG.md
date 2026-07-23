@@ -34,18 +34,28 @@ pull requests, first-parent history, and the authoritative documents under
   are announced once as a counted group instead of repeated verbatim calls.
 - Enemy `last known position` questions now retrieve the newest eligible
   contact locations even when those contacts are still current.
+- New-contact radio calls use a three-second batch, 250-metre presentation
+  clusters and a 30-second similar-cluster cooldown while preserving every
+  underlying contact record.
+- Hostile-strength questions and immediate estimation follow-ups receive a
+  deterministic count/composition/cluster projection through a bounded
+  two-follow-up local topic.
+- `state-snapshot-v2` publication changed from four to eight seconds, reducing
+  routine SQLite snapshot transactions while retaining section sampling
+  cadence and 30-second full reconciliation.
 
 ### Boundaries
 
-- No SQF, native DLL, Named Pipe, State Mirror, snapshot, position calculation,
-  mission-memory schema or model-tool changes.
+- No native DLL, Named Pipe schema, position calculation, mission-memory schema
+  or model-tool changes. SQF changes only the existing snapshot publication
+  gate; individual collectors and the fair-play boundary are unchanged.
 - Full live acceptance remains required as documented in
   `docs/papa-bear-v1/release-0.8.1-natural-radio-hotfix.md`.
 
 ### Local validation
 
-- Repository verifier: 175 UTF-8 files.
-- Deterministic Release suite: 299 tests.
+- Repository verifier: 176 UTF-8 files.
+- Deterministic Release suite: 301 tests.
 - WPF `win-x64`, native x64 and 22-file Addon Builder PBO builds passed.
 - GitHub Actions and live Arma acceptance remain pending.
 

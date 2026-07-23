@@ -39,7 +39,8 @@ Status: **implementation draft; live acceptance pending**.
 
 - preserve the accepted Phase A gazetteer, position interpretation, response
   profiles and exact final-text terminators;
-- publish `state-snapshot-v2` every four seconds from field-cadence caches;
+- publish `state-snapshot-v2` every eight seconds from field-cadence caches
+  after the release 0.8.1 load hotfix;
 - mirror selected player, environment, time/astronomy, loadout, own-side force,
   contact, task and marker state into a bounded SQLite current-state repository;
 - derive environment, loadout, force and contact summaries locally;

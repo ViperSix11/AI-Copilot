@@ -13,8 +13,9 @@ All messages are versioned JSON with `schema`, `messageId`, timestamps and corre
 
 ## Unified State Mirror (release 0.8)
 
-The active state message is `arma-ai-bridge/arma3/state-snapshot-v2`. SQF sends
-one bounded envelope every four seconds, but each section carries its own game
+The active state message is `arma-ai-bridge/arma3/state-snapshot-v2`. Beginning
+with the release 0.8.1 radio/load hotfix, SQF sends one bounded envelope every
+eight seconds, but each section carries its own game
 sample time and is refreshed independently:
 
 - player position, grid, side and group callsign: 1 second;
@@ -27,6 +28,9 @@ Every envelope contains all eight section wrappers. A ready, successfully
 sampled empty array authoritatively clears that section. A failed or unavailable
 section preserves its last good rows as stale. The desktop rejects out-of-order
 sequences and atomically replaces current-state tables in one SQLite transaction.
+The eight-second envelope cadence therefore reduces routine State Mirror
+transactions from fifteen to approximately seven or eight per minute without
+changing the individual section sampling rules.
 Optional SQF collectors fail independently through an `isNil { code }`
 boundary, so one bad section cannot suppress publication. The required player
 cache must exist before the first useful snapshot is sent.

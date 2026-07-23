@@ -1,10 +1,12 @@
 # Release 0.8.1 natural radio hotfix
 
-This hotfix changes only Papa Bear dialogue generation, local transmission
-sequencing, speech pauses, receipt-confirmation state and repetition handling.
-It does not change the SQF addon, native DLL, Named Pipe protocol, canonical
-State Mirror, tactical snapshot, fair-play boundary, position calculations,
-mission memory schema or model-facing tool set.
+This hotfix changes Papa Bear dialogue generation, local transmission
+sequencing, speech pauses, receipt-confirmation state, repetition handling,
+contact presentation, bounded dialogue topics and the State Mirror publication
+cadence. The SQF addon changes only the existing publication gate from four to
+eight seconds. It does not change section collectors, the native DLL, Named
+Pipe schema, fair-play boundary, position calculations, mission-memory
+database schema or model-facing tool set.
 
 ## Dialogue contract
 
@@ -87,17 +89,49 @@ answer text only and is never written to the application log.
 ## Proactive-announcement presentation deduplication
 
 Track identity and world-model state remain unchanged. Before speaking,
-compatible new or reacquired tracks that resolve to the same tactical
-classification and exact rendered position phrase are presented as one
-counted group announcement. This prevents multiple distinct tracks inside one
-rounded Bullseye phrase from producing indistinguishable repeated calls while
-keeping differently classified contacts, such as an unknown aircraft, in a
-separate announcement.
+new and reacquired transitions are held locally for three seconds. Compatible
+tracks are then clustered when their relationship matches, their observation
+times are within 120 seconds and their positions are no more than 250 metres
+apart. Exact matching rendered-position phrases remain compatible. A cluster
+produces one counted announcement.
+
+After a cluster is announced, another cluster with the same relationship and
+contact-type composition within 250 metres is silent for 30 seconds. This
+prevents incrementally discovered members from generating repeated
+near-identical calls across consecutive snapshots. A different relationship
+or classification, such as an unknown aircraft beside hostile infantry, still
+produces its own call. The database retains every track and observation;
+clustering and cooldown are presentation-only and reset with the session.
 
 A request for an enemy's `last known position` selects the newest eligible
 contact positions, including contacts whose status is still current. Papa Bear
 reports a current position as current rather than incorrectly treating
 `last-known` as a required database status.
+
+## Hostile-strength interpretation and bounded topic continuity
+
+`combatant`, enemy/hostile strength, contact-count and equivalent questions
+select a deterministic hostile-strength projection. It contains current and
+last-known accepted-contact counts, current identified composition, geographic
+presentation-cluster count and an explicit warning that observations can
+overlap and vehicle crews can be unknown. It never estimates unseen forces.
+
+The local snapshot builder retains the `hostile-strength` topic for at most two
+compatible estimate follow-ups. Therefore `Do you have an approximation?`
+immediately after a combatant-count question resolves to hostile strength and
+selects the same current projection. Any unrelated question clears the topic;
+session change and AI Context reset clear it as well. This state does not block
+normal questions and is not persisted.
+
+## State Mirror load reduction
+
+The SQF section caches continue sampling player state every second,
+friendly/contact state every two seconds, loadout/tasks/markers every four
+seconds and environment/time every eight seconds. The bounded
+`state-snapshot-v2` envelope is now published every eight seconds instead of
+four. SQLite therefore receives approximately seven or eight routine snapshot
+transactions per minute rather than fifteen. The first useful cache gate,
+30-second full reconciliation and all schema/privacy rules remain unchanged.
 
 ## Speech output
 
@@ -134,7 +168,13 @@ Tests must prove:
 13. distinct compatible tracks with the same rendered tactical position
     produce one counted announcement without absorbing a different contact
     classification;
-14. existing position, privacy, memory, PTT, always-on microphone, partial
+14. three-second batching and the 250-metre/30-second presentation policy
+    suppress incremental same-cluster chatter without deleting tracks;
+15. combatant-count and immediate approximation follow-ups select the same
+    hostile-strength estimate and unrelated questions clear the topic;
+16. the SQF contract publishes envelopes every eight seconds while retaining
+    the established 1/2/4/8-second section sampling;
+17. existing position, privacy, memory, PTT, always-on microphone, partial
     success and tool-loop tests remain green.
 
 ## Live acceptance
@@ -161,18 +201,26 @@ Use a current Arma session with a dynamic group callsign.
 7. Cause two compatible vehicle tracks to resolve to the same rounded tactical
    position. Verify one counted vehicle-group call is emitted, while an
    aircraft with a different classification still gets its own call.
-8. Change groups while a receipt request is open. Verify the old exchange
+8. Reveal several infantry contacts in the same 250-metre area over consecutive
+   snapshots. Verify one batched cluster call and no incremental repeat during
+   the next 30 seconds. Verify a differently classified contact still announces.
+9. Ask `How many combatants are we talking about?`, followed by `Do you have an
+   approximation?`. Verify both answers use the current supported contact
+   estimate, while a later unrelated question does not retain that topic.
+10. Observe State Mirror diagnostics for at least one minute. Verify roughly
+   one accepted sequence every eight seconds and no four-second duplicate.
+11. Change groups while a receipt request is open. Verify the old exchange
    cannot be repeated under the new callsign.
-9. Include ranges `1,000`, `25` and `3.5` in a test answer and verify speech
+12. Include ranges `1,000`, `25` and `3.5` in a test answer and verify speech
    says `one thousand`, `twenty-five` and `three point five`.
-10. Disable ElevenLabs or force playback failure during the second call. Verify
+13. Disable ElevenLabs or force playback failure during the second call. Verify
    all visible text remains and the safe partial-success status is shown.
-11. Inspect logs and confirm no transcript, answer, transmission text, prompt,
+14. Inspect logs and confirm no transcript, answer, transmission text, prompt,
    snapshot, audio or provider body was written.
 
 ## Implementation validation status
 
-Local Windows closeout passed the 175-file UTF-8 repository verifier, all 299
+Local Windows closeout passed the 176-file UTF-8 repository verifier, all 301
 deterministic Release tests, WPF `win-x64` publish, native x64 rebuild and the
 official 22-file Addon Builder PBO build. GitHub Actions and the live acceptance
 steps above remain pending and must not be inferred from local automation.

@@ -402,7 +402,7 @@ missionNamespace setVariable ["AAB_stateSectionCaches", _caches];
 missionNamespace setVariable ["AAB_stateLastSamples", _lastSamples];
 
 private _lastPublish = missionNamespace getVariable ["AAB_lastStatePublishAt", -100];
-if ((_now - _lastPublish) < 4) exitWith { false };
+if ((_now - _lastPublish) < 8) exitWith { false };
 private _playerSection = _caches getOrDefault ["player", createHashMap];
 if ((count _playerSection) <= 2) exitWith { false };
 private _required = ["player", "environment", "timeAstronomy", "loadout", "friendlyForces", "knownContacts", "tasks", "markers"];

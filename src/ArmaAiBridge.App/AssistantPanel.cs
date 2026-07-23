@@ -64,6 +64,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private bool _alwaysOnProcessingTurn;
     private int _globalPttDetectionCount;
     private bool _contactSpeechActive;
+    private int _contactAnnouncementFlushScheduled;
     private bool _disposed;
 
     public AssistantPanel(
@@ -641,24 +642,59 @@ public sealed class AssistantPanel : UserControl, IDisposable
                 diagnostics.LastSequence,
                 _stateRepository.GetContactTracks(256),
                 _stateRepository.GetPlayer()?.GroupCallsign);
-            if (announcements.Count == 0) return;
-            _ = Dispatcher.BeginInvoke(() =>
-            {
-                if (_disposed) return;
-                foreach (ContactAnnouncement announcement in announcements)
-                {
-                    Append("Papa Bear", announcement.VisibleText);
-                    _contactSpeechQueue.Enqueue(announcement.VisibleText);
-                }
-                if (_alwaysOnCycleActive && !_alwaysOnProcessingTurn)
-                    _activeRequest?.Cancel();
-                _ = DrainContactSpeechAsync();
-            });
+            QueueContactAnnouncements(announcements);
+            if (_contactAnnouncements.HasPending) ScheduleContactAnnouncementFlush();
         }
         catch (Exception exception)
         {
             _log.Warn($"Contact announcement evaluation failed: exceptionType={exception.GetType().Name}.");
         }
+    }
+
+    private void ScheduleContactAnnouncementFlush()
+    {
+        if (_disposed || Interlocked.Exchange(ref _contactAnnouncementFlushScheduled, 1) != 0) return;
+        _ = FlushContactAnnouncementsAfterDelayAsync();
+    }
+
+    private async Task FlushContactAnnouncementsAfterDelayAsync()
+    {
+        try
+        {
+            TimeSpan delay = _contactAnnouncements.PendingDelay;
+            if (delay > TimeSpan.Zero)
+                await Task.Delay(delay, _contactSpeechCancellation.Token).ConfigureAwait(false);
+            IReadOnlyList<ContactAnnouncement> announcements = _contactAnnouncements.FlushPending(
+                _stateRepository.GetPlayer()?.GroupCallsign);
+            QueueContactAnnouncements(announcements);
+        }
+        catch (OperationCanceledException) when (_disposed) { }
+        catch (Exception exception)
+        {
+            _log.Warn($"Contact announcement flush failed: exceptionType={exception.GetType().Name}.");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _contactAnnouncementFlushScheduled, 0);
+            if (!_disposed && _contactAnnouncements.HasPending) ScheduleContactAnnouncementFlush();
+        }
+    }
+
+    private void QueueContactAnnouncements(IReadOnlyList<ContactAnnouncement> announcements)
+    {
+        if (announcements.Count == 0 || _disposed) return;
+        _ = Dispatcher.BeginInvoke(() =>
+        {
+            if (_disposed) return;
+            foreach (ContactAnnouncement announcement in announcements)
+            {
+                Append("Papa Bear", announcement.VisibleText);
+                _contactSpeechQueue.Enqueue(announcement.VisibleText);
+            }
+            if (_alwaysOnCycleActive && !_alwaysOnProcessingTurn)
+                _activeRequest?.Cancel();
+            _ = DrainContactSpeechAsync();
+        });
     }
 
     private async Task DrainContactSpeechAsync()

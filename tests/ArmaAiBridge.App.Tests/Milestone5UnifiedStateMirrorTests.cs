@@ -518,6 +518,7 @@ public sealed class Milestone5UnifiedStateMirrorTests
             ("friendlyForces", 2), ("knownContacts", 2), ("tasks", 4), ("markers", 4)
         })
             Assert.Matches($@"\[\s*""{section}""\s*,\s*{cadence}\s*,\s*\{{", publisher);
+        Assert.Contains("(_now - _lastPublish) < 8", publisher, StringComparison.Ordinal);
         Assert.True(publisher.IndexOf("call _runSection", StringComparison.Ordinal) < publisher.IndexOf("private _lastPublish", StringComparison.Ordinal));
     }
 
