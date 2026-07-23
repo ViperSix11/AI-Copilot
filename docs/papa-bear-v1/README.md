@@ -1,6 +1,8 @@
 # Papa Bear v1 — architecture and milestone record
 
-Status: **version 0.8 Unified State Mirror & Interpreter in draft; version 0.7 accepted live**.
+Status: **version 0.8.0 Unified State Mirror & Interpreter is the current
+release line; automated Windows validation is green, while the complete live
+0.8 gate remains explicitly pending. Version 0.7 passed live acceptance.**
 
 The active release 0.8 model-context and persistence boundary is
 [`release-0.8-tactical-memory.md`](release-0.8-tactical-memory.md). It
@@ -86,6 +88,13 @@ configurable global press-and-hold PTT.
     contract.
 13. `codex-milestone-5-contextual-interpreter.md` — subordinate Phase A
     named-location, spatial-language and response-profile design.
+14. `release-0.8-tactical-memory.md` — active tactical evidence, mission
+    memory, contact announcement, always-on voice, reset and hierarchical
+    position-reporting boundary.
+
+The repository-level [`CHANGELOG.md`](../../CHANGELOG.md) records the complete
+release and pull-request history.
+
 Other documents describe deferred designs or historical experiments. They are
 not automatically approved implementation scope. A later milestone must
 explicitly reactivate them.

@@ -1,131 +1,167 @@
 # ArmA AI Bridge — Papa Bear
 
-ArmA AI Bridge is a Windows companion for **Arma 3**. A perspective-bound SQF
-addon exports selected game state through a native x64 extension and a local
-Named Pipe. The WPF application maintains a privacy-minimized world model and
-lets **Papa Bear** answer typed or push-to-talk questions about the current
-mission.
+ArmA AI Bridge is a local Windows companion for **Arma 3**. Its radio
+assistant, **Papa Bear**, answers typed and spoken questions using a
+perspective-bound picture of the current mission.
 
-**Current release: 0.8** (`0.8.0` assembly version).
+The project deliberately separates game authority from language generation:
+Arma supplies bounded facts, local deterministic services normalize and select
+the relevant evidence, OpenAI produces the natural-language answer, and
+ElevenLabs optionally speaks the completed text.
 
-Version 0.8 adds a local SQLite Unified State Mirror and deterministic
-contextual interpretation to the live-accepted voice proof of concept. A player can ask
-by microphone, for example, “Papa Bear, welche Position habe ich?”, and receive
-a grounded text answer plus spoken output using the configured ElevenLabs
-voice. The desktop shell now uses the visible title **ArmA AI Bridge - Papa Bear**
-and a higher-contrast tactical terminal theme with larger conversation,
-diagnostics and log text for long-session readability.
+| Release | Platform | Status |
+| --- | --- | --- |
+| **0.8.0 — Unified State Mirror & Interpreter** | Windows 10/11 x64, Arma 3, .NET 8 | Automated Windows validation passed; full live 0.8 acceptance remains documented and must not be inferred from CI |
 
-## Product status
+The complete release and repository history is in
+[`CHANGELOG.md`](CHANGELOG.md).
 
-The current release is deliberately narrow. It proves the complete vertical
-product chain before broader tactical awareness is added:
+## How it works
 
 ```text
-Arma 3 live state
-  -> SQF client addon
-  -> arma_ai_bridge_x64.dll
-  -> local Named Pipe
-  -> privacy-minimized world model
-
-Typed question -----------------------------┐
-                                            ├-> shared AssistantTurnService
-Push-to-talk -> WAV -> OpenAI transcription ┘   -> OpenAI Responses
-                                                -> optional validated local tools
-                                                -> visible answer
-                                                -> ElevenLabs TTS
-                                                -> Windows audio output
+Arma 3
+  └─ perspective-bound SQF client addon
+       ├─ session handshake and state-snapshot-v2
+       ├─ own-side friendly and known-contact picture
+       └─ official named-location gazetteer
+            ↓
+     transport-only native x64 extension
+            ↓
+       duplex Windows Named Pipe
+            ↓
+     ArmA AI Bridge WPF application
+       ├─ mission-scoped SQLite State Mirror
+       ├─ contact lifecycle and player-report memory
+       ├─ deterministic evidence selection and spatial language
+       ├─ read-only World State and AI Context diagnostics
+       └─ shared typed/voice AssistantTurnService
+            ↓
+       OpenAI transcription and Responses
+            ↓
+       visible answer → ElevenLabs speech → Windows playback
 ```
 
-Typed and spoken turns use the same reasoning path and a fresh world-state
-snapshot. Voice is an interface layer; it does not own game state or maintain a
-separate conversation model.
+Typed input, local push-to-talk, global push-to-talk, and the opt-in
+voice-activated microphone all enter the same assistant path. Voice does not
+maintain a separate world model or conversation.
 
-## Implemented capabilities
+## Release 0.8 capabilities
 
-### Arma bridge
+### Perspective-bound Arma state
 
-- one bounded `state-snapshot-v2` envelope every four seconds, backed by
-  independently sampled 1/2/4/8-second SQF section caches;
-- loaded world and map size;
-- current map grid and player position;
-- body and view heading, speed, stance, damage and life state;
-- current weapon, magazine and ammunition state;
-- current vehicle, role, fuel, damage and speed;
-- side-wide contacts already known to local own-side representatives, including
-  estimated position and uncertainty but never hidden hostile truth;
-- mission/session handshake;
-- own-side groups, units and crewed vehicles with delta updates and periodic
-  reconciliation;
-- bounded request-driven environment queries.
-- one bounded, config-only export of official `CfgWorlds` named locations per
-  mission session; no terrain-object scan or static map index.
+- Explicit mission/session handshake and protocol feature versions.
+- One bounded `state-snapshot-v2` envelope every four seconds, built from
+  independently sampled player, environment, time, loadout, friendly-force,
+  known-contact, task, and marker sections.
+- Current player side and dynamic `groupId (group player)` callsign.
+- Player position, grid, and elevation retained locally for authorized
+  deterministic calculations but excluded from ordinary OpenAI context.
+- Own-side groups and units plus side-visible hostile or unidentified contacts
+  already available through Arma target knowledge.
+- Estimated contact position, uncertainty, age, lifecycle, and privacy-safe
+  observer callsigns; never unrestricted hostile truth.
+- Bounded official `CfgWorlds` named-location export. There is no complete
+  building, road, vegetation, terrain-object, or static-map scan.
+- Locally visible positive-alpha mission markers, including point, rectangle,
+  ellipse, and privacy-safe Bullseye reference interpretation.
+- Mission tasks and read-only mission-declared capabilities/assets. No support
+  action is executed.
+- Overcast and mission time. Temperature and wind are not collected, stored,
+  displayed, or forwarded.
 
-### Local application
+### Local State Mirror and tactical memory
 
-- duplex Named Pipe transport;
-- provenance-aware world model with freshness, uncertainty and session reset
-  handling;
-- privacy-safe local aliases for entities;
-- World State diagnostics;
-- encrypted API settings using Windows DPAPI;
-- stateless OpenAI Responses tool loop;
-- typed assistant conversation;
-- 15-second push-to-talk microphone capture;
-- isolated microphone, transcription and voice-output tests;
-- OpenAI completed-utterance transcription;
-- ElevenLabs speech synthesis;
-- replay, cancellation and partial-success handling.
-- in-memory named-location gazetteer with atomic paged assembly;
-- mission-scoped SQLite current-state mirror with transactional snapshot ingest,
-  reconciliation metadata, staleness and explicit cache reset;
-- deterministic weather, loadout, force and contact summaries plus bilingual
-  question-aware context selection;
-- deterministic position containment, distance, bearing, cardinal direction,
-  salience ranking and current/last-known interpretation;
-- local response profiles with deterministic final-text terminators.
-- conditional five-second English radio acknowledgements and deterministic
-  speech-safe number/unit normalization;
-- configurable background press-and-hold push-to-talk, default Shift + Space,
-  using verified Windows Raw Input without hooks, injection or key suppression;
+- Transactional SQLite State Mirror with schema migration, per-section
+  readiness, freshness, atomic replacement, stale preservation, and
+  mission/session reset.
+- Privacy-safe mission-scoped aliases and one-way hashes for transport
+  identities.
+- Retained hostile/unidentified contact tracks and observations with
+  current/last-known/dead semantics, uncertainty, corroboration, and reporter
+  callsigns.
+- Session-scoped player reports, corrections, retractions, lore, and structured
+  six-digit grid anchors.
+- Deterministic grid-to-grid distance and cardinal-direction calculations using
+  explicit player-reported anchors, never hidden canonical position fallback.
+- Confirmed **Reset AI Context** action that clears tactical state, reports,
+  lore, contact history, and dialogue focus without deleting encrypted provider
+  settings.
 
-### Local read tools
+### Context and radio behavior
 
-The current assistant may use only validated read-only tools:
+- Closed `arma-ai-bridge/tactical-snapshot-v2` internal snapshot.
+- Deterministic interpreter that converts structured rows into concise,
+  human-readable evidence before an OpenAI request.
+- Four-stage **AI Context** diagnostics: candidates, selected evidence, fused
+  interpretation, and exact tactical context transmitted with the next turn.
+- Question-first relevance selection. Unrelated weather, friendly counts, and
+  empty-contact summaries are not added merely because they exist.
+- Dynamic Arma group callsign in acknowledgements and final answers, with a
+  neutral fallback when unavailable.
+- Editable operator pre-prompt and bounded response-profile controls.
+- English-only speech normalization for callsigns, numbers, units, grids, and
+  optional terminators.
+- Hierarchical position descriptions:
+
+  1. nearest locally authorized Bullseye;
+  2. nearby mission location, active objective, official named place, or living
+     stationary friendly group;
+  3. six-digit grid fallback.
+
+- Eight-point cardinal directions and natural tactical range rounding instead
+  of raw coordinate pairs or routine numeric bearings.
+- Deduplicated proactive announcements for genuinely new or reacquired
+  own-side-known hostile/unidentified contacts.
+- Spatially compatible infantry and vehicle transitions are consolidated.
+  Reacquisition requires at least 30 seconds continuously last-known.
+
+### Voice and input
+
+- Typed questions and answers.
+- Local press-and-hold microphone capture.
+- Configurable global press-and-hold PTT using Windows Raw Input. The default is
+  **Shift + Space**; the app does not reserve, suppress, or inject the chord.
+- Opt-in **Mic always on** mode with local voice activity detection, no wake
+  word, no silence uploads, trailing-silence completion, and a 15-second cap.
+- OpenAI completed-utterance transcription.
+- OpenAI Responses with locally managed bounded history and `store: false`.
+- ElevenLabs-only assistant speech output.
+- Transcript shown immediately after transcription; answer shown immediately
+  after reasoning.
+- TTS or playback failure preserves the visible conversation and allows
+  **Replay Last Answer** without repeating transcription or OpenAI reasoning.
+- Microphone, transcription, voice, Raw Input, and voice-activation diagnostics.
+
+## Local and model tool boundary
+
+Normal assistant turns receive the locally interpreted tactical context rather
+than a raw database or telemetry dump. Only the closed mission-memory functions
+may be offered when the current input permits a memory operation:
 
 ```text
-query_friendly_forces(entityType, maxDistanceMeters, includeStale, limit)
-query_assets(kind, availableOnly, maxDistanceMeters, includeStale, limit)
-query_mission_capabilities(enabledOnly, includeStale)
-find_named_locations(query, maxDistanceMeters, limit)
-query_state(section, includeStale, limit)
+remember_information
+search_memory
+update_memory
+forget_memory
 ```
 
-No tool can execute arbitrary SQF, C++, PowerShell or operating-system commands.
-Mission-declared assets and capabilities are read-only in this release.
+The application also has bounded local read/query services for diagnostics and
+manual map/environment requests. These accept fixed enums and validated limits;
+they do not accept SQL, SQF, source code, file paths, or operating-system
+commands.
 
-## Provider configuration
-
-Open the **API keys** tab and save:
-
-1. **OpenAI API key** — used for both audio transcription and Responses
-   reasoning;
-2. **ElevenLabs API key** — used only for Papa Bear speech output;
-3. **ElevenLabs voice ID** — selects Papa Bear’s voice.
-
-No separate speech-to-text account is required. OpenAI TTS is not used.
-Credentials are encrypted for the current Windows user and are never written to
-application logs.
+OpenAI can never execute arbitrary SQF, C++, PowerShell, SQL, or Windows
+commands.
 
 ## Installation
 
-A matching artifact contains:
+A matching build artifact has this shape:
 
 ```text
 app/
   ArmA AI Bridge.exe
   ArmA AI Bridge.dll
-  NAudio and runtime dependencies
+  Microsoft.Data.Sqlite, NAudio, SQLite and runtime dependencies
 
 mod/
   @Arma_AI_Bridge/
@@ -134,116 +170,73 @@ mod/
     mod.cpp
 ```
 
-1. Copy the complete `app` and `mod` folders from the same build.
-2. Add `mod/@Arma_AI_Bridge` as a local mod in the Arma 3 Launcher.
-3. Start `app/ArmA AI Bridge.exe`.
-4. Start an Arma mission with the mod enabled.
-5. Confirm that the application reports **Arma connected** and receives current
-   telemetry.
+1. Copy the complete contents of `app/` to a writable Windows folder.
+2. Copy `mod/@Arma_AI_Bridge` into the Arma 3 directory or another Launcher
+   mod directory.
+3. Add `@Arma_AI_Bridge` as a local mod in the Arma 3 Launcher.
+4. Start `ArmA AI Bridge.exe`.
+5. Start an Arma mission with the matching PBO and native DLL enabled.
+6. Confirm **Arma connected** and a current session in the dashboard.
 
-Do not mix the EXE, DLL and PBO from different builds.
+Do not mix the application, native DLL, and PBO from different commits.
 
-## Contextual position acceptance
+## Configuration
 
-The following sequence was accepted live for version 0.7. Version 0.8 retains
-it and adds the exact Stratis and alternate-map checks in
-`docs/papa-bear-v1/codex-milestone-5-contextual-interpreter.md`:
+Open the **API keys** tab and save:
 
-1. Start any Arma mission and verify map, position and grid telemetry.
-2. Select **Test Papa Bear Voice** and hear:
-   “Papa Bear online. Radio check complete.”
-3. Hold **Test Microphone**, speak, release and hear the local recording.
-4. Hold **Test Transcription**, speak and receive exactly one OpenAI transcript
-   without invoking Responses or ElevenLabs.
-5. Hold **Hold to Talk** and ask:
-   “Papa Bear, welche Position habe ich?”
-6. Confirm that the transcript appears once.
-7. Confirm that the answer contains the current map and correct grid or
-   coordinates.
-8. Confirm that ElevenLabs speaks the complete displayed answer once.
-9. Ask the same question by keyboard and verify the position agrees.
+1. an OpenAI API key for transcription and Responses;
+2. an ElevenLabs API key for speech synthesis;
+3. an ElevenLabs voice ID.
 
-The active voice stages are:
+The same settings area contains the model, operator pre-prompt, response
+profile, callsign-independent radio style, and speech terminator controls.
+Global PTT and always-on microphone controls are in the Assistant tab.
 
-```text
-ready -> recording -> transcribing -> thinking
-      -> generating-voice -> speaking -> ready
-```
+Provider credentials are encrypted with Windows DPAPI for the current user.
 
-The transcript appears immediately after transcription. The text answer appears
-immediately after Responses. If ElevenLabs synthesis or Windows playback fails,
-the completed transcript and answer remain visible. **Replay Last Answer**
-retries only the missing speech stage; it does not repeat transcription or
-reasoning.
+## Privacy, security, and fair play
 
-## Privacy and fair play
-
-- The addon is perspective-bound and does not export an unrestricted server
-  world.
-- Hidden enemy truth is not deliberately exposed to the assistant.
-- Raw 4 Hz telemetry is normalized locally rather than forwarded wholesale.
-- OpenAI receives a purpose-specific snapshot and only bounded selected tool
-  results.
-- Player profile names, UIDs, raw engine IDs and source mission/session IDs are
-  excluded from OpenAI context.
-- Microphone audio leaves the PC only after an explicit transcription or
-  push-to-talk action.
-- ElevenLabs receives only the final answer or the fixed voice-test phrase.
-- Audio, transcripts, questions, answers, prompts, snapshots, tool results,
-  provider response bodies, API keys and voice IDs are not logged.
-- Temporary WAV recordings are bounded and deleted after success, failure or
+- The addon exports a client-perspective mission picture, not an unrestricted
+  server world.
+- Hidden opposing-side entities are not deliberately enumerated or inferred.
+- Contact collection uses Arma own-side target knowledge and engine-estimated
+  positions.
+- Player profile names and UIDs are never collected.
+- Raw engine IDs, source IDs, local database aliases, credentials, and
+  canonical player coordinates do not enter ordinary OpenAI context.
+- Raw state snapshots and complete SQLite tables are not sent to OpenAI.
+- Mission and marker text are treated as untrusted labels, never instructions.
+- Audio, transcripts, questions, answers, prompts, tactical context, provider
+  payloads, API keys, and voice IDs are not written to the application log.
+- Temporary WAV files are bounded and deleted after success, failure, or
   cancellation.
-- OpenAI Responses requests use `store: false`; this is not equivalent to a
-  provider-wide Zero Data Retention agreement.
+- ElevenLabs receives only speech text. OpenAI receives audio only for an
+  explicit PTT/voice-activated utterance and receives only the minimized
+  question-relevant tactical context for reasoning.
+- `store: false` is used for Responses requests; it is not a provider-wide Zero
+  Data Retention agreement.
 
-## Current limitations
+See [`privacy-and-fair-play.md`](docs/papa-bear-v1/privacy-and-fair-play.md) and
+[`release-0.8-tactical-memory.md`](docs/papa-bear-v1/release-0.8-tactical-memory.md)
+for the exact boundaries.
 
-Version 0.8 does not provide:
+## Deliberate non-goals
 
-- always-on listening, wake words or VAD;
-- streaming transcription or streaming speech output;
-- microphone/output-device selection in the UI;
-- proactive military contact reports;
-- player-reported observations or persistent operational memory;
-- persistent, runtime-object or full-static-map indexing;
-- perception of empty vehicles and other non-contact objects;
-- ACE versions outside the documented 3.21.x adapter baseline, powered/guided
-  projectiles, or optic-click calculation;
-- route planning, landing-zone scoring or support execution;
-- hardened multiplayer packaging, signatures or installer/updater support.
+Release 0.8 does not include:
 
-These are follow-on capabilities, not dependencies of the accepted MVP.
+- ACE integration or ballistic/firing-solution calculations;
+- support execution, waypoint assignment, route planning, landing-zone
+  execution, or arbitrary SQF;
+- complete-map or runtime-object indexing;
+- hidden enemy state or unrestricted `allMissionObjects` enumeration;
+- observation of empty vehicles, crates, fortifications, or tactical objects
+  that are not already in an authorized source;
+- voice streaming, wake words, microphone/output-device selection, or radio
+  audio effects;
+- multiplayer signatures, installer, automatic updater, or production
+  hardening.
 
-## Roadmap status
-
-Release 0.8 Unified State Mirror & Interpreter is the only active product
-milestone. The
-following older proposals are retained as historical context only; none is an
-active dependency or authorized implementation scope.
-
-## Historical roadmap proposals
-
-### M4B — Arma knowledge mirror
-
-Read Arma’s existing own-side target knowledge across friendly groups. Do not
-build a parallel perception simulation. First target: a remote friendly unit
-recognizes an enemy and Papa Bear receives the same engine-provided knowledge.
-
-### M4C — Military contact reporting
-
-Add official named-location resolution and one deduplicated proactive contact
-message using the existing ElevenLabs output path.
-
-### M5 — Player reports and selected physical objects
-
-Allow explicit spoken player reports and evaluate narrowly scoped support for
-empty vehicles, supplies and tactical objects only where Arma’s knowledge model
-does not already provide the required information.
-
-### Later backlog
-
-ACE integration, firing-solution calculations, validated support actions, route planning and
-multiplayer packaging remain deferred until the narrow tactical POC is stable.
+The native DLL remains transport-focused.
 
 ## Build and test on Windows
 
@@ -251,41 +244,42 @@ Prerequisites:
 
 - Windows 10/11 x64;
 - .NET 8 SDK;
-- CMake with a Visual Studio x64 toolchain;
+- Visual Studio C++ x64 toolchain and CMake;
 - Python 3;
-- optionally Arma 3 Tools for official AddonBuilder PBO output.
+- optional Arma 3 Tools for official Addon Builder output.
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 py -3 scripts/verify_repository.py
 dotnet test tests/ArmaAiBridge.App.Tests/ArmaAiBridge.App.Tests.csproj -c Release
-./scripts/build.ps1
+./scripts/build.ps1 -Configuration Release
 ```
 
-Without AddonBuilder, CI uses the repository’s deterministic uncompressed
-development-PBO packer. Every release artifact must contain the matching WPF
-application, native DLL, `mod.cpp` and PBO.
+The Windows GitHub Actions job performs repository verification, Release tests,
+WPF `win-x64` publish, native x64 build, PBO packaging/verification, and one
+matching development artifact upload.
 
-## Version history
+## Acceptance status
 
-- **0.1.0** — project foundation and one-way player telemetry prototype.
-- **0.2.0** — duplex Named Pipe and bounded manual environment queries.
-- **0.3.0** — stateless OpenAI text assistant and repaired multi-round tool
-  loop.
-- **0.4.0** — local provenance-aware world model and minimized OpenAI snapshots.
-- **0.5.0** — mission/session handshake, friendly-force picture, diagnostics,
-  read-only asset/capability registry and force tools.
-- **0.6.0** — initial push-to-talk implementation, shared typed/spoken turn path,
-  ElevenLabs output, replay and voice diagnostics; development candidate.
-- **0.7** — live-accepted Voice Position MVP, OpenAI audio transcription,
-  ElevenLabs-only speech output, partial-success preservation, clean provider
-  setup and verified matching Windows artifact.
+- Releases 0.1–0.3 established the basic addon/native/app/text path.
+- Milestones 1–3 and release 0.7 passed their recorded live acceptance.
+- Release 0.8 deterministic and Windows CI coverage is green.
+- Full live 0.8 acceptance, including the newest Bullseye, fallback,
+  reacquisition, always-on microphone, and reset scenarios, remains a manual
+  gate. Follow the exact checklist in
+  [`release-0.8-tactical-memory.md`](docs/papa-bear-v1/release-0.8-tactical-memory.md).
 
-- **0.8** — bounded official named-location gazetteer, transactional SQLite
-  current-state mirror, deterministic contextual interpretation, strict
-  `query_state`, bounded location lookup, local response profiles,
-  conditional acknowledgements, speech-safe
-  English, global PTT and a high-contrast Papa Bear tactical desktop theme.
+## Documentation
 
-Detailed architectural records and milestone acceptance specifications are under
-[`docs/papa-bear-v1`](docs/papa-bear-v1/).
+- [Papa Bear v1 index](docs/papa-bear-v1/README.md)
+- [Release 0.8 active contract](docs/papa-bear-v1/release-0.8-tactical-memory.md)
+- [Arma data contract](docs/papa-bear-v1/arma-data-contract.md)
+- [Implementation roadmap](docs/papa-bear-v1/implementation-roadmap.md)
+- [Voice architecture](docs/papa-bear-v1/voice-architecture.md)
+- [World model](docs/papa-bear-v1/world-model.md)
+- [Privacy and fair play](docs/papa-bear-v1/privacy-and-fair-play.md)
+- [Complete changelog and version history](CHANGELOG.md)
+
+## License
+
+See [`LICENSE`](LICENSE).
