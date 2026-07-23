@@ -10,6 +10,8 @@ public sealed class VoiceInteractionService : IDisposable
     private readonly ITextToSpeechService _textToSpeech;
     private readonly IAudioPlaybackService _playback;
     private readonly Func<CancellationToken, Task<VoiceProviderSettings>> _settingsFactory;
+    private readonly Dictionary<string, AudioPayload> _acknowledgementAudioCache = new(StringComparer.Ordinal);
+    private readonly Queue<string> _acknowledgementCacheOrder = new();
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private bool _disposed;
 
@@ -69,14 +71,24 @@ public sealed class VoiceInteractionService : IDisposable
         }
     }
 
-    public async Task<VoiceTurnResult> RunVoiceTurnAsync(
+    public Task<VoiceTurnResult> RunVoiceTurnAsync(
         IAudioRecording recording,
         IProgress<VoiceStage>? progress,
         Action<string> transcriptReady,
         Action<Models.AssistantResponse> answerReady,
         CancellationToken cancellationToken)
+        => RunVoiceTurnAsync(recording, progress, transcriptReady, _ => { }, answerReady, cancellationToken);
+
+    public async Task<VoiceTurnResult> RunVoiceTurnAsync(
+        IAudioRecording recording,
+        IProgress<VoiceStage>? progress,
+        Action<string> transcriptReady,
+        Action<RadioAcknowledgement> acknowledgementReady,
+        Action<Models.AssistantResponse> answerReady,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transcriptReady);
+        ArgumentNullException.ThrowIfNull(acknowledgementReady);
         ArgumentNullException.ThrowIfNull(answerReady);
         await EnterAsync(cancellationToken).ConfigureAwait(false);
         AudioPayload? audio = null;
@@ -95,15 +107,25 @@ public sealed class VoiceInteractionService : IDisposable
             Models.AssistantResponse answer = await _assistantTurns.SubmitUserTurnAsync(
                 transcript,
                 UserTurnSource.Spoken,
+                (acknowledgement, preparationToken) =>
+                {
+                    acknowledgementReady(acknowledgement);
+                    return SpeakAcknowledgementAsync(
+                        acknowledgement,
+                        settings,
+                        progress,
+                        preparationToken,
+                        cancellationToken);
+                },
+                answerReady,
                 cancellationToken).ConfigureAwait(false);
-            answerReady(answer);
             cancellationToken.ThrowIfCancellationRequested();
 
             progress?.Report(VoiceStage.GeneratingVoice);
             try
             {
                 audio = await _textToSpeech.SynthesizeAsync(
-                    answer.Text,
+                    RadioSpeechTextNormalizer.Normalize(answer.Text, answer.GroupCallsign),
                     settings.ElevenLabsApiKey,
                     settings.ElevenLabsVoiceId,
                     cancellationToken).ConfigureAwait(false);
@@ -227,6 +249,57 @@ public sealed class VoiceInteractionService : IDisposable
 
     public void StopPlayback() => _playback.Stop();
 
+    private async Task SpeakAcknowledgementAsync(
+        RadioAcknowledgement acknowledgement,
+        VoiceProviderSettings settings,
+        IProgress<VoiceStage>? progress,
+        CancellationToken preparationToken,
+        CancellationToken turnToken)
+    {
+        AudioPayload? audio = null;
+        try
+        {
+            progress?.Report(VoiceStage.GeneratingVoice);
+            if (_acknowledgementAudioCache.TryGetValue(acknowledgement.SpokenText, out AudioPayload? cached))
+            {
+                audio = cached.Clone();
+            }
+            else
+            {
+                audio = await _textToSpeech.SynthesizeAsync(
+                    acknowledgement.SpokenText,
+                    settings.ElevenLabsApiKey,
+                    settings.ElevenLabsVoiceId,
+                    preparationToken).ConfigureAwait(false);
+                CacheAcknowledgement(acknowledgement.SpokenText, audio);
+            }
+            preparationToken.ThrowIfCancellationRequested();
+            progress?.Report(VoiceStage.Speaking);
+            await _playback.PlayAsync(audio, turnToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // A local acknowledgement is best effort; it must never discard or delay the model answer path.
+        }
+        finally
+        {
+            audio?.Dispose();
+            progress?.Report(VoiceStage.Thinking);
+        }
+    }
+
+    private void CacheAcknowledgement(string key, AudioPayload audio)
+    {
+        if (_acknowledgementAudioCache.ContainsKey(key)) return;
+        while (_acknowledgementCacheOrder.Count >= 32)
+        {
+            string oldest = _acknowledgementCacheOrder.Dequeue();
+            if (_acknowledgementAudioCache.Remove(oldest, out AudioPayload? removed)) removed.Dispose();
+        }
+        _acknowledgementAudioCache[key] = audio.Clone();
+        _acknowledgementCacheOrder.Enqueue(key);
+    }
+
     private async Task EnterAsync(CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -268,6 +341,9 @@ public sealed class VoiceInteractionService : IDisposable
         _playback.Dispose();
         if (_speechToText is IDisposable disposableStt) disposableStt.Dispose();
         if (_textToSpeech is IDisposable disposableTts) disposableTts.Dispose();
+        foreach (AudioPayload audio in _acknowledgementAudioCache.Values) audio.Dispose();
+        _acknowledgementAudioCache.Clear();
+        _acknowledgementCacheOrder.Clear();
         _operationGate.Dispose();
     }
 }

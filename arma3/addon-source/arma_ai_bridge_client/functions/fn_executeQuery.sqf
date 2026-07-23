@@ -40,6 +40,11 @@ switch (_command) do
         _response set ["ok", true];
         _response set ["result", _result];
     };
+    case "request_map_gazetteer":
+    {
+        [_requestId] spawn AAB_fnc_publishMapGazetteer;
+        _response = objNull;
+    };
     default
     {
         _response set ["ok", false];
@@ -47,4 +52,7 @@ switch (_command) do
     };
 };
 
-[_response] call AAB_fnc_sendQueryResult;
+if !(_response isEqualType objNull) then
+{
+    [_response] call AAB_fnc_sendQueryResult;
+};

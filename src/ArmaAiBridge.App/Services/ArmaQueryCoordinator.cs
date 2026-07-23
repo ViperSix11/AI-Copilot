@@ -30,7 +30,6 @@ public sealed class ArmaQueryCoordinator : IDisposable
         int limit = (int)ReadNumber(arguments, "maxResultsPerCategory", 1, 50, integer: true);
         string[] categories = ReadCategories(arguments);
 
-        string requestId = Guid.NewGuid().ToString("N");
         Dictionary<string, object> parameters = new()
         {
             ["origin"] = "player",
@@ -42,11 +41,17 @@ public sealed class ArmaQueryCoordinator : IDisposable
         };
         if (shape == "cone") parameters["angleDegrees"] = angle;
 
+        return await SendQueryAsync("query_environment", parameters, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<string> SendQueryAsync(string commandName, object parameters, CancellationToken cancellationToken)
+    {
+        string requestId = Guid.NewGuid().ToString("N");
         string command = JsonSerializer.Serialize(new
         {
             schema = CommandSchema,
             requestId,
-            command = "query_environment",
+            command = commandName,
             parameters
         });
 
@@ -65,7 +70,7 @@ public sealed class ArmaQueryCoordinator : IDisposable
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new TimeoutException("Arma did not return the map query within 12 seconds.");
+                throw new TimeoutException("Arma did not return the local read query within 12 seconds.");
         }
         finally
         {

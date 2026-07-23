@@ -9,8 +9,7 @@ Before changing code, read `docs/papa-bear-v1/README.md` and the milestone docum
 - Preserve the perspective-bound fair-play model: no hidden enemy state, no unrestricted server-world export and no anti-cheat bypass.
 - OpenAI may select typed tools, but it must never execute arbitrary SQF, C++, PowerShell or operating-system commands.
 - Validate every model-generated tool argument locally before it reaches Arma.
-- Ballistic answers must come from a deterministic ACE-aware service, never from language-model estimation.
-- Prefer documented Arma, CBA and ACE3 public interfaces. Isolate unavoidable internal ACE access behind a versioned adapter.
+- Ballistics and ACE are deferred. If a future milestone explicitly authorizes them, ballistic answers must come from a deterministic service, never language-model estimation, and documented public interfaces are preferred.
 - Keep API keys encrypted locally and never log keys, full prompts, private telemetry or spoken conversation content.
 - Keep changes reviewable: one milestone per branch/PR, focused tests, green Windows CI and an explicit manual Arma test plan.
 
@@ -21,5 +20,6 @@ Before changing code, read `docs/papa-bear-v1/README.md` and the milestone docum
 - C++ x64 Arma extension
 - SQF client addon
 - Duplex Windows Named Pipe
-- OpenAI Responses API
-- OpenAI audio transcription and Responses API, with ElevenLabs TTS
+- OpenAI audio transcription and Responses API
+- ElevenLabs TTS
+- In-memory official named-location gazetteer and deterministic contextual interpreter

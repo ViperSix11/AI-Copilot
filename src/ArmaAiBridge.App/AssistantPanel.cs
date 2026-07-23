@@ -17,11 +17,18 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private readonly ArmaQueryCoordinator _queries;
     private readonly WorldSnapshotBuilder _snapshots;
     private readonly PushToTalkCaptureCoordinator _capture;
+    private readonly IVoiceActivatedMicrophoneCaptureService _alwaysOnCapture;
     private readonly AssistantTurnService _turns;
     private readonly VoiceInteractionService _voice;
+    private readonly MissionMemoryToolService? _memoryTools;
+    private readonly IGlobalPushToTalkInputService _globalPttInput;
+    private readonly SqliteStateRepository _stateRepository;
+    private readonly ContactAnnouncementDetector _contactAnnouncements;
+    private readonly Queue<string> _contactSpeechQueue = new();
+    private readonly CancellationTokenSource _contactSpeechCancellation = new();
     private readonly TextBox _conversation = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly TextBox _question = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 76 };
-    private readonly TextBox _model = new() { Text = "gpt-5-mini", Width = 220 };
+    private readonly TextBox _model = new() { Text = "gpt-5.6-luna", Width = 220 };
     private readonly TextBlock _status = new() { Text = "Ready.", TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock _voiceStage = new() { Text = "Voice: ready", TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold };
     private readonly Button _ask = new() { Content = "Ask", MinWidth = 100 };
@@ -31,30 +38,67 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private readonly Button _holdToTalk = new() { Content = "Hold to Talk", MinWidth = 130, ToolTip = "Press and hold while speaking; release to submit." };
     private readonly Button _replay = new() { Content = "Replay Last Answer", MinWidth = 145, IsEnabled = false };
     private readonly Button _cancel = new() { Content = "Cancel", MinWidth = 100, IsEnabled = false };
+    private readonly CheckBox _globalPttEnabled = new() { Content = "Enable global push-to-talk" };
+    private readonly TextBlock _globalPttHotkey = new() { Text = "Hotkey: Shift + Space" };
+    private readonly TextBlock _globalPttStatus = new() { Text = "Status: Initializing", TextWrapping = TextWrapping.Wrap };
+    private readonly TextBlock _globalPttDetections = new() { Text = "Detected presses: 0" };
+    private readonly TextBlock _globalPttSource = new() { Text = "Last activation source: none" };
+    private readonly CheckBox _globalPttTestOnly = new() { Content = "Test chord only (no recording)" };
+    private readonly Button _changeGlobalPtt = new() { Content = "Change hotkey", MinWidth = 120 };
+    private readonly Button _resetGlobalPtt = new() { Content = "Reset to default", MinWidth = 120 };
+    private readonly CheckBox _alwaysOnMicrophone = new() { Content = "Mic always on (voice activated)" };
+    private readonly TextBlock _alwaysOnStatus = new() { Text = "Status: Off", TextWrapping = TextWrapping.Wrap };
     private CancellationTokenSource? _activeRequest;
     private Button? _heldButton;
     private AudioPayload? _lastAnswerAudio;
     private string? _lastAnswerText;
+    private string? _lastAnswerSpeechText;
+    private GlobalPushToTalkController? _globalPtt;
+    private GlobalPushToTalkHotkey _globalPttBinding = GlobalPushToTalkHotkey.Default;
+    private bool _capturingGlobalHotkey;
+    private bool _globalPttLoaded;
+    private bool _updatingGlobalPttUi;
+    private bool _updatingAlwaysOnUi;
+    private bool _alwaysOnEnabled;
+    private bool _alwaysOnCycleActive;
+    private bool _alwaysOnProcessingTurn;
+    private int _globalPttDetectionCount;
+    private bool _contactSpeechActive;
     private bool _disposed;
 
     public AssistantPanel(
         TelemetryPipeServer pipe,
         SettingsService settings,
         LogService log,
-        WorldSnapshotBuilder snapshots)
+        WorldSnapshotBuilder snapshots,
+        IGlobalPushToTalkInputService globalPttInput,
+        SqliteStateRepository stateRepository)
     {
         _settings = settings;
         _log = log;
         _snapshots = snapshots;
+        _globalPttInput = globalPttInput;
+        _stateRepository = stateRepository;
+        _contactAnnouncements = new ContactAnnouncementDetector(
+            new TacticalPositionReportingService(stateRepository));
         _queries = new ArmaQueryCoordinator(pipe);
+        _memoryTools = snapshots.MissionMemory is null ? null : new MissionMemoryToolService(snapshots.MissionMemory);
         _capture = new PushToTalkCaptureCoordinator(new WindowsMicrophoneCaptureService());
+        _alwaysOnCapture = new WindowsVoiceActivatedMicrophoneCaptureService();
 
         OpenAiAssistantService openAi = new();
         _turns = new AssistantTurnService(
             openAi,
             BuildSnapshot,
             LoadOpenAiSettingsAsync,
-            ExecuteToolAsync);
+            ExecuteToolAsync,
+            _snapshots.GetCurrentGroupCallsign);
+        if (snapshots.MissionMemory is not null)
+        {
+            MissionMemoryConversationService memoryConversation = new(snapshots.MissionMemory);
+            _turns.SetLocalTurnHandler(text => memoryConversation.TryHandle(text, out string response)
+                ? (true, response) : (false, string.Empty));
+        }
         _voice = new VoiceInteractionService(
             new OpenAiSpeechToTextService(),
             _turns,
@@ -70,21 +114,45 @@ public sealed class AssistantPanel : UserControl, IDisposable
         AttachHoldAction(_testMicrophone, CapturePurpose.MicrophoneTest);
         AttachHoldAction(_testTranscription, CapturePurpose.TranscriptionTest);
         AttachHoldAction(_holdToTalk, CapturePurpose.AssistantTurn);
+        Loaded += AssistantPanel_Loaded;
+        PreviewKeyDown += AssistantPanel_PreviewKeyDown;
+        _globalPttEnabled.Checked += GlobalPttEnabled_Changed;
+        _globalPttEnabled.Unchecked += GlobalPttEnabled_Changed;
+        _changeGlobalPtt.Click += ChangeGlobalPtt_Click;
+        _resetGlobalPtt.Click += ResetGlobalPtt_Click;
+        _alwaysOnMicrophone.Checked += AlwaysOnMicrophone_Changed;
+        _alwaysOnMicrophone.Unchecked += AlwaysOnMicrophone_Changed;
+        _stateRepository.StateChanged += StateRepository_StateChanged;
+        _globalPttTestOnly.Checked += (_, _) =>
+        {
+            if (_globalPtt is not null) _globalPtt.DetectionOnly = true;
+            _globalPttStatus.Text = "Status: Test mode active; chord detection only, recording is disabled.";
+        };
+        _globalPttTestOnly.Unchecked += (_, _) =>
+        {
+            if (_globalPtt is not null) _globalPtt.DetectionOnly = false;
+        };
     }
 
     private UIElement BuildUi()
     {
+        _conversation.Style = Resource<Style>("TerminalTextBoxStyle");
+        _question.MinHeight = 90;
+        _voiceStage.Foreground = Resource<Brush>("AccentStrongBrush");
+        _status.Foreground = Resource<Brush>("MutedTextBrush");
+        _cancel.Style = Resource<Style>("DestructiveButtonStyle");
+
         Grid grid = new() { Margin = new Thickness(16) };
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        grid.Children.Add(new TextBlock
+        TextBlock heading = new()
         {
-            Text = "Papa Bear assistant · typed and push-to-talk · current Arma world state",
-            FontSize = 20,
-            FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(0, 0, 0, 12)
-        });
+            Text = "Papa Bear assistant  /  typed, push-to-talk and always-on voice  /  current Arma world state",
+            Margin = new Thickness(0, 0, 0, 12),
+            Style = Resource<Style>("SectionHeaderTextStyle")
+        };
+        grid.Children.Add(heading);
         Border transcript = Panel(_conversation);
         Grid.SetRow(transcript, 1);
         grid.Children.Add(transcript);
@@ -92,8 +160,8 @@ public sealed class AssistantPanel : UserControl, IDisposable
         StackPanel bottom = new() { Margin = new Thickness(0, 12, 0, 0) };
         bottom.Children.Add(new TextBlock
         {
-            Text = "Questions, answers, transcripts and audio are not written to the application log. Hold-to-talk records for at most 15 seconds.",
-            Foreground = Brushes.Gray,
+            Text = "Questions, answers, transcripts and audio are not written to the application log. Voice utterances are bounded to 15 seconds.",
+            Foreground = Resource<Brush>("MutedTextBrush"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 8)
         });
@@ -103,18 +171,28 @@ public sealed class AssistantPanel : UserControl, IDisposable
         assistantActions.Children.Add(_ask);
         assistantActions.Children.Add(_cancel);
         Button clear = new() { Content = "Clear conversation", MinWidth = 140 };
+        clear.Style = Resource<Style>("DestructiveButtonStyle");
         clear.Click += (_, _) =>
         {
             if (_activeRequest is not null) return;
             _turns.ResetConversation();
             _conversation.Clear();
             _lastAnswerText = null;
+            _lastAnswerSpeechText = null;
             _lastAnswerAudio?.Dispose();
             _lastAnswerAudio = null;
             _replay.IsEnabled = false;
             _status.Text = "Conversation cleared.";
         };
         assistantActions.Children.Add(clear);
+        Button lore = new() { Content = "Lore Context", MinWidth = 120, IsEnabled = _snapshots.MissionMemory is not null };
+        lore.Click += (_, _) =>
+        {
+            if (_snapshots.MissionMemory is null) return;
+            LoreContextWindow window = new(_snapshots.MissionMemory) { Owner = Window.GetWindow(this) };
+            window.ShowDialog();
+        };
+        assistantActions.Children.Add(lore);
         assistantActions.Children.Add(new TextBlock { Text = "Model", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(18, 0, 8, 0) });
         assistantActions.Children.Add(_model);
         bottom.Children.Add(assistantActions);
@@ -127,6 +205,49 @@ public sealed class AssistantPanel : UserControl, IDisposable
         voiceActions.Children.Add(_replay);
         bottom.Children.Add(voiceActions);
 
+        StackPanel alwaysOn = new() { Margin = new Thickness(0, 12, 0, 0) };
+        alwaysOn.Children.Add(new TextBlock
+        {
+            Text = "Voice-activated microphone",
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 4)
+        });
+        alwaysOn.Children.Add(_alwaysOnMicrophone);
+        alwaysOn.Children.Add(_alwaysOnStatus);
+        alwaysOn.Children.Add(new TextBlock
+        {
+            Text = "Opt-in mode with no wake word. Voice activity is detected locally; each completed utterance is sent to OpenAI transcription. Listening pauses while Papa Bear answers or speaks.",
+            Foreground = Resource<Brush>("MutedTextBrush"),
+            TextWrapping = TextWrapping.Wrap
+        });
+        bottom.Children.Add(alwaysOn);
+
+        StackPanel globalPtt = new() { Margin = new Thickness(0, 12, 0, 0) };
+        globalPtt.Children.Add(new TextBlock
+        {
+            Text = "Global push-to-talk",
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 4)
+        });
+        globalPtt.Children.Add(_globalPttEnabled);
+        globalPtt.Children.Add(_globalPttHotkey);
+        WrapPanel globalActions = new() { Margin = new Thickness(0, 4, 0, 0) };
+        globalActions.Children.Add(_changeGlobalPtt);
+        globalActions.Children.Add(_resetGlobalPtt);
+        globalPtt.Children.Add(globalActions);
+        globalPtt.Children.Add(_globalPttStatus);
+        globalPtt.Children.Add(new TextBlock { Text = "Input mode: Background Raw Input", FontWeight = FontWeights.SemiBold });
+        globalPtt.Children.Add(_globalPttTestOnly);
+        globalPtt.Children.Add(_globalPttDetections);
+        globalPtt.Children.Add(_globalPttSource);
+        globalPtt.Children.Add(new TextBlock
+        {
+            Text = "Background Raw Input remains available while Arma has focus. It does not reserve or suppress the combination.",
+            Foreground = Resource<Brush>("MutedTextBrush"),
+            TextWrapping = TextWrapping.Wrap
+        });
+        bottom.Children.Add(globalPtt);
+
         _voiceStage.Margin = new Thickness(0, 8, 0, 0);
         bottom.Children.Add(_voiceStage);
         _status.Margin = new Thickness(0, 4, 0, 0);
@@ -138,13 +259,12 @@ public sealed class AssistantPanel : UserControl, IDisposable
 
     private static Border Panel(UIElement child) => new()
     {
-        Background = new SolidColorBrush(Color.FromRgb(14, 18, 22)),
-        BorderBrush = new SolidColorBrush(Color.FromRgb(58, 70, 81)),
-        BorderThickness = new Thickness(1),
-        CornerRadius = new CornerRadius(6),
-        Padding = new Thickness(12),
+        Style = Resource<Style>("TerminalPanelStyle"),
         Child = child
     };
+
+    private static T Resource<T>(string key) where T : class
+        => (T)Application.Current.FindResource(key);
 
     private void AttachHoldAction(Button button, CapturePurpose purpose)
     {
@@ -161,24 +281,30 @@ public sealed class AssistantPanel : UserControl, IDisposable
         };
     }
 
-    private async Task BeginCaptureAsync(Button button, CapturePurpose purpose)
+    private async Task<bool> BeginCaptureAsync(Button? button, CapturePurpose purpose)
     {
-        if (_activeRequest is not null || _disposed) return;
+        if (_activeRequest is not null || _contactSpeechActive || _disposed)
+        {
+            if (_contactSpeechActive) _status.Text = "Contact announcement is finishing. Try push-to-talk again in a moment.";
+            return false;
+        }
         try
         {
             _activeRequest = new CancellationTokenSource();
             _heldButton = button;
-            button.CaptureMouse();
+            button?.CaptureMouse();
             SetOperationBusy(true);
             SetVoiceStage(VoiceStage.Recording);
             _status.Text = "Release the button to stop recording.";
             Task<IAudioRecording> recording = _capture.BeginAsync(_activeRequest.Token);
             _ = ObserveCaptureAsync(recording, purpose, _activeRequest);
+            return true;
         }
         catch (Exception exception)
         {
             HandleVoiceFailure(exception);
             FinishOperation();
+            return false;
         }
     }
 
@@ -199,6 +325,13 @@ public sealed class AssistantPanel : UserControl, IDisposable
             {
                 if (!ReferenceEquals(request, _activeRequest)) return;
                 request.Token.ThrowIfCancellationRequested();
+                if (purpose == CapturePurpose.AssistantTurn && !PushToTalkRecordingPolicy.ShouldSubmit(recording.Duration))
+                {
+                    SetVoiceStage(VoiceStage.Ready);
+                    _status.Text = "Ready.";
+                    _log.Info($"Push-to-talk recording cancelled: durationMs={(long)recording.Duration.TotalMilliseconds}, cancelledAsShortPress=true.");
+                    return;
+                }
                 Progress<VoiceStage> progress = new(SetVoiceStage);
                 switch (purpose)
                 {
@@ -212,23 +345,7 @@ public sealed class AssistantPanel : UserControl, IDisposable
                         _status.Text = "OpenAI transcription completed. OpenAI Responses and ElevenLabs were not contacted.";
                         break;
                     case CapturePurpose.AssistantTurn:
-                        VoiceTurnResult result = await _voice.RunVoiceTurnAsync(
-                            recording,
-                            progress,
-                            transcript => Dispatcher.Invoke(() => Append("You", transcript)),
-                            answer => Dispatcher.Invoke(() => CommitVisibleAnswer(answer.Text)),
-                            request.Token);
-                        if (result.Audio is not null) ReplaceLastAudio(result.Audio);
-                        if (result.SpeechFailure is null)
-                        {
-                            _status.Text = FormatCompletion(result.Answer);
-                        }
-                        else
-                        {
-                            _status.Text = SpeechServiceException.FormatPartialSuccessForUser(result.SpeechFailure);
-                            _log.Warn(SpeechServiceException.FormatForLog(result.SpeechFailure));
-                        }
-                        _log.Info($"Spoken assistant text completed: model={result.Answer.Model}, tools={result.Answer.ToolCalls}, inputTokens={result.Answer.InputTokens}, outputTokens={result.Answer.OutputTokens}.");
+                        await RunAssistantRecordingAsync(recording, progress, request, "Spoken");
                         break;
                 }
             }
@@ -246,6 +363,32 @@ public sealed class AssistantPanel : UserControl, IDisposable
         {
             if (ReferenceEquals(request, _activeRequest)) FinishOperation();
         }
+    }
+
+    private async Task RunAssistantRecordingAsync(
+        IAudioRecording recording,
+        IProgress<VoiceStage> progress,
+        CancellationTokenSource request,
+        string source)
+    {
+        VoiceTurnResult result = await _voice.RunVoiceTurnAsync(
+            recording,
+            progress,
+            transcript => Dispatcher.Invoke(() => Append("You", transcript)),
+            acknowledgement => Dispatcher.Invoke(() => ShowAcknowledgement(acknowledgement)),
+            answer => Dispatcher.Invoke(() => CommitVisibleAnswer(answer)),
+            request.Token);
+        if (result.Audio is not null) ReplaceLastAudio(result.Audio);
+        if (result.SpeechFailure is null)
+        {
+            _status.Text = FormatCompletion(result.Answer);
+        }
+        else
+        {
+            _status.Text = SpeechServiceException.FormatPartialSuccessForUser(result.SpeechFailure);
+            _log.Warn(SpeechServiceException.FormatForLog(result.SpeechFailure));
+        }
+        LogCompletion(source, result.Answer);
     }
 
     private async void Ask_Click(object sender, RoutedEventArgs e)
@@ -268,11 +411,16 @@ public sealed class AssistantPanel : UserControl, IDisposable
             AssistantResponse response = await _turns.SubmitUserTurnAsync(
                 question,
                 UserTurnSource.Typed,
+                (acknowledgement, _) =>
+                {
+                    Dispatcher.Invoke(() => ShowAcknowledgement(acknowledgement));
+                    return Task.CompletedTask;
+                },
+                response => Dispatcher.Invoke(() => CommitVisibleAnswer(response)),
                 _activeRequest.Token);
-            Append("Papa Bear", response.Text);
             _status.Text = FormatCompletion(response);
             SetVoiceStage(VoiceStage.Ready);
-            _log.Info($"Typed assistant turn completed: model={response.Model}, tools={response.ToolCalls}, inputTokens={response.InputTokens}, outputTokens={response.OutputTokens}.");
+            LogCompletion("Typed", response);
         }
         catch (OperationCanceledException)
         {
@@ -317,14 +465,14 @@ public sealed class AssistantPanel : UserControl, IDisposable
 
     private async void Replay_Click(object sender, RoutedEventArgs e)
     {
-        if (_activeRequest is not null || string.IsNullOrWhiteSpace(_lastAnswerText)) return;
+        if (_activeRequest is not null || string.IsNullOrWhiteSpace(_lastAnswerSpeechText)) return;
         try
         {
             _activeRequest = new CancellationTokenSource();
             SetOperationBusy(true);
             Progress<VoiceStage> progress = new(SetVoiceStage);
             SpeechOutputResult result = await _voice.RetrySpeechAsync(
-                _lastAnswerText,
+                _lastAnswerSpeechText,
                 _lastAnswerAudio,
                 progress,
                 _activeRequest.Token);
@@ -364,16 +512,17 @@ public sealed class AssistantPanel : UserControl, IDisposable
         catch { }
     }
 
-    private (bool Success, string Snapshot) BuildSnapshot()
-        => _snapshots.TryBuildCurrentSituation(out string snapshot)
+    private (bool Success, string Snapshot) BuildSnapshot(string question)
+        => _snapshots.TryBuildCurrentSituation(question, out string snapshot)
             ? (true, snapshot)
             : (false, string.Empty);
 
-    private async Task<(string ApiKey, string Model)> LoadOpenAiSettingsAsync(CancellationToken cancellationToken)
+    private async Task<(string ApiKey, string Model, ResponseProfileSettings Profile)> LoadOpenAiSettingsAsync(CancellationToken cancellationToken)
     {
         AppSettings settings = await _settings.LoadAsync(cancellationToken);
         string model = Dispatcher.CheckAccess() ? _model.Text.Trim() : Dispatcher.Invoke(() => _model.Text.Trim());
-        return (DpapiService.Unprotect(settings.OpenAiApiKeyProtected), model);
+        return (DpapiService.Unprotect(settings.OpenAiApiKeyProtected), model,
+            ResponseProfilePolicy.Normalize(settings.ResponseProfile));
     }
 
     private async Task<VoiceProviderSettings> LoadVoiceSettingsAsync(CancellationToken cancellationToken)
@@ -391,10 +540,8 @@ public sealed class AssistantPanel : UserControl, IDisposable
         CancellationToken cancellationToken)
         => name switch
         {
-            "query_environment" => _queries.QueryEnvironmentAsync(arguments, cancellationToken),
-            "query_friendly_forces" => Task.FromResult(_snapshots.BuildFriendlyForces(arguments)),
-            "query_assets" => Task.FromResult(_snapshots.BuildAssets(arguments)),
-            "query_mission_capabilities" => Task.FromResult(_snapshots.BuildMissionCapabilities(arguments)),
+            "remember_information" or "search_memory" or "update_memory" or "forget_memory" when _memoryTools is not null
+                => Task.FromResult(_memoryTools.Execute(name, arguments)),
             _ => Task.FromException<string>(new InvalidOperationException("Unsupported local tool."))
         };
 
@@ -414,10 +561,20 @@ public sealed class AssistantPanel : UserControl, IDisposable
         _replay.IsEnabled = _activeRequest is null && !string.IsNullOrWhiteSpace(_lastAnswerText);
     }
 
-    private void CommitVisibleAnswer(string text)
+    private void ShowAcknowledgement(RadioAcknowledgement acknowledgement)
     {
-        Append("Papa Bear", text);
-        _lastAnswerText = text;
+        Append("Papa Bear", acknowledgement.VisibleText);
+        _status.Text = "Papa Bear is working. Stand by.";
+        SetVoiceStage(VoiceStage.Thinking);
+    }
+
+    private void CommitVisibleAnswer(AssistantResponse response)
+    {
+        Append("Papa Bear", response.Text);
+        _lastAnswerText = response.Text;
+        _lastAnswerSpeechText = RadioSpeechTextNormalizer.Normalize(
+            response.Text,
+            response.GroupCallsign);
         _lastAnswerAudio?.Dispose();
         _lastAnswerAudio = null;
     }
@@ -449,15 +606,422 @@ public sealed class AssistantPanel : UserControl, IDisposable
         _holdToTalk.IsEnabled = !busy;
         if (busy && _heldButton is not null) _heldButton.IsEnabled = true;
         _replay.IsEnabled = !busy && !string.IsNullOrWhiteSpace(_lastAnswerText);
+        _changeGlobalPtt.IsEnabled = !busy || _globalPtt?.IsRecording == true;
+        _resetGlobalPtt.IsEnabled = !busy || _globalPtt?.IsRecording == true;
     }
 
     private void FinishOperation()
+        => FinishOperation(drainContactSpeech: true);
+
+    private void FinishOperation(bool drainContactSpeech)
     {
         _heldButton?.ReleaseMouseCapture();
         _heldButton = null;
         _activeRequest?.Dispose();
         _activeRequest = null;
         SetOperationBusy(false);
+        if (drainContactSpeech) _ = DrainContactSpeechAsync();
+    }
+
+    private void StateRepository_StateChanged()
+    {
+        if (_disposed) return;
+        try
+        {
+            StateRepositoryDiagnostics diagnostics = _stateRepository.GetDiagnostics();
+            IReadOnlyList<ContactAnnouncement> announcements = _contactAnnouncements.Evaluate(
+                _stateRepository.ActiveMissionKey,
+                diagnostics.LastSequence,
+                _stateRepository.GetContactTracks(256),
+                _stateRepository.GetPlayer()?.GroupCallsign);
+            if (announcements.Count == 0) return;
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                if (_disposed) return;
+                foreach (ContactAnnouncement announcement in announcements)
+                {
+                    Append("Papa Bear", announcement.VisibleText);
+                    _contactSpeechQueue.Enqueue(announcement.VisibleText);
+                }
+                if (_alwaysOnCycleActive && !_alwaysOnProcessingTurn)
+                    _activeRequest?.Cancel();
+                _ = DrainContactSpeechAsync();
+            });
+        }
+        catch (Exception exception)
+        {
+            _log.Warn($"Contact announcement evaluation failed: exceptionType={exception.GetType().Name}.");
+        }
+    }
+
+    private async Task DrainContactSpeechAsync()
+    {
+        if (_disposed || _contactSpeechActive || _activeRequest is not null || _contactSpeechQueue.Count == 0) return;
+        _contactSpeechActive = true;
+        try
+        {
+            while (!_disposed && _activeRequest is null && _contactSpeechQueue.Count > 0)
+            {
+                string visible = _contactSpeechQueue.Dequeue();
+                try
+                {
+                    SpeechOutputResult result = await _voice.RetrySpeechAsync(
+                        RadioSpeechTextNormalizer.Normalize(visible, _stateRepository.GetPlayer()?.GroupCallsign),
+                        null,
+                        new Progress<VoiceStage>(_ => { }),
+                        _contactSpeechCancellation.Token);
+                    result.Audio?.Dispose();
+                    if (result.Failure is not null)
+                    {
+                        _status.Text = SpeechServiceException.FormatPartialSuccessForUser(result.Failure);
+                        _log.Warn(SpeechServiceException.FormatForLog(result.Failure));
+                    }
+                }
+                catch (OperationCanceledException) when (_disposed) { }
+                catch (Exception exception)
+                {
+                    _status.Text = SpeechServiceException.FormatPartialSuccessForUser(exception);
+                    _log.Warn(SpeechServiceException.FormatForLog(exception));
+                }
+            }
+        }
+        finally
+        {
+            _contactSpeechActive = false;
+        }
+    }
+
+    private async void AssistantPanel_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (_globalPttLoaded || _disposed) return;
+        _globalPttLoaded = true;
+        try
+        {
+            AppSettings settings = await _settings.LoadAsync();
+            _alwaysOnEnabled = settings.MicrophoneAlwaysOn;
+            SetAlwaysOnChecked(_alwaysOnEnabled);
+            _alwaysOnStatus.Text = _alwaysOnEnabled
+                ? "Status: Starting local voice-activity detection"
+                : "Status: Off";
+
+            _globalPttBinding = settings.GlobalPushToTalkHotkey ?? GlobalPushToTalkHotkey.Default;
+            try { _globalPttBinding.Validate(); }
+            catch { _globalPttBinding = GlobalPushToTalkHotkey.Default; }
+            try
+            {
+                _globalPtt = new GlobalPushToTalkController(
+                    _globalPttInput,
+                    BeginGlobalPushToTalkAsync,
+                    _ => _capture.ReleaseAsync());
+                _globalPtt.StatusChanged += GlobalPtt_StatusChanged;
+                _globalPtt.HotkeyDetected += GlobalPtt_HotkeyDetected;
+                SetGlobalPttChecked(_globalPttBinding.Enabled);
+                UpdateGlobalPttBindingText();
+                GlobalInputRegistrationResult result = _globalPtt.Configure(_globalPttBinding);
+                UpdateGlobalPttStatus(result);
+            }
+            catch (Exception exception)
+            {
+                _globalPttStatus.Text = "Status: Registration failed";
+                _log.Warn($"Global PTT initialization failed: {exception.GetType().Name}.");
+            }
+            if (_alwaysOnEnabled) StartAlwaysOnListening();
+        }
+        catch (Exception exception)
+        {
+            _alwaysOnStatus.Text = "Status: Settings could not be loaded";
+            _log.Warn($"Assistant voice settings initialization failed: {exception.GetType().Name}.");
+        }
+    }
+
+    private Task<bool> BeginGlobalPushToTalkAsync(GlobalPushToTalkHotkey binding, CancellationToken cancellationToken)
+    {
+        if (Dispatcher.CheckAccess()) return BeginGlobalPushToTalkOnUiAsync();
+        return Dispatcher.InvokeAsync(BeginGlobalPushToTalkOnUiAsync).Task.Unwrap();
+
+        async Task<bool> BeginGlobalPushToTalkOnUiAsync()
+        {
+            if (_alwaysOnEnabled)
+            {
+                _status.Text = "Disable Mic always on before using push-to-talk.";
+                return false;
+            }
+            if (_activeRequest is not null)
+            {
+                _status.Text = "Voice operation already active.";
+                return false;
+            }
+            _log.Info("Global PTT activated: hotkeyActivationSource=background-raw-input.");
+            return await BeginCaptureAsync(null, CapturePurpose.AssistantTurn);
+        }
+    }
+
+    private void GlobalPtt_StatusChanged(object? sender, GlobalInputRegistrationResult result)
+    {
+        if (!Dispatcher.CheckAccess()) { _ = Dispatcher.BeginInvoke(() => UpdateGlobalPttStatus(result)); return; }
+        UpdateGlobalPttStatus(result);
+    }
+
+    private void UpdateGlobalPttStatus(GlobalInputRegistrationResult result)
+    {
+        _globalPttStatus.Text = $"Status: {result.Message}";
+        _log.Info($"Global PTT status: enabled={_globalPttBinding.Enabled}, registered={result.Registered}, result={result.Code}.");
+    }
+
+    private void UpdateGlobalPttBindingText() => _globalPttHotkey.Text = $"Hotkey: {_globalPttBinding.DisplayName}";
+
+    private void GlobalPtt_HotkeyDetected(object? sender, EventArgs e)
+    {
+        if (!Dispatcher.CheckAccess()) { _ = Dispatcher.BeginInvoke(() => GlobalPtt_HotkeyDetected(sender, e)); return; }
+        _globalPttDetectionCount++;
+        _globalPttDetections.Text = $"Detected presses: {_globalPttDetectionCount}";
+        _globalPttSource.Text = "Last activation source: background raw input";
+    }
+
+    private async void GlobalPttEnabled_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_updatingGlobalPttUi || !_globalPttLoaded || _globalPtt is null) return;
+        if (_globalPttEnabled.IsChecked == true)
+        {
+            _globalPttTestOnly.IsChecked = false;
+            _globalPtt.DetectionOnly = false;
+        }
+        await SaveAndApplyGlobalPttAsync(
+            _globalPttBinding with { Enabled = _globalPttEnabled.IsChecked == true });
+    }
+
+    private void ChangeGlobalPtt_Click(object sender, RoutedEventArgs e)
+    {
+        if (_globalPtt is null || (_activeRequest is not null && !_globalPtt.IsRecording)) return;
+        _capturingGlobalHotkey = true;
+        _globalPtt.Suspend();
+        _globalPttStatus.Text = "Status: Press the desired key combination… (Escape cancels)";
+        Focus();
+        Keyboard.Focus(this);
+    }
+
+    private async void ResetGlobalPtt_Click(object sender, RoutedEventArgs e)
+    {
+        if (_globalPtt is null) return;
+        _capturingGlobalHotkey = false;
+        SetGlobalPttChecked(true);
+        await SaveAndApplyGlobalPttAsync(GlobalPushToTalkHotkey.Default);
+    }
+
+    private async void AssistantPanel_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (!_capturingGlobalHotkey || _globalPtt is null) return;
+        e.Handled = true;
+        Key key = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (key == Key.Escape)
+        {
+            _capturingGlobalHotkey = false;
+            UpdateGlobalPttStatus(_globalPtt.Resume());
+            return;
+        }
+        if (key is Key.LeftShift or Key.RightShift or Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt or Key.LWin or Key.RWin)
+            return;
+        GlobalHotkeyModifiers modifiers = GlobalHotkeyModifiers.None;
+        ModifierKeys active = Keyboard.Modifiers;
+        if (active.HasFlag(ModifierKeys.Shift)) modifiers |= GlobalHotkeyModifiers.Shift;
+        if (active.HasFlag(ModifierKeys.Control)) modifiers |= GlobalHotkeyModifiers.Control;
+        if (active.HasFlag(ModifierKeys.Alt)) modifiers |= GlobalHotkeyModifiers.Alt;
+        if (active.HasFlag(ModifierKeys.Windows)) modifiers |= GlobalHotkeyModifiers.Windows;
+        GlobalPushToTalkHotkey candidate = new(true, modifiers, KeyInterop.VirtualKeyFromKey(key));
+        try { candidate.Validate(); }
+        catch (InvalidOperationException exception)
+        {
+            _capturingGlobalHotkey = false;
+            _globalPtt.Resume();
+            _globalPttStatus.Text = $"Status: {exception.Message}";
+            return;
+        }
+        _capturingGlobalHotkey = false;
+        SetGlobalPttChecked(true);
+        await SaveAndApplyGlobalPttAsync(candidate);
+    }
+
+    private async Task SaveAndApplyGlobalPttAsync(GlobalPushToTalkHotkey binding)
+    {
+        try
+        {
+            AppSettings settings = await _settings.LoadAsync();
+            settings.GlobalPushToTalkHotkey = binding;
+            await _settings.SaveAsync(settings);
+            _globalPttBinding = binding;
+            SetGlobalPttChecked(binding.Enabled);
+            UpdateGlobalPttBindingText();
+            if (_globalPtt is not null) UpdateGlobalPttStatus(_globalPtt.Configure(binding));
+        }
+        catch (Exception exception)
+        {
+            if (_globalPtt is not null) _globalPtt.Resume();
+            SetGlobalPttChecked(_globalPttBinding.Enabled);
+            _globalPttStatus.Text = "Status: Could not save the hotkey setting.";
+            _log.Warn($"Global PTT setting save failed: {exception.GetType().Name}.");
+        }
+    }
+
+    private void SetGlobalPttChecked(bool value)
+    {
+        _updatingGlobalPttUi = true;
+        try { _globalPttEnabled.IsChecked = value; }
+        finally { _updatingGlobalPttUi = false; }
+    }
+
+    private async void AlwaysOnMicrophone_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_updatingAlwaysOnUi || !_globalPttLoaded || _disposed) return;
+        bool requested = _alwaysOnMicrophone.IsChecked == true;
+        if (requested && (_activeRequest is not null || _contactSpeechActive))
+        {
+            SetAlwaysOnChecked(false);
+            _alwaysOnStatus.Text = "Status: Finish the current voice operation before enabling always-on mode.";
+            return;
+        }
+        if (requested)
+        {
+            MessageBoxResult confirmation = MessageBox.Show(
+                Window.GetWindow(this),
+                "Mic always on keeps the default microphone open without a wake word. Voice activity is detected locally, but every completed utterance is sent to OpenAI transcription. Enable this mode?",
+                "Enable Mic Always On",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning,
+                MessageBoxResult.No);
+            if (confirmation != MessageBoxResult.Yes)
+            {
+                SetAlwaysOnChecked(false);
+                return;
+            }
+        }
+
+        bool previous = _alwaysOnEnabled;
+        try
+        {
+            AppSettings settings = await _settings.LoadAsync();
+            settings.MicrophoneAlwaysOn = requested;
+            await _settings.SaveAsync(settings);
+            _alwaysOnEnabled = requested;
+            if (requested)
+            {
+                _alwaysOnStatus.Text = "Status: Starting local voice-activity detection";
+                StartAlwaysOnListening();
+            }
+            else
+            {
+                _alwaysOnStatus.Text = "Status: Off";
+                if (_alwaysOnCycleActive)
+                {
+                    _activeRequest?.Cancel();
+                    _voice.StopPlayback();
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            _alwaysOnEnabled = previous;
+            SetAlwaysOnChecked(previous);
+            _alwaysOnStatus.Text = "Status: Could not save the always-on microphone setting.";
+            _log.Warn($"Always-on microphone setting save failed: {exception.GetType().Name}.");
+        }
+    }
+
+    private void SetAlwaysOnChecked(bool value)
+    {
+        _updatingAlwaysOnUi = true;
+        try { _alwaysOnMicrophone.IsChecked = value; }
+        finally { _updatingAlwaysOnUi = false; }
+    }
+
+    private void StartAlwaysOnListening()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(StartAlwaysOnListening);
+            return;
+        }
+        if (!_alwaysOnEnabled || _disposed || _alwaysOnCycleActive ||
+            _activeRequest is not null || _contactSpeechActive)
+            return;
+        _ = RunAlwaysOnCycleAsync();
+    }
+
+    private async Task RunAlwaysOnCycleAsync()
+    {
+        if (!_alwaysOnEnabled || _disposed || _alwaysOnCycleActive || _activeRequest is not null) return;
+        _alwaysOnCycleActive = true;
+        _alwaysOnProcessingTurn = false;
+        CancellationTokenSource request = new();
+        _activeRequest = request;
+        SetOperationBusy(true);
+        SetVoiceStage(VoiceStage.Listening);
+        _alwaysOnStatus.Text = "Status: Listening locally for speech";
+        _status.Text = "Mic always on is listening. Uncheck it to stop.";
+
+        try
+        {
+            await using IAudioRecording recording =
+                await _alwaysOnCapture.CaptureUtteranceAsync(request.Token);
+            if (!_alwaysOnEnabled || !ReferenceEquals(request, _activeRequest)) return;
+            request.Token.ThrowIfCancellationRequested();
+            _alwaysOnProcessingTurn = true;
+            _alwaysOnStatus.Text = "Status: Utterance detected; listening paused";
+            Progress<VoiceStage> progress = new(SetVoiceStage);
+            await RunAssistantRecordingAsync(recording, progress, request, "Always-on spoken");
+        }
+        catch (OperationCanceledException)
+        {
+            SetVoiceStage(VoiceStage.Ready);
+            _status.Text = _alwaysOnEnabled
+                ? "Always-on listening paused."
+                : "Mic always on is off.";
+        }
+        catch (Exception exception)
+        {
+            HandleVoiceFailure(exception);
+            if (_alwaysOnProcessingTurn)
+            {
+                _alwaysOnStatus.Text = "Status: Voice turn failed; listening will resume";
+            }
+            else
+            {
+                _alwaysOnEnabled = false;
+                SetAlwaysOnChecked(false);
+                _alwaysOnStatus.Text = "Status: Microphone failed; mode turned off";
+                await PersistAlwaysOnDisabledAfterFailureAsync();
+            }
+        }
+        finally
+        {
+            _alwaysOnProcessingTurn = false;
+            _alwaysOnCycleActive = false;
+            if (ReferenceEquals(request, _activeRequest))
+                FinishOperation(drainContactSpeech: false);
+            else
+                request.Dispose();
+
+            await DrainContactSpeechAsync();
+            if (_alwaysOnEnabled && !_disposed)
+            {
+                try { await Task.Delay(350, _contactSpeechCancellation.Token); }
+                catch (OperationCanceledException) when (_disposed) { }
+                StartAlwaysOnListening();
+            }
+        }
+    }
+
+    private async Task PersistAlwaysOnDisabledAfterFailureAsync()
+    {
+        try
+        {
+            AppSettings settings = await _settings.LoadAsync();
+            settings.MicrophoneAlwaysOn = false;
+            await _settings.SaveAsync(settings);
+        }
+        catch (Exception exception)
+        {
+            _log.Warn($"Always-on microphone failure state save failed: {exception.GetType().Name}.");
+        }
     }
 
     private void HandleAssistantFailure(Exception exception)
@@ -477,19 +1041,39 @@ public sealed class AssistantPanel : UserControl, IDisposable
     private static string FormatCompletion(AssistantResponse response)
         => $"{response.Model} · {response.ToolCalls} tool call(s) · {response.InputTokens} input / {response.OutputTokens} output tokens";
 
+    private void LogCompletion(string source, AssistantResponse response)
+    {
+        AssistantRequestMetrics? metrics = response.RequestMetrics;
+        string requestMetrics = metrics is null
+            ? string.Empty
+            : $", snapshotBytes={metrics.SnapshotUtf8Bytes}, sectionCounts={string.Join("|", metrics.SectionRecordCounts.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => $"{item.Key}:{item.Value}"))}, historyMessages={metrics.HistoryMessageCount}, historyCharacters={metrics.HistoryCharacterCount}, selectedTools={metrics.SelectedToolCount}, acknowledgementEligible={metrics.AcknowledgementEligible}, acknowledgementEmitted={metrics.AcknowledgementEmitted}, acknowledgementThresholdMs={metrics.AcknowledgementThresholdMilliseconds}, acknowledgementVariation={metrics.AcknowledgementVariationId}, answerTextLatencyMs={metrics.AnswerTextLatencyMilliseconds}, responseLatencyMs={metrics.ResponseLatencyMilliseconds}, retryPerformed={metrics.RetryPerformed}, initialIncompleteReason={metrics.InitialIncompleteReason}";
+        _log.Info($"{source} assistant text completed: model={response.Model}, tools={response.ToolCalls}, inputTokens={response.InputTokens}, outputTokens={response.OutputTokens}, reasoningTokens={response.ReasoningTokens}{requestMetrics}.");
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+        _stateRepository.StateChanged -= StateRepository_StateChanged;
+        _contactSpeechCancellation.Cancel();
+        _alwaysOnEnabled = false;
         _activeRequest?.Cancel();
         _voice.StopPlayback();
         _ = _capture.ReleaseAsync();
         _lastAnswerAudio?.Dispose();
         _lastAnswerText = null;
+        _lastAnswerSpeechText = null;
+        if (_globalPtt is not null)
+        {
+            _globalPtt.StatusChanged -= GlobalPtt_StatusChanged;
+            _globalPtt.Dispose();
+            _globalPtt = null;
+        }
         _voice.Dispose();
         _turns.Dispose();
         _queries.Dispose();
         _ = _capture.DisposeAsync();
         _activeRequest?.Dispose();
+        _contactSpeechCancellation.Dispose();
     }
 }

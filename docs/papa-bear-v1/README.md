@@ -1,6 +1,13 @@
 # Papa Bear v1 — architecture and milestone record
 
-Status: **version 0.7 Voice Position MVP accepted live**.
+Status: **version 0.8.0 Unified State Mirror & Interpreter is the current
+release line; automated Windows validation is green, while the complete live
+0.8 gate remains explicitly pending. Version 0.7 passed live acceptance.**
+
+The active release 0.8 model-context and persistence boundary is
+[`release-0.8-tactical-memory.md`](release-0.8-tactical-memory.md). It
+supersedes the earlier broad Milestone 5 model snapshot without changing the
+accepted State Mirror collection or push-to-talk path.
 
 This directory records the current product boundaries, accepted milestones and
 future architecture decisions for Papa Bear. The repository is developed
@@ -14,7 +21,8 @@ Papa Bear is a local AI radio assistant for Arma 3. The current application:
 - receives perspective-bound Arma telemetry through the SQF addon, native x64
   extension and local Named Pipe;
 - maintains a privacy-minimized local world model;
-- supports typed and push-to-talk questions through one shared assistant path;
+- supports typed, push-to-talk and explicitly enabled voice-activated questions
+  through one shared assistant path;
 - uses OpenAI audio transcription and OpenAI Responses;
 - uses ElevenLabs exclusively for Papa Bear speech output;
 - exposes only locally validated, read-only tools;
@@ -23,6 +31,14 @@ Papa Bear is a local AI radio assistant for Arma 3. The current application:
 The accepted 0.7 proof of concept answers a spoken question about the player’s
 current position using live Arma state and returns both visible text and spoken
 ElevenLabs audio.
+
+The 0.8 milestone adds one bounded unified state snapshot, a local SQLite
+current-state mirror, one fixed compact multi-domain operational prompt,
+official named-place interpretation, dynamic Arma player-group callsigns,
+local two-stage radio acknowledgement and response profiles. Complete
+collections stay local. The release patch adds conditional delayed
+acknowledgements, speech-safe English, one bounded max-token retry and
+configurable global press-and-hold PTT.
 
 ## Active architectural decisions
 
@@ -35,10 +51,20 @@ ElevenLabs audio.
 - One encrypted OpenAI key is used for transcription and Responses.
 - ElevenLabs is the only speech-output provider in the active product.
 - Failed TTS or playback must never discard a completed transcript or answer.
+- Always-on microphone mode is off by default, has no wake word, performs voice
+  activity detection locally, uploads no silence, and pauses capture while Papa
+  Bear handles or speaks a turn.
+- Arma supplies measured facts; local services calculate spatial relations; one
+  existing Responses request supplies natural language; ElevenLabs speaks the
+  final visible answer with only deterministic speech pronunciation of numbers,
+  units and the current Arma callsign permitted to differ.
 - Tools remain bounded, typed, locally validated and read-only until a later
   milestone explicitly introduces an authorized action.
-- ACE, ballistics, persistent operational memory and full map indexing are
-  deferred and are not dependencies of the current POC.
+- ACE integration, firing-solution calculations, routes, support execution,
+  observation-fusion memory, full map indexing and broad proactive notifications
+  are not active product capabilities. Release 0.8 has only deterministic
+  new/reacquired hostile-or-unknown contact announcements from accepted own-side
+  target knowledge.
 
 ## Active documents
 
@@ -57,6 +83,18 @@ ElevenLabs audio.
 11. `codex-milestone-4a-voice-position-mvp.md` — the accepted push-to-talk
     position-answer proof of concept.
 
+12. `codex-milestone-5-unified-state-mirror.md` — complete release 0.8 state,
+    SQLite, interpretation, fixed compact operational context and diagnostics
+    contract.
+13. `codex-milestone-5-contextual-interpreter.md` — subordinate Phase A
+    named-location, spatial-language and response-profile design.
+14. `release-0.8-tactical-memory.md` — active tactical evidence, mission
+    memory, contact announcement, always-on voice, reset and hierarchical
+    position-reporting boundary.
+
+The repository-level [`CHANGELOG.md`](../../CHANGELOG.md) records the complete
+release and pull-request history.
+
 Other documents describe deferred designs or historical experiments. They are
 not automatically approved implementation scope. A later milestone must
 explicitly reactivate them.
@@ -73,9 +111,9 @@ explicitly reactivate them.
 - OpenAI Responses API with strict function tools;
 - ElevenLabs text-to-speech.
 
-## Next product step
+## Active product step
 
-The next intended milestone is a narrow **Arma Knowledge Mirror**: aggregate
-Arma’s existing own-side target knowledge across friendly groups and prove that
-a remote friendly unit’s recognized enemy contact reaches Papa Bear. It must
-not introduce a parallel visibility or perception simulation.
+Complete release 0.8 automated verification and the exact Unified State Mirror
+live gate. Release 0.9 remains the home for broader state-change detection and
+radio notifications; the release-0.8 contact-announcement exception does not
+authorize any other proactive category.

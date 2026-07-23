@@ -1,0 +1,42 @@
+{
+  "files": [
+    {
+      "path": "arma3/addon-source/arma_ai_bridge_client/functions/fn_publishMapGazetteer.sqf",
+      "requiredTokens": [
+        "configFile >> \"CfgWorlds\" >> worldName >> \"Names\"",
+        "configClasses",
+        "configName",
+        "getText",
+        "getArray",
+        "getNumber",
+        "8192",
+        "128",
+        "map-gazetteer-v1",
+        "AAB_gazetteerCacheStatus",
+        "uiSleep 0"
+      ],
+      "forbiddenTokens": [
+        "allMissionObjects",
+        "nearestObjects",
+        "nearestTerrainObjects",
+        "nearObjects",
+        "allUnits",
+        "vehicles",
+        "roadsConnectedTo",
+        "selectBestPlaces",
+        "remoteExec",
+        "compile"
+      ]
+    },
+    {
+      "path": "arma3/addon-source/arma_ai_bridge_client/functions/fn_executeQuery.sqf",
+      "requiredTokens": ["request_map_gazetteer", "spawn AAB_fnc_publishMapGazetteer"],
+      "forbiddenTokens": ["allMissionObjects", "remoteExec", "compile"]
+    },
+    {
+      "path": "arma3/addon-source/arma_ai_bridge_client/functions/fn_publishSessionHandshake.sqf",
+      "requiredTokens": ["map-gazetteer"],
+      "forbiddenTokens": []
+    }
+  ]
+}

@@ -20,19 +20,32 @@ public partial class MainWindow : Window
     private readonly SettingsService _settingsService = new();
     private readonly TelemetryPipeServer _pipeServer;
     private readonly WorldStateStore _worldStateStore;
+    private readonly MapGazetteerStore _mapGazetteerStore;
+    private readonly SqliteStateRepository _stateRepository;
     private readonly WorldSnapshotBuilder _worldSnapshotBuilder;
     private readonly TelemetryIngestService _telemetryIngestService;
+    private readonly MapGazetteerCoordinator _mapGazetteerCoordinator;
+    private readonly StateMirrorIngestService _stateMirrorIngestService;
+    private readonly WindowsRawInputHotkeyService _rawInputHotkeyService;
     private long _snapshotCount;
     private string? _pendingRequestId;
 
     public MainWindow()
     {
         InitializeComponent();
+        _rawInputHotkeyService = new WindowsRawInputHotkeyService();
         _pipeServer = new TelemetryPipeServer(_log);
         _worldStateStore = new WorldStateStore();
-        _worldSnapshotBuilder = new WorldSnapshotBuilder(_worldStateStore);
+        _mapGazetteerStore = new MapGazetteerStore();
+        _stateRepository = new SqliteStateRepository();
+        _worldSnapshotBuilder = new WorldSnapshotBuilder(
+            _worldStateStore, gazetteerStore: _mapGazetteerStore, stateRepository: _stateRepository);
         _telemetryIngestService = new TelemetryIngestService(
             _pipeServer, _worldStateStore, _log);
+        _mapGazetteerCoordinator = new MapGazetteerCoordinator(
+            _pipeServer, _worldStateStore, _mapGazetteerStore, _log);
+        _stateMirrorIngestService = new StateMirrorIngestService(
+            _pipeServer, _stateRepository, _telemetryIngestService, _mapGazetteerStore, _log);
         _log.EntryWritten += OnLogEntryWritten;
         _pipeServer.ClientConnectionChanged += OnClientConnectionChanged;
         _pipeServer.MessageReceived += OnBridgeMessageReceived;
@@ -46,7 +59,7 @@ public partial class MainWindow : Window
         {
             await LoadSettingsAsync();
             await StartListenerAsync();
-            _log.Info("ArmA AI Bridge v0.6.0 started.");
+            _log.Info("ArmA AI Bridge v0.8.0 started.");
         }
         catch (Exception exception)
         {
@@ -58,8 +71,13 @@ public partial class MainWindow : Window
     private async void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
         _assistantPanel?.Dispose();
+        _rawInputHotkeyService.Dispose();
         _worldStateDiagnosticsPanel?.Dispose();
+        _aiContextPanel?.Dispose();
+        _mapGazetteerCoordinator.Dispose();
+        _stateMirrorIngestService.Dispose();
         _telemetryIngestService.Dispose();
+        _stateRepository.Dispose();
         await _pipeServer.DisposeAsync();
     }
 
@@ -77,6 +95,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        ApplyResponseProfile(settings.ResponseProfile);
         try
         {
             OpenAiKeyBox.Password = DpapiService.Unprotect(settings.OpenAiApiKeyProtected);
@@ -97,7 +116,7 @@ public partial class MainWindow : Window
         StartButton.IsEnabled = false;
         StopButton.IsEnabled = true;
         SendQueryButton.IsEnabled = false;
-        SetConnectionStatus("Listening", "#E7B85A");
+        SetConnectionStatus("Listening", "WarningBrush");
         FooterText.Text = "Waiting for Arma 3 bridge";
     }
 
@@ -119,7 +138,7 @@ public partial class MainWindow : Window
         StartButton.IsEnabled = true;
         StopButton.IsEnabled = false;
         SendQueryButton.IsEnabled = false;
-        SetConnectionStatus("Stopped", "#D86A6A");
+        SetConnectionStatus("Stopped", "DangerBrush");
         FooterText.Text = "Bridge listener stopped";
     }
 
@@ -190,12 +209,11 @@ public partial class MainWindow : Window
     {
         try
         {
-            AppSettings settings = new()
-            {
-                OpenAiApiKeyProtected = DpapiService.Protect(OpenAiKeyBox.Password.Trim()),
-                ElevenLabsApiKeyProtected = DpapiService.Protect(ElevenLabsKeyBox.Password.Trim()),
-                ElevenLabsVoiceId = ElevenLabsVoiceIdBox.Text.Trim()
-            };
+            AppSettings settings = await _settingsService.LoadAsync();
+            settings.OpenAiApiKeyProtected = DpapiService.Protect(OpenAiKeyBox.Password.Trim());
+            settings.ElevenLabsApiKeyProtected = DpapiService.Protect(ElevenLabsKeyBox.Password.Trim());
+            settings.ElevenLabsVoiceId = ElevenLabsVoiceIdBox.Text.Trim();
+            settings.ResponseProfile = ReadResponseProfile();
             await _settingsService.SaveAsync(settings);
             SettingsStatusText.Text = $"Saved at {DateTime.Now:T}.";
             _log.Info("Encrypted API settings saved. Credential values were not logged.");
@@ -213,6 +231,50 @@ public partial class MainWindow : Window
         ElevenLabsKeyBox.Clear();
         ElevenLabsVoiceIdBox.Clear();
         SettingsStatusText.Text = "Fields cleared locally. Click Save to overwrite stored values.";
+    }
+
+    private void RestoreResponseProfileButton_Click(object sender, RoutedEventArgs e)
+    {
+        ApplyResponseProfile(ResponseProfilePolicy.Defaults());
+        SettingsStatusText.Text = "Response profile defaults restored locally. Click Save to persist them.";
+    }
+
+    private ResponseProfileSettings ReadResponseProfile()
+        => ResponseProfilePolicy.Normalize(new ResponseProfileSettings
+        {
+            Preset = ReadSelectedTag(ResponsePresetBox, "authentic-military"),
+            Language = ReadSelectedTag(ResponseLanguageBox, "auto"),
+            Length = ReadSelectedTag(ResponseLengthBox, "short"),
+            Terminator = ReadSelectedTag(ResponseTerminatorBox, "none"),
+            CustomStyle = ResponseCustomStyleBox.Text,
+            CustomTerminator = ResponseCustomTerminatorBox.Text,
+            Banter = ReadSelectedTag(ResponseBanterBox, "dry"),
+            OperatorPrePrompt = OperatorPrePromptBox.Text
+        });
+
+    private void ApplyResponseProfile(ResponseProfileSettings? profile)
+    {
+        ResponseProfileSettings value = ResponseProfilePolicy.Normalize(profile);
+        SelectTag(ResponsePresetBox, value.Preset);
+        SelectTag(ResponseLanguageBox, value.Language);
+        SelectTag(ResponseLengthBox, value.Length);
+        SelectTag(ResponseTerminatorBox, value.Terminator);
+        ResponseCustomStyleBox.Text = value.CustomStyle;
+        ResponseCustomTerminatorBox.Text = value.CustomTerminator;
+        OperatorPrePromptBox.Text = value.OperatorPrePrompt;
+        SelectTag(ResponseBanterBox, value.Banter);
+    }
+
+    private static void SelectTag(ComboBox box, string tag)
+    {
+        foreach (object item in box.Items)
+        {
+            if (item is ComboBoxItem choice && string.Equals(choice.Tag as string, tag, StringComparison.Ordinal))
+            {
+                box.SelectedItem = choice;
+                return;
+            }
+        }
     }
 
     private void OpenLogFolderButton_Click(object sender, RoutedEventArgs e)
@@ -251,13 +313,13 @@ public partial class MainWindow : Window
             SendQueryButton.IsEnabled = connected;
             if (connected)
             {
-                SetConnectionStatus("Arma connected", "#70D6A3");
+                SetConnectionStatus("Arma connected", "AccentStrongBrush");
                 FooterText.Text = "Receiving telemetry and accepting map queries";
                 QueryStatusText.Text = "Ready to send a dynamic query.";
             }
             else if (_pipeServer.IsRunning)
             {
-                SetConnectionStatus("Listening", "#E7B85A");
+                SetConnectionStatus("Listening", "WarningBrush");
                 FooterText.Text = "Waiting for Arma 3 bridge";
                 QueryStatusText.Text = "Connect Arma 3 to enable queries.";
             }
@@ -290,6 +352,27 @@ public partial class MainWindow : Window
                     {
                         schema,
                         status = "Ingested into World State; source identifiers are hidden in this view."
+                    }, new JsonSerializerOptions { WriteIndented = true });
+                }
+                else if (schema == StateSnapshotParser.Schema)
+                {
+                    StateRepositoryDiagnostics status = _stateRepository.GetDiagnostics();
+                    RawTelemetryTextBox.Text = JsonSerializer.Serialize(new
+                    {
+                        schema,
+                        status = status.Readiness.ToString().ToLowerInvariant(),
+                        sequence = status.LastSequence,
+                        message = "Snapshot ingested into the local State Mirror; content and source identifiers are hidden."
+                    }, new JsonSerializerOptions { WriteIndented = true });
+                }
+                else if (schema == MapGazetteerStore.Schema)
+                {
+                    MapGazetteerDiagnostics status = _mapGazetteerStore.GetDiagnostics();
+                    RawTelemetryTextBox.Text = JsonSerializer.Serialize(new
+                    {
+                        schema,
+                        status = status.Readiness.ToString().ToLowerInvariant(),
+                        message = "Gazetteer page handled locally; raw configuration payload hidden from this view."
                     }, new JsonSerializerOptions { WriteIndented = true });
                 }
                 else
@@ -489,9 +572,9 @@ public partial class MainWindow : Window
             ? value.GetInt32()
             : 0;
 
-    private void SetConnectionStatus(string text, string color)
+    private void SetConnectionStatus(string text, string brushResourceKey)
     {
         ConnectionStatusText.Text = text;
-        ConnectionIndicator.Fill = (Brush)new BrushConverter().ConvertFromString(color)!;
+        ConnectionIndicator.Fill = (Brush)FindResource(brushResourceKey);
     }
 }

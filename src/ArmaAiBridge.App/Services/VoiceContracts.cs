@@ -11,6 +11,7 @@ public enum UserTurnSource
 public enum VoiceStage
 {
     Ready,
+    Listening,
     Recording,
     Transcribing,
     Thinking,
@@ -61,6 +62,11 @@ public interface IMicrophoneCaptureService
     Task<IMicrophoneCaptureSession> StartAsync(CancellationToken cancellationToken);
 }
 
+public interface IVoiceActivatedMicrophoneCaptureService
+{
+    Task<IAudioRecording> CaptureUtteranceAsync(CancellationToken cancellationToken);
+}
+
 public interface ISpeechToTextService
 {
     Task<string> TranscribeAsync(
@@ -91,6 +97,7 @@ public interface IOpenAiAssistantService : IDisposable
         string model,
         string question,
         string worldSnapshotJson,
+        ResponseProfileSettings responseProfile,
         Func<string, System.Text.Json.JsonElement, CancellationToken, Task<string>> executeTool,
         CancellationToken cancellationToken);
 
@@ -103,6 +110,33 @@ public interface IAssistantTurnService
         string text,
         UserTurnSource source,
         CancellationToken cancellationToken);
+
+    Task<AssistantResponse> SubmitUserTurnAsync(
+        string text,
+        UserTurnSource source,
+        Action<RadioAcknowledgement>? acknowledgementReady,
+        CancellationToken cancellationToken)
+        => SubmitUserTurnAsync(text, source, cancellationToken);
+
+    async Task<AssistantResponse> SubmitUserTurnAsync(
+        string text,
+        UserTurnSource source,
+        Func<RadioAcknowledgement, CancellationToken, Task>? acknowledgementReady,
+        Action<AssistantResponse>? answerTextReady,
+        CancellationToken cancellationToken)
+    {
+        Task acknowledgementDelivery = Task.CompletedTask;
+        AssistantResponse answer = await SubmitUserTurnAsync(
+            text,
+            source,
+            acknowledgementReady is null
+                ? null
+                : acknowledgement => acknowledgementDelivery = acknowledgementReady(acknowledgement, cancellationToken),
+            cancellationToken).ConfigureAwait(false);
+        answerTextReady?.Invoke(answer);
+        await acknowledgementDelivery.ConfigureAwait(false);
+        return answer;
+    }
 
     void ResetConversation();
 }

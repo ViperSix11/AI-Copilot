@@ -1,0 +1,223 @@
+# Release 0.8 tactical context and mission memory
+
+This is the active release 0.8 model-context boundary. It supersedes the broad operational snapshot in the original Milestone 5 notes. It does not change Arma collection authority, native transport, or push-to-talk.
+
+## Model boundary
+
+Every model turn starts from the closed `arma-ai-bridge/tactical-snapshot-v2` schema. It contains only the player's exact current Arma group callsign and side, essential weather and mission time, every accepted friendly group (maximum 128), retained eligible hostile tracks (maximum 256), text-bearing visible mission annotations interpreted as semantic locations (maximum 256), relevant mission memory (maximum 12 entries and 6,000 characters), and selected lore (2,000 characters per section and 8,000 total).
+
+World identity/size, player position/grid/elevation, the complete named-location
+gazetteer, capabilities, loadout, task internals, orders, raw identities, and
+exact friendly identities stay local. An active objective may contribute only
+its bounded title, status and locally completed natural position phrase.
+Canonical player position may be used by local deterministic services, but no
+ordinary model context contains player-relative range, bearing, direction,
+movement, or another combination from which the player's position can be
+reconstructed. There is no broad-snapshot fallback.
+
+The UTF-8 limit is 256 KiB. Summary totals and original/included counts are explicit. Deterministic truncation removes confirmed-dead and oldest last-known contacts first, then low-relevance memory/lore. Current friendly groups remain. `modelPayloadTruncated` prevents a subset from appearing complete.
+
+### Locally interpreted model context
+
+The closed JSON snapshot is an internal application representation. It is not inserted directly into an OpenAI request. Immediately before a request, a deterministic local interpreter projects the accepted snapshot, selected mission-memory records and selected lore into concise English. The projection is the only tactical fact block sent to the model. Technical freshness, confidence and provenance remain visible in local diagnostics, while the transmitted block uses only operational wording, natural descriptions, range, bearing, direction and grid references where useful. Raw object-shaped JSON and decimal coordinate pairs are excluded.
+
+The application exposes the exact interpreted fact block in a read-only **AI Context** tab. The tab accepts an optional prospective question because memory and lore selection are question-dependent. It identifies canonical State Mirror facts, player-reported database memory and user-authored lore separately. Credentials, hidden identifiers, full database contents, system instructions and private provider payloads are never displayed there.
+
+**Reset AI Context** is an explicit, confirmed local deletion. It removes the cached State Mirror, retained contact tracks and observations, session reports and reported-grid anchors, lore, and the interpreter's dialogue focus. It preserves encrypted API keys, response settings, and other application configuration. After reset, the diagnostics remain empty until Arma sends the next session handshake and fresh state; the normal 30-second handshake cycle provides automatic recovery while a live mission remains connected.
+
+### Player-position isolation defect and rule
+
+The release previously omitted coordinates from `player` but still serialized the player's own friendly group with its leader position. When the player led that group, this was effectively the player's current position and the model could repeat it as a coordinate pair or grid. Raw marker, contact and memory coordinate objects also encouraged cryptic coordinate-first answers.
+
+Player position remains available only inside the local process for an explicitly requested, purpose-specific deterministic calculation. The player's own group has no model-facing position, range or bearing. Friendly groups, hostile contacts, contact groups and semantic locations have no model-facing distance, bearing or direction relative to the player. The interpreted model context contains no exact or approximate player coordinate, player grid or player elevation, and it never exposes raw X/Y/Z objects for the model to reinterpret. A current player position must not be inferred from another entity, a marker, lore, mission memory or previous conversation. When asked for the player's current position, the assistant states that the canonical Arma position is not included in its available context.
+
+An explicit typed or transcribed player report of a six-digit grid is separate from canonical Arma position. Release 0.8 recognizes `grid 038084` and a bare six-digit grid only in an unambiguous location statement such as `my current position is 038084`. It stores a session-scoped structured anchor containing the named purpose, grid, 100-metre grid-square centre, approximately 71-metre uncertainty, report time and player-report provenance. A new session deletes these anchors. A reported current position is a past report, not a continuously live position.
+
+Questions that relate two stored anchors, including `How far am I from my mission goal?`, are answered by a local deterministic grid calculator. Pronouns may resolve to the most recently stored mission goal. The model receives only the natural calculated result when a model turn is still needed; it never receives both coordinate inputs. Canonical Arma player position is not a fallback for a missing reported position.
+
+## Friendly picture and dialogue focus
+
+All groups admitted by the bounded State Mirror are projected. Positions are rounded to ten metres and marked approximate; ranges use ten metres and bearings whole degrees. High-level element/composition text replaces raw classes. Leader identity, IDs, aliases, behaviour, combat mode, formation, waypoints, destinations, and assigned targets are excluded.
+
+A session-scoped dialogue focus records the last named or nearest discussed friendly and hostile referent. An immediate “X, not Y” phrase deterministically corrects the preceding request. Focus clears on session change.
+
+## Hostile lifecycle and movement
+
+Only contacts already inside the own-side fair-play boundary can enter `contact_tracks`. They must be hostile or explicitly `UNKNOWN` according to Arma's own-side target knowledge, have an allowed actor/vehicle type and safe class, a permitted perceived side, valid engine-estimated position/uncertainty/age, and an accepted observer group. Friendly, civilian, neutral, static-object, and malformed candidates never become tracks. Bohemia documents `sideUnknown` as the side used when a spotted target's side is not yet known and documents its string form as `UNKNOWN`; no unrestricted enumeration is introduced.
+
+SQLite v4 adds `missions`, `contact_tracks`, `contact_observations`, and `contact_groups`. Stable keys are one-way mission-scoped hashes of accepted identities. Raw IDs never enter model context. Each observation stores the engine estimate, uncertainty, observation/receipt time, and contemporaneous local player position.
+
+Absent tracks become `last-known`; absence never implies death. Reappearance updates the same track and restores `current`. Only permitted game confirmation or an explicit player report produces `dead`. Explicit forget physically deletes the track and observations. App restart or session change in the same mission preserves tracks; another mission cannot retrieve them.
+
+Compatible non-dead contacts observed within 120 seconds and 40 metres are grouped deterministically. Groups expose high-level type, count, six-digit grid, rounded centroid, uncertainty and age. Default reporting is grouped and non-decimal. Player-relative range, bearing and direction remain local and are not ordinary model facts.
+
+Movement requires two reliable observations and compares contact-to-player range at each observation, accounting for player motion. Results are closing, moving away, crossing left/right, stationary, or unknown, with local speed and confidence. Guidance uses a nearest-50-metre range, whole bearing, and cardinal direction, labelled last known when stale.
+
+### Reporter attribution and contact announcements
+
+The existing SQF snapshot already attaches one or more observer group source IDs to every accepted contact. SQLite converts those IDs to session-local aliases, resolves their current tactical callsigns from the friendly-group section, and persists only the privacy-safe callsign as reporter attribution for the mission contact track. Raw source IDs, hashed aliases, profile names and UIDs never enter model context. A `who reported` question receives the current callsign or callsigns; when no usable callsign was supplied it says only `a friendly observer`.
+
+Release 0.8 adds one deliberately narrow proactive behavior: deterministic announcements for newly current hostile or explicitly unknown contacts already admitted by the same own-side target-knowledge policy. It is not broad release-0.9 state-change notification work. The first accepted contact reconciliation after a session starts is a silent baseline. Later new contacts announce type and six-digit grid once; a last-known contact returning to current announces `contact reacquired`. Compatible same-transition contacts of the same relationship and type, observed within 120 seconds and no more than 40 metres apart, are announced once as a group with count and centroid grid. Per-track state remains the deduplication authority underneath that presentation grouping. Repeated snapshots, stale transitions, friendly/civilian/neutral records and malformed records remain silent. Deduplication and baseline state reset on session change.
+
+The visible announcement is appended immediately without an OpenAI call. Speech is queued locally and attempted through the existing ElevenLabs/playback path after an active turn completes. A synthesis or playback failure preserves the visible text and logs only the existing safe provider error classification, never announcement content. Announcements contain no player-relative range, bearing or direction.
+
+## Verbal memory
+
+SQLite v4 adds `memory_entries`, `memory_entry_tags`, `memory_entry_positions`, and FTS5 `memory_fts`. Entries are session-scoped and preserve `user-reported`, `game-observed`, `derived`, or `lore` provenance. Remember/note/store/save phrases are local. “Ready to receive data” opens a five-minute mode; questions, filler, jokes, and insults are not stored. “End data entry” closes it.
+
+A unique forget match is physically deleted from SQLite and FTS. Ambiguous matches request clarification; broad deletion requires confirmation. Content never enters application logs.
+
+The only model-facing tools are strict closed-schema `remember_information`, `search_memory`, `update_memory`, and `forget_memory`. They validate locally and cannot execute arbitrary SQL, filesystem commands, SQF, native code, or operating-system commands.
+
+### Automatic player-report capture
+
+Every direct tactical statement is evaluated locally before the model request. A statement is eligible when it contains at least ten characters, is not a question, hypothetical, command, desired action, plan, intention, joke, insult or filler, and describes a mission-relevant landmark, hostile, vehicle, unknown object, supply, fortification, hazard, damage or state change. Action language such as “I want to storm the airport” is a request or planning statement, not an observation, even though it contains a tactical place or verb. Eligible complete reports are stored silently as `user-reported` before the current context is built; the normal assistant answer then continues. Ordinary conversation and out-of-context assertions are not stored.
+
+A report needs enough deterministic identity and location detail to be useful. A known object or actor requires a grid, a relative direction, or a bearing and range. An unknown object additionally needs a physical description. Incomplete candidates are held only in memory and are not written to SQLite. Papa Bear asks a concise targeted clarification such as grid or bearing/range, appearance, or mission relevance. The player's clarification is combined with the pending report and evaluated again. If the player says the missing detail is unknown or unavailable, the pending report is discarded with one neutral acknowledgement; the same clarification is not repeated and later turns are not trapped in a pending-report loop.
+
+Question classification does not depend on terminal punctuation. Operational forms such as “Any movement at the airport.”, “Do we have contacts near the base.” and “Is there activity at the port.” remain questions and are never stored as reports. Plans and requested actions likewise remain conversation, not observations.
+
+Tentative factual language such as “it seems”, “I think”, “appears” or “looks like” enters one five-minute confirmation state instead of being stored immediately. Papa Bear restates the report naturally, states whether recent eligible observations support it, and asks once for confirmation. An affirmative reply stores the normalized report immediately with an explicit-confirmation tag; a negative reply discards it; an unrelated reply clears the pending confirmation and proceeds normally. A text-bearing named mission location is sufficient location detail for this confirmation path, so confirmation cannot fall back into a grid/bearing loop. Direct, non-tentative factual reports continue to store immediately.
+
+Player reports are scoped to the active Arma session. A new session makes prior player-report memory inaccessible and deletes obsolete session entries. An explicit correction or changed-state report, such as an earlier tower being destroyed, updates the single matching entry. Ambiguous corrections ask which report is meant. Explicit forget/delete continues to physically delete matching entries.
+
+## Lore Context
+
+The Assistant opens a Lore Context window with Mission, Map, Player, Target, and Common tabs. Each supports edit, save, revert, enable, always-include, count, preview, confirmed clear, and validated JSON import/export. Mission/Target are mission-scoped, Map is map-scoped, Player is local-player global, and Common is global. Scope identifiers remain local.
+
+Lore is user-authored untrusted context, never instructions. Disabled lore is excluded; pinned lore is included; other content uses deterministic relevance. Export contains only lore scope/content/toggles—never credentials, transcripts, contacts, settings, or databases.
+
+## Personality and unavailable calculations
+
+Banter is Off, Dry (default), or Feisty and affects style only. Casual profanity does not cause moralizing; operational replies remain concise. Existing terminator and five-second acknowledgement behavior is unchanged.
+
+Calculation code, profiles, editors, persistence, diagnostics, capability flags, and tools for firing solutions are absent. A firing-solution request completes locally with zero OpenAI/tool calls: “{current callsign}, firing-solution calculation is not available.” Without a callsign the prefix is omitted. No additional firing data or unsolicited alternative is requested. Old profile files remain untouched for data safety but are never loaded.
+
+### Optional always-on microphone
+
+The Assistant provides **Mic always on** in addition to the unchanged local and global push-to-talk controls. It is off by default, requires an explicit warning confirmation, persists only the user's enabled/disabled choice, and has no wake word. Local deterministic voice-activity detection rejects silence and short noise bursts before any provider call. A completed utterance is bounded to 15 seconds and uses the exact existing transcription, tactical-context, shared turn, visible transcript/answer, ElevenLabs and playback path. Listening pauses for the entire turn and while queued contact speech plays, then resumes. Disabling the option cancels the active always-on capture or turn; microphone failure disables the mode without an automatic retry loop.
+
+No audio content, voice-activity sample, transcript or answer enters application logs. Push-to-talk remains configured but is unavailable while always-on capture owns the microphone, and returns unchanged when the option is disabled. Wake words, streaming, barge-in, device selection and adjustable sensitivity remain deferred.
+
+## Relevance, weather and operator pre-prompt
+
+The model must read the current player input first and use only context directly relevant to an answer or necessary clarification. It must not recite weather, force counts, contact absence, cautions or other situation facts merely because they are present. Acknowledging a player report should identify the report and any missing detail without unrelated context.
+
+Temperature and wind are not product data. They are not collected by SQF, accepted by the state schema, parsed, stored, interpreted, displayed, forwarded, prompted or tested. The only model-facing weather value is overcast plus a deterministic calm/unsettled/storm classification. Rain, fog and other retained engine fields are not included in the model context.
+
+The API settings UI provides an adjustable operator pre-prompt, bounded to 4,000 characters. It is inserted before the interpreted tactical context on every model turn. Its intended use is answer-selection and response guidance, including directing the model to choose only relevant context. It cannot override privacy, fair-play, player-position isolation, provenance, tool validation, calculation or arbitrary-command boundaries.
+
+### Unified evidence pool and deterministic fusion
+
+The SQLite database remains structured rather than becoming a text transcript. Canonical state, hostile tracks and observations, session player memory, and scoped lore retain their existing typed relational tables. Immediately before a model request, a local unified-evidence projection gives accepted rows a common shape: local evidence reference, category, human statement, provenance, freshness, deterministic confidence, negative/absence semantics, and relevance terms. Raw engine IDs, database keys and spatial coordinate objects remain outside this projection.
+
+The projection has four observable stages: all bounded candidates considered for the current request, deterministically selected evidence, fused interpretation, and the exact transmitted tactical context. The **AI Context** tab exposes each stage independently. It never exposes credentials, private identifiers, raw telemetry, complete unrestricted tables, provider payloads or hidden opposing-side state.
+
+Selection reads the current player input first. Current factual player reports have the highest conversational priority. Structured category and lexical matching select corroborating canonical state, session memory and lore. Environment, time, friendly-force summaries, semantic locations and hostile-contact facts are absent unless relevant to the current input. Empty collection summaries are negative evidence and require an explicit question about that domain, its records, sensor confirmation or known state.
+
+Fusion preserves provenance and does not overwrite independent evidence. A stored copy of the current player report is deduplicated for presentation and is not counted as independent corroboration. Canonical observations may corroborate a report only when their subject or location meaningfully overlaps. A zero-result canonical contact set means only that the accepted own-side feed currently supplies no corroborating hostile track. It is never a contradiction and is normally omitted while acknowledging a report. Corrections and retractions continue through the session-memory rules above.
+
+The model receives only the fused, human-readable result plus the current callsign, immutable evidence semantics and truncation boundary. The complete database, candidate pool and rejected evidence remain local. The operator pre-prompt may guide answer strategy but cannot change evidence selection, provenance, absence semantics or privacy decisions.
+
+### Semantic mission locations and local spatial correlation
+
+A visible map annotation is admitted only when its Arma `markerText` is non-empty and contains a letter or digit. That text is the location name; `markerName`, source ID and database alias are never substitutes. `ICON` is a point location. `RECTANGLE` and `ELLIPSE` are areas whose center, A/B half-axes and rotation follow Arma area-array semantics. Blank annotations are excluded. The raw state contract may retain the historical `markers` field name for compatibility, but diagnostics, interpreted context and radio answers call these records locations.
+
+The local interpreter may compare retained fair-play-eligible hostile estimates with a matching location's point or area geometry, expanding containment by the observation's uncertainty. A current observation no older than ten minutes yields, for example, “Recent observations indicate hostile movement at the Airport.” Older retained overlap yields earlier-activity wording; no overlap may yield a concise absence statement only when the current question asks for it. The model receives the fused sentence, not annotation geometry, contact coordinates, raw IDs or the underlying records.
+
+This does not create complete-map awareness. The backend can fuse all records already admitted by the own-side visibility and eligibility policy, including records not selected for a particular model turn. It must never use `allMissionObjects`, unrestricted world enumeration, opposing-side private state or inference from a location label to obtain hidden entities. OpenAI receives only the minimal, question-relevant fusion result.
+
+### Operational-language boundary and model default
+
+Candidate, selection and fusion diagnostics retain technical terms needed to audit source, freshness, certainty and selection. The transmitted context and normal visible/spoken answer do not use immersion-breaking implementation labels including `player`, `player-reported`, `own-side`, `mission-defined`, `canonical`, `database`, `evidence`, `provenance`, `State Mirror`, `bounded picture`, `telemetry feed`, `contact track`, `confidence` or `freshness`. They address the user by the current Arma callsign or as “you”. A deterministic final-answer normalizer enforces common replacements; explicit questions about application internals retain technical vocabulary.
+
+The editable Assistant model field and empty-value runtime fallback default to `gpt-5.6-luna` through the existing stateless Responses API loop. The existing explicit low reasoning effort, closed memory tools, local history management, output limits, privacy rules and no-content logging policy remain unchanged.
+
+### Tactical position reports
+
+Position wording is resolved deterministically before OpenAI. The local resolver
+uses this strict hierarchy:
+
+1. the nearest authorized Bullseye;
+2. the nearest useful text-bearing mission location, active objective, official
+   named location, or stable friendly group;
+3. a six-digit map grid only when no useful named reference exists.
+
+A Bullseye is a locally present, visible marker whose text or script identifier
+contains `Bullseye`, case-insensitively. Visible marker text is preferred as its
+label. When text is blank, the desktop derives a bounded label beginning at the
+`Bullseye` portion of the identifier, for example `bullseye_west` becomes
+`Bullseye West`. `_USER_DEFINED` identifiers are never converted into labels
+unless their visible marker text itself says Bullseye. The raw marker identifier
+is hashed and discarded during ingestion and never reaches diagnostics, SQLite
+payloads, OpenAI, logs, visible answers, or speech. Marker channel is retained
+locally for authority diagnostics. Authorization is limited to markers present
+in the local player's `allMapMarkers` result with positive alpha; this does not
+introduce server-world enumeration or hidden opposing-side state.
+
+Non-Bullseye references must be within five kilometres. A friendly group must
+be current, have a privacy-safe callsign and a living member, differ from the
+player's group, be within 1,500 metres, and have leader speed no greater than
+five kilometres per hour. The existing `mobile` field is not used as a speed
+estimate. The friendly collector therefore adds only `leaderSpeedKph`, computed
+from `abs (speed (leader _group))`, to the already authorized own-side group
+record.
+
+Direction is the eight-point cardinal direction from the reference to the
+reported entity. Numeric bearings are not used in ordinary position reports.
+Distances below 500 metres round to 50 metres, distances from 500 through 2,000
+metres round to 100 metres, and greater distances round to the nearest practical
+kilometre. Examples are `600 metres northeast of Bullseye Alpha`,
+`1,500 metres south of the Old Church`, and, only as fallback, `grid 083071`.
+
+Proactive contact messages use the current Arma group callsign once, do not
+introduce the assistant as Papa Bear, and do not add an automatic radio
+terminator. Spatially and temporally compatible transitions are consolidated
+into one message, including a mixed infantry/vehicle set. A current contact is
+not called reacquired until it was continuously last-known for at least 30
+seconds. The first reconciliation in every session remains a silent baseline,
+and unchanged or briefly flickering tracks do not repeat.
+
+## Acceptance
+
+Position-reporting tests prove Bullseye recognition from text and identifier,
+raw-identifier disposal, nearest-Bullseye precedence, cardinal direction from
+reference to contact, required tactical distance rounding, named-reference and
+grid fallbacks, stable-friendly eligibility, schema rejection when marker
+channel or leader speed is absent, grouped contact announcements, 30-second
+reacquisition gating, session-baseline silence, and the absence of automatic
+`Papa Bear`/`Over` wording. The interpreted OpenAI context contains the same
+locally completed position phrase and no coordinate pair or raw marker ID.
+
+Live acceptance places two visible WEST-authorized markers named `Bullseye
+Alpha` and `Bullseye Bravo`, one text-bearing objective, one stationary friendly
+group, and one fast-moving friendly group. Reveal an own-side-known EAST contact
+and verify one concise announcement uses the nearest Bullseye, rounded range,
+and reference-to-contact cardinal direction. Move the contact without changing
+its identity and verify no repeat. Hide it for less than 30 seconds and reveal
+it: no reacquisition announcement. Hide it for more than 30 seconds and reveal
+it: exactly one `previously reported ... reacquired` message. Remove Bullseyes
+and repeat to verify the objective or stationary friendly is chosen; the moving
+group is never used. Remove all useful references and verify grid fallback.
+Inspect AI Context and the SQLite file to confirm that raw marker identifiers,
+coordinate pairs and the player's position are absent from transmitted facts.
+
+The focused contact patch additionally proves: schema-v5 migration preserves existing rows; explicit `grid 027067` and contextual bare `038084` reports create structured session anchors with deterministic uncertainty; a grid-to-grid question produces a local distance/cardinal answer without reading canonical Arma position; stale reported position requests an update; and a new session cannot retrieve the previous session's anchors. Tactical-schema tests reject all player-relative range, bearing, direction and movement fields for friendly groups, contacts, contact groups and semantic locations. `Do we have hostiles?` selects counts/status only.
+
+Reporter tests prove the existing `observerGroupSourceIds` collection resolves through the same snapshot's friendly group to a tactical callsign, persists across contact observations, and appears for `Who reported this enemy?`; raw source IDs and local aliases remain absent. SQF/data-contract tests prove documented `UNKNOWN` target knowledge is accepted as unknown while friendly, civilian, neutral, static-object and malformed records remain excluded.
+
+Announcement tests prove the first accepted reconciliation is silent, repeated snapshots do not repeat, a newly current hostile or unknown contact emits exactly one type-plus-grid announcement, last-known to current emits `contact reacquired`, four compatible infantry transitions produce one group/count/grid message rather than four individual messages, and session change establishes a new silent baseline. The announcement path has no OpenAI dependency, appends visible text before attempting audio, queues behind an active turn and preserves text on TTS/playback failure without content logging.
+
+Live acceptance starts WEST with one friendly observing group and no accepted contacts, then completes one full snapshot to establish the silent baseline. Add or reveal one EAST infantryman after baseline: exactly one visible and spoken enemy-infantry grid announcement must occur. Send unchanged snapshots: no repeat. Hide the contact until it is last-known, reveal it again, and verify one reacquired grid announcement. Repeat with four nearby infantrymen recognized as one compatible group: exactly one group announcement with four contacts and one centroid grid must occur, never four individual announcements. Repeat with a target whose side is still `UNKNOWN`; it must say unknown, not enemy. Start a new session with the same visible picture and verify the first reconciliation is silent. Disable or break ElevenLabs and repeat a new-contact transition: the text must remain visible and the safe partial-success status must appear. Ask `Who reported this enemy?` and verify the observing group's Arma callsign is used. Ask `Do we have hostiles?` and verify counts/status contain no range, bearing or direction. Finally report goal grid `027067`, position `038084`, ask the distance, then start a new session and verify the reported grids are gone.
+
+Deterministic tests cover closed omissions, more-than-eight friendly/contact records, more-than-five locations, hostile eligibility/lifecycle/restart, grouping/guidance, memory provenance/FTS/delete, receive-mode filtering, lore scoping/limits, memory-only tools, local unavailable response, size bounds, and protected PTT files. Evidence-pipeline tests additionally prove all four diagnostic stages, current-report priority, same-report presentation deduplication, exclusion of empty-contact and unrelated-weather candidates from a report acknowledgement, explicit retrieval of contact absence for a confirmation question, absence-not-contradiction wording, raw-identity and coordinate omission, and the exact interpreted OpenAI request boundary. The patch also proves punctuation-free questions are not stored, tentative reports require one confirmation, affirmative confirmation stores without a second location prompt, rectangle/ellipse rotation and half-axis geometry are deterministic, eligible location-contact overlap produces the exact compact natural sentence, technical terms remain out of ordinary answers, and the default request model is `gpt-5.6-luna`.
+
+Always-on microphone tests prove the default is disabled, the setting round-trips, silence emits no utterance, a sub-300-millisecond noise candidate is discarded, sustained speech plus trailing silence emits exactly one utterance, and continuous speech stops at 15 seconds. UI contract tests prove the no-wake-word warning, local-detection boundary, visible listening state and shared voice-turn path. Live acceptance enables **Mic always on**, confirms `Voice: listening`, verifies silence causes no conversation or provider activity, speaks one short question without touching the hotkey, and observes one transcript, one answer and one spoken result. During Papa Bear speech, no feedback turn may appear. Disable the option and verify local and global push-to-talk still work unchanged.
+
+Reset acceptance proves that cancelling the confirmation changes nothing, while confirming clears local canonical state, contact tracks and observations, session memory, reported locations, lore, and dialogue focus without clearing API keys or response settings. In a live Arma session, populate retained evidence, press **Reset AI Context**, confirm that all four AI Context stages show the waiting state, and verify that no pre-reset retained item returns. Wait for the next session handshake and verify that only newly published live state repopulates the diagnostics.
+
+Live acceptance adds one text-bearing Airport rectangle and one text-bearing point annotation plus a blank annotation. Verify that the AI Context diagnostics call the first two locations and omit the blank record. Ask “Any movement at the airport.” with no eligible contact inside the area, then with an own-side-known contact inside it; verify the transmitted context changes from concise absence to “Recent observations indicate hostile movement at the Airport.” without coordinates, raw IDs or implementation vocabulary. Report tentative movement, answer “Affirmative”, and verify it stores once without a grid/bearing loop. Move or hide the contact until it becomes last-known and verify the wording becomes earlier/stale rather than dead. Place an opposing-side entity that is not known to WEST and verify it never appears locally or in OpenAI context.
+
+Live acceptance uses more than eight friendly groups, more than eight own-side-known hostile contacts, and more than five visible text-bearing semantic locations. Verify friendly/hostile follow-up referents, last-known persistence after leaving sensor knowledge and restarting the Bridge in the same mission, rounded guidance/movement, “Hostiles, not hostages,” memory store/retrieve/delete, receive mode, all lore tabs, disabled lore exclusion, banter levels, zero-tool firing response, and typed/global PTT behavior identical to baseline.
+
+For evidence-fusion acceptance, begin with no own-side-known hostile contacts and report: “It seems there is enemy movement at the radio dish in the south corner.” The answer must acknowledge the report and request only genuinely missing detail; it must not volunteer weather, friendly counts or “no contacts recorded.” In **AI Context**, the empty canonical contact candidate must appear under **Candidates**, remain absent from **Selected**, and remain absent from **Transmitted**. Then ask: “Does the own-side feed confirm enemy movement at the radio dish?” The empty contact candidate must now be selected and the answer may state that the feed does not currently corroborate the report, but must not deny or retract the player report. Verify a weather question selects overcast while an unrelated tactical report does not.

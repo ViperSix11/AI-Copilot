@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using ArmaAiBridge.App.Models;
 
 namespace ArmaAiBridge.App.Services;
@@ -8,32 +9,81 @@ public sealed class WorldSnapshotBuilder
 {
     public const string SnapshotSchema = "arma-ai-bridge/world-snapshot-v1";
     private readonly WorldStateStore _store;
+    private readonly MapGazetteerStore? _gazetteerStore;
+    private readonly PositionInterpretationService _positionInterpreter;
+    private readonly IStateRepository? _stateRepository;
+    private readonly OperationalSnapshotBuilder? _operationalSnapshotBuilder;
+    private readonly StateQueryService? _stateQuery;
     private readonly TimeProvider _timeProvider;
 
-    public WorldSnapshotBuilder(WorldStateStore store, TimeProvider? timeProvider = null)
+    public WorldSnapshotBuilder(
+        WorldStateStore store,
+        TimeProvider? timeProvider = null,
+        MapGazetteerStore? gazetteerStore = null,
+        PositionInterpretationService? positionInterpreter = null,
+        IStateRepository? stateRepository = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _gazetteerStore = gazetteerStore;
+        _positionInterpreter = positionInterpreter ?? new PositionInterpretationService();
+        _stateRepository = stateRepository;
+        _operationalSnapshotBuilder = stateRepository is null ? null : new OperationalSnapshotBuilder(stateRepository, _timeProvider);
+        _stateQuery = stateRepository is null ? null : new StateQueryService(stateRepository);
     }
 
     public bool TryBuildCurrentSituation(out string json)
     {
-        WorldStateView view = _store.GetCurrentView();
-        if (!view.HasTelemetry || view.Map is null || view.Player is null)
+        if (_operationalSnapshotBuilder is null || _stateRepository is null || _stateRepository.GetDiagnostics().LastSequence <= 0 || _stateRepository.GetPlayer() is null)
         {
             json = string.Empty;
             return false;
         }
-        json = Serialize(BuildCurrentSituation(view));
+        json = SerializeTactical(_operationalSnapshotBuilder.BuildPreview(string.Empty));
         return true;
     }
 
+    public bool TryBuildCurrentSituation(string question, out string json)
+    {
+        if (_operationalSnapshotBuilder is null || _stateRepository is null || _stateRepository.GetDiagnostics().LastSequence <= 0 || _stateRepository.GetPlayer() is null)
+        {
+            json = string.Empty;
+            return false;
+        }
+        json = SerializeTactical(_operationalSnapshotBuilder.Build(question));
+        return true;
+    }
+
+    public bool TryBuildInterpretedContext(string question, out string context)
+    {
+        if (!TryBuildEvidenceContext(question, out TacticalEvidenceReport report))
+        {
+            context = string.Empty;
+            return false;
+        }
+        context = report.ModelContext;
+        return true;
+    }
+
+    public bool TryBuildEvidenceContext(string question, out TacticalEvidenceReport report)
+    {
+        if (_operationalSnapshotBuilder is null || _stateRepository is null || _stateRepository.GetDiagnostics().LastSequence <= 0 || _stateRepository.GetPlayer() is null)
+        {
+            report = new TacticalEvidenceReport(string.Empty, string.Empty, string.Empty, string.Empty, 0, 0);
+            return false;
+        }
+        string snapshot = SerializeTactical(_operationalSnapshotBuilder.BuildPreview(question));
+        report = TacticalContextInterpreter.Analyze(snapshot, question);
+        return true;
+    }
+
+    public void ResetTacticalContext() => _operationalSnapshotBuilder?.ResetDialogueFocus();
+
     public string BuildCurrentSituation()
     {
-        WorldStateView view = _store.GetCurrentView();
-        if (!view.HasTelemetry || view.Map is null || view.Player is null)
+        if (_operationalSnapshotBuilder is null || _stateRepository is null || _stateRepository.GetDiagnostics().LastSequence <= 0 || _stateRepository.GetPlayer() is null)
             throw new InvalidOperationException("No world-state telemetry is available yet.");
-        return Serialize(BuildCurrentSituation(view));
+        return SerializeTactical(_operationalSnapshotBuilder.BuildPreview(string.Empty));
     }
 
     public string BuildKnownContacts()
@@ -56,6 +106,8 @@ public sealed class WorldSnapshotBuilder
 
     public string BuildFriendlyForces(JsonElement arguments)
     {
+        if (_stateRepository is not null && _stateRepository.GetDiagnostics().LastSequence > 0)
+            return BuildMirroredFriendlyForces(arguments);
         WorldStateView view = RequireWorldState();
         string entityType = ReadEnum(arguments, "entityType", "group", "unit", "vehicle", "all");
         double maxDistance = ReadNumber(arguments, "maxDistanceMeters", 100, 50000);
@@ -147,8 +199,37 @@ public sealed class WorldSnapshotBuilder
         });
     }
 
-    private Dictionary<string, object?> BuildCurrentSituation(WorldStateView view)
-        => new()
+    public string BuildNamedLocations(JsonElement arguments)
+    {
+        WorldStateView view = RequireWorldState();
+        MapGazetteerSnapshot gazetteer = _gazetteerStore?.GetSnapshot()
+            ?? new MapGazetteerSnapshot(
+                MapGazetteerReadiness.Unavailable,
+                view.Map!.Name,
+                view.Map.SizeMeters,
+                Array.Empty<MapGazetteerLocation>(),
+                "gazetteer_not_configured");
+        return _positionInterpreter.FindNamedLocations(view, gazetteer, arguments);
+    }
+
+    public string BuildState(JsonElement arguments)
+        => _stateQuery?.Query(arguments)
+            ?? throw new InvalidOperationException("The local State Mirror is not available.");
+
+    private Dictionary<string, object?> BuildCurrentSituation(WorldStateView view, string question)
+    {
+        if (_operationalSnapshotBuilder is not null && _stateRepository!.GetDiagnostics().LastSequence > 0)
+            return BuildCanonicalCurrentSituation(view, question);
+
+        MapGazetteerSnapshot gazetteer = _gazetteerStore?.GetSnapshot()
+            ?? new MapGazetteerSnapshot(
+                MapGazetteerReadiness.Unavailable,
+                view.Map!.Name,
+                view.Map.SizeMeters,
+                Array.Empty<MapGazetteerLocation>(),
+                "gazetteer_not_configured");
+        PositionInterpretation interpretation = _positionInterpreter.Interpret(view, gazetteer);
+        Dictionary<string, object?> result = new()
         {
             ["schema"] = SnapshotSchema,
             ["purpose"] = "current-situation",
@@ -156,13 +237,55 @@ public sealed class WorldSnapshotBuilder
             ["session"] = Session(view),
             ["map"] = Map(view.Map!),
             ["player"] = Player(view.Player!),
+            ["interpretedLocation"] = interpretation,
             ["group"] = view.Group is null ? null : Group(view.Group),
             ["vehicle"] = view.Vehicle is null ? null : Vehicle(view.Vehicle),
-            ["knownContacts"] = Contacts(view.KnownContacts),
+            ["knownContacts"] = _stateRepository is null ? Contacts(view.KnownContacts) : Array.Empty<object>(),
             ["friendlyForceSummary"] = FriendlyForceSummary(view),
             ["missionCapabilitySummary"] = MissionCapabilitySummary(view),
             ["reconciliation"] = Reconciliation(view.Reconciliation)
         };
+        return result;
+    }
+
+    private Dictionary<string, object?> BuildCanonicalCurrentSituation(WorldStateView view, string question)
+    {
+        MapGazetteerSnapshot gazetteer = _gazetteerStore?.GetSnapshot()
+            ?? new MapGazetteerSnapshot(
+                MapGazetteerReadiness.Unavailable,
+                view.Map!.Name,
+                view.Map.SizeMeters,
+                Array.Empty<MapGazetteerLocation>(),
+                "gazetteer_not_configured");
+        return _operationalSnapshotBuilder!.Build(question);
+    }
+
+    public string GetCurrentGroupCallsign()
+        => _stateRepository?.GetPlayer()?.GroupCallsign ?? string.Empty;
+
+    public IMissionMemoryRepository? MissionMemory => _stateRepository as IMissionMemoryRepository;
+
+    private string BuildMirroredFriendlyForces(JsonElement arguments)
+    {
+        string entityType = ReadEnum(arguments, "entityType", "group", "unit", "vehicle", "all");
+        _ = ReadNumber(arguments, "maxDistanceMeters", 100, 50000);
+        bool includeStale = ReadBoolean(arguments, "includeStale");
+        int limit = (int)ReadNumber(arguments, "limit", 1, 100, integer: true);
+        IReadOnlyList<StateFriendlyGroup> groups = entityType is "group" or "all"
+            ? _stateRepository!.GetFriendlyGroups(limit, includeStale) : Array.Empty<StateFriendlyGroup>();
+        IReadOnlyList<StateFriendlyUnit> units = entityType is "unit" or "all"
+            ? _stateRepository!.GetFriendlyUnits(limit, includeStale) : Array.Empty<StateFriendlyUnit>();
+        return Serialize(new Dictionary<string, object?>
+        {
+            ["schema"] = SnapshotSchema,
+            ["purpose"] = "friendly-forces",
+            ["generatedAtUtc"] = _timeProvider.GetUtcNow().ToString("O", CultureInfo.InvariantCulture),
+            ["query"] = new { entityType, includeStale, limit },
+            ["groups"] = groups,
+            ["units"] = units,
+            ["vehicles"] = Array.Empty<object>()
+        });
+    }
 
     private static Dictionary<string, object?> Session(WorldStateView view)
         => new()
@@ -236,6 +359,7 @@ public sealed class WorldSnapshotBuilder
     private static object[] Contacts(IReadOnlyList<WorldKnownContactState> contacts)
         => contacts
             .Where(contact => contact.Metadata.FreshnessClass != WorldFreshness.Historical)
+            .Where(LegacyContactEligibilityPolicy.IsEligible)
             .OrderBy(contact => contact.Alias, StringComparer.Ordinal)
             .Take(32)
             .Select(contact => (object)Contact(contact))
@@ -244,8 +368,8 @@ public sealed class WorldSnapshotBuilder
     private static Dictionary<string, object?> Contact(WorldKnownContactState contact)
     {
         Dictionary<string, object?> result = Metadata(contact.Metadata);
-        result["class"] = contact.Class;
-        result["displayName"] = contact.DisplayName;
+        string relationship = LegacyContactEligibilityPolicy.NormalizeRelationship(contact.Relationship);
+        result["description"] = $"{relationship} {LegacyContactNoun(contact.TargetType)}";
         result["knownByPlayer"] = contact.KnownByPlayer;
         result["knownByGroup"] = contact.KnownByGroup;
         result["lastSeenAgeSeconds"] = Round(contact.LastSeenAgeSeconds);
@@ -253,10 +377,21 @@ public sealed class WorldSnapshotBuilder
         result["perceivedSide"] = contact.PerceivedSide;
         result["ignored"] = contact.Ignored;
         result["targetType"] = contact.TargetType;
-        result["relationship"] = contact.Relationship;
+        result["relationship"] = relationship;
         result["sensors"] = contact.Sensors;
         return result;
     }
+
+    private static string LegacyContactNoun(string targetType) => targetType switch
+    {
+        "person" or "Man" => "infantry",
+        "air" or "Air" => "aircraft",
+        "naval" or "Ship" => "naval vessel",
+        "static-weapon" or "StaticWeapon" => "static weapon",
+        "unmanned-ground" or "UGV" => "unmanned ground vehicle",
+        "unmanned-air" or "UAV" => "unmanned aircraft",
+        _ => "ground vehicle"
+    };
 
     private static Dictionary<string, object?> FriendlyForceSummary(WorldStateView view)
         => new()
@@ -485,4 +620,33 @@ public sealed class WorldSnapshotBuilder
 
     private static string Serialize(object value)
         => JsonSerializer.Serialize(value, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+
+    private static string SerializeTactical(Dictionary<string, object?> value)
+    {
+        string json = Serialize(value);
+        if (System.Text.Encoding.UTF8.GetByteCount(json) <= TacticalSnapshotBuilder.MaximumPayloadBytes) return json;
+        JsonObject root = JsonNode.Parse(json)?.AsObject() ?? throw new InvalidOperationException("The tactical snapshot could not be bounded.");
+        root["modelPayloadTruncated"] = true;
+        foreach ((string section, string collection, string countName) in new[]
+        {
+            ("enemyContacts", "records", "enemyContacts"),
+            ("retrievedMemory", "records", "memoryEntries"),
+            ("lore", "sections", "loreSections"),
+            ("markers", "records", "markers")
+        })
+        {
+            JsonArray? records = root[section]?[collection]?.AsArray();
+            while (records is { Count: > 0 } && Utf8Size(root) > TacticalSnapshotBuilder.MaximumPayloadBytes)
+            {
+                records.RemoveAt(records.Count - 1);
+                if (root[section] is JsonObject sectionObject && sectionObject.ContainsKey("count")) sectionObject["count"] = records.Count;
+                if (root["includedCounts"]?[countName] is JsonObject count) count["included"] = records.Count;
+            }
+        }
+        if (Utf8Size(root) > TacticalSnapshotBuilder.MaximumPayloadBytes)
+            throw new InvalidOperationException("The tactical snapshot exceeded 256 KiB after deterministic bounded truncation.");
+        return root.ToJsonString(new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+    }
+
+    private static int Utf8Size(JsonNode value) => System.Text.Encoding.UTF8.GetByteCount(value.ToJsonString());
 }

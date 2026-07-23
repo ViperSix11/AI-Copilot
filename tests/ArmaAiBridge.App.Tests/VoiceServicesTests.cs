@@ -348,7 +348,7 @@ public sealed class VoiceServicesTests
                 snapshot++;
                 return (true, $"{{\"schema\":\"{WorldSnapshotBuilder.SnapshotSchema}\",\"map\":{{\"name\":\"Altis\",\"grid\":\"{snapshot:000000}\"}},\"player\":{{\"positionAsl\":[{snapshot},2,3],\"freshnessClass\":\"live\",\"confidence\":1.0}}}}");
             },
-            _ => Task.FromResult(("openai-secret", "gpt-5-mini")),
+            _ => Task.FromResult(("openai-secret", "gpt-5-mini", new ResponseProfileSettings())),
             (_, _, _) => Task.FromResult("tool"));
 
         await turns.SubmitUserTurnAsync("typed", UserTurnSource.Typed, TestContext.Current.CancellationToken);
@@ -388,7 +388,7 @@ public sealed class VoiceServicesTests
         Assert.Equal("Papa Bear, welche Position habe ich?", result.Transcript);
         Assert.Equal(new[] { "Papa Bear, welche Position habe ich?" }, visibleTranscripts);
         Assert.Equal(new[] { "Altis, grid 123456." }, visibleAnswers);
-        Assert.Equal(new[] { "Altis, grid 123456." }, synthesis.Texts);
+        Assert.Equal(new[] { "Altis, grid one hundred twenty-three thousand four hundred fifty-six." }, synthesis.Texts);
         Assert.Equal(1, playback.CallCount);
         Assert.True(result.SpeechSucceeded);
         Assert.Equal(new[] { VoiceStage.Transcribing, VoiceStage.Thinking, VoiceStage.GeneratingVoice, VoiceStage.Speaking, VoiceStage.Ready }, stages);
@@ -526,6 +526,82 @@ public sealed class VoiceServicesTests
         Assert.Equal(new[] { VoiceInteractionService.VoiceTestPhrase }, synthesis.Texts);
         Assert.Equal(2, playback.CallCount);
         Assert.Equal("Papa Bear online. Radio check complete.", VoiceInteractionService.VoiceTestPhrase);
+    }
+
+    [Fact]
+    public async Task VoiceTurn_SpeaksExactlyTheNormalizedVisibleAnswer()
+    {
+        ScriptedHttpHandler handler = new(_ => Task.FromResult(Json(HttpStatusCode.OK,
+            JsonSerializer.Serialize(new
+            {
+                model = "gpt-5-mini",
+                output = new[]
+                {
+                    new
+                    {
+                        id = "msg_1", type = "message", role = "assistant",
+                        content = new[] { new { type = "output_text", text = "Position confirmed. Over. Over!", annotations = Array.Empty<object>() } }
+                    }
+                },
+                usage = new { input_tokens = 12, output_tokens = 6 }
+            }))));
+        using HttpClient client = new(handler) { BaseAddress = new Uri("https://api.openai.test/v1/") };
+        using AssistantTurnService turns = new(
+            new OpenAiAssistantService(client),
+            () => (true, """{"schema":"arma-ai-bridge/tactical-snapshot-v2","player":{"side":"WEST"},"environment":{},"time":{},"friendlyForces":{},"enemyContacts":{},"markers":{},"retrievedMemory":{},"lore":{},"modelPayloadTruncated":false,"includedCounts":{}}"""),
+            _ => Task.FromResult(("openai-key", "gpt-5-mini", new ResponseProfileSettings { Terminator = "over" })),
+            (_, _, _) => Task.FromResult("unused"));
+        FakeSpeechToText speech = new("Where am I?");
+        FakeTextToSpeech synthesis = new();
+        using VoiceInteractionService voice = CreateVoice(speech, turns, synthesis, new FakePlayback());
+        List<string> visible = new();
+
+        VoiceTurnResult result = await voice.RunVoiceTurnAsync(
+            new Recording(Encoding.ASCII.GetBytes("wave")), null, _ => { },
+            answer => visible.Add(answer.Text), TestContext.Current.CancellationToken);
+
+        Assert.Equal(new[] { "Position confirmed. Over." }, visible);
+        Assert.Equal(new[] { "Position confirmed. Over." }, synthesis.Texts);
+        Assert.Equal("Position confirmed. Over.", result.Answer.Text);
+        Assert.Equal(1, handler.RequestCount);
+        result.Audio?.Dispose();
+    }
+
+    [Fact]
+    public async Task VoiceTurn_CachesAcknowledgementAudioAndFormatsOnlySpokenCallsign()
+    {
+        FakeSpeechToText speech = new("Status?");
+        AcknowledgingTurnService turns = new();
+        FakeTextToSpeech synthesis = new();
+        FakePlayback playback = new();
+        using VoiceInteractionService voice = CreateVoice(speech, turns, synthesis, playback);
+        List<string> visibleEvents = new();
+
+        for (int index = 0; index < 2; index++)
+        {
+            VoiceTurnResult result = await voice.RunVoiceTurnAsync(
+                new Recording(Encoding.ASCII.GetBytes("wave")), null,
+                _ => { },
+                acknowledgement => visibleEvents.Add(acknowledgement.VisibleText),
+                answer => visibleEvents.Add(answer.Text),
+                TestContext.Current.CancellationToken);
+            result.Audio?.Dispose();
+        }
+
+        Assert.Equal(new[]
+        {
+            "Alpha 1-1, Papa Bear. Copy. Stand by.",
+            "Alpha 1-1, Papa Bear. Position confirmed.",
+            "Alpha 1-1, Papa Bear. Copy. Stand by.",
+            "Alpha 1-1, Papa Bear. Position confirmed."
+        }, visibleEvents);
+        Assert.Equal(new[]
+        {
+            "Alpha One-One, Papa Bear. Copy. Stand by.",
+            "Alpha One-One, Papa Bear. Position confirmed.",
+            "Alpha One-One, Papa Bear. Position confirmed."
+        }, synthesis.Texts);
+        Assert.Equal(4, playback.CallCount);
     }
 
     [Theory]
@@ -685,6 +761,7 @@ public sealed class VoiceServicesTests
             string model,
             string question,
             string worldSnapshotJson,
+            ResponseProfileSettings responseProfile,
             Func<string, JsonElement, CancellationToken, Task<string>> executeTool,
             CancellationToken cancellationToken)
         {
@@ -717,6 +794,35 @@ public sealed class VoiceServicesTests
             Calls.Add((text, source));
             return Task.FromResult(_response);
         }
+        public void ResetConversation() { }
+    }
+
+    private sealed class AcknowledgingTurnService : IAssistantTurnService
+    {
+        private static readonly RadioAcknowledgement Acknowledgement = new(
+            "Alpha 1-1, Papa Bear. Copy. Stand by.",
+            "Alpha One-One, Papa Bear. Copy. Stand by.",
+            "Alpha 1-1",
+            "ack-test");
+
+        public Task<AssistantResponse> SubmitUserTurnAsync(
+            string text,
+            UserTurnSource source,
+            CancellationToken cancellationToken)
+            => SubmitUserTurnAsync(text, source, null, cancellationToken);
+
+        public Task<AssistantResponse> SubmitUserTurnAsync(
+            string text,
+            UserTurnSource source,
+            Action<RadioAcknowledgement>? acknowledgementReady,
+            CancellationToken cancellationToken)
+        {
+            acknowledgementReady?.Invoke(Acknowledgement);
+            return Task.FromResult(new AssistantResponse(
+                "Alpha 1-1, Papa Bear. Position confirmed.",
+                "gpt-5-mini", 0, 1, 1, GroupCallsign: "Alpha 1-1"));
+        }
+
         public void ResetConversation() { }
     }
 

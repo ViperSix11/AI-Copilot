@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ViperSix11/ArmA-AI-Bridge/schemas/state-snapshot-v2.schema.json",
+  "title": "ArmA AI Bridge unified state snapshot v2",
+  "type": "object",
+  "required": ["schema", "messageId", "missionId", "sessionId", "timestamp", "sequence", "fullReconciliation", "sections"],
+  "properties": {
+    "schema": { "const": "arma-ai-bridge/arma3/state-snapshot-v2" },
+    "messageId": { "$ref": "#/$defs/id" },
+    "missionId": { "$ref": "#/$defs/id" },
+    "sessionId": { "$ref": "#/$defs/id" },
+    "timestamp": { "type": "number", "minimum": 0 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "fullReconciliation": { "type": "boolean" },
+    "sections": {
+      "type": "object",
+      "required": ["player", "environment", "timeAstronomy", "loadout", "friendlyForces", "knownContacts", "tasks", "markers"],
+      "properties": {
+        "player": { "$ref": "#/$defs/player" },
+        "environment": { "$ref": "#/$defs/environment" },
+        "timeAstronomy": { "$ref": "#/$defs/timeAstronomy" },
+        "loadout": { "$ref": "#/$defs/loadout" },
+        "friendlyForces": { "$ref": "#/$defs/friendlyForces" },
+        "knownContacts": { "$ref": "#/$defs/knownContacts" },
+        "tasks": { "$ref": "#/$defs/tasks" },
+        "markers": { "$ref": "#/$defs/markers" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "text": { "type": "string", "maxLength": 256 },
+    "readiness": { "enum": ["ready", "stale", "unavailable", "failed"] },
+    "vector": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number", "minimum": -10000000, "maximum": 10000000 } },
+    "sectionMeta": {
+      "type": "object",
+      "required": ["sampledAt", "readiness"],
+      "properties": { "sampledAt": { "type": "number", "minimum": 0 }, "readiness": { "$ref": "#/$defs/readiness" } }
+    },
+    "player": {
+      "type": "object",
+      "required": ["sampledAt", "readiness", "sourceId", "side", "groupSourceId", "groupCallsign", "positionATL", "positionASL", "grid"],
+      "properties": {
+        "sampledAt": { "type": "number", "minimum": 0 }, "readiness": { "$ref": "#/$defs/readiness" },
+        "sourceId": { "$ref": "#/$defs/id" }, "side": { "enum": ["WEST", "EAST", "GUER", "CIV"] },
+        "groupSourceId": { "type": "string", "maxLength": 128 }, "groupCallsign": { "type": "string", "maxLength": 160 }, "positionATL": { "$ref": "#/$defs/vector" },
+        "positionASL": { "$ref": "#/$defs/vector" }, "grid": { "type": "string", "maxLength": 32 }
+      },
+      "additionalProperties": false
+    },
+    "environment": {
+      "type": "object",
+      "required": ["sampledAt", "readiness"],
+      "allOf": [{ "if": { "properties": { "readiness": { "enum": ["ready", "stale"] } } }, "then": { "required": ["overcast", "forecastOvercast", "rain", "fog", "fogParameters", "forecastFog", "waves", "lightning", "humidity", "nextWeatherChange"] } }],
+      "properties": {
+        "sampledAt": { "type": "number", "minimum": 0 }, "readiness": { "$ref": "#/$defs/readiness" },
+        "overcast": { "$ref": "#/$defs/unit" }, "forecastOvercast": { "$ref": "#/$defs/unit" }, "rain": { "$ref": "#/$defs/unit" },
+        "fog": { "$ref": "#/$defs/unit" }, "fogParameters": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number", "minimum": -5000, "maximum": 5000 } },
+        "forecastFog": { "$ref": "#/$defs/unit" }, "waves": { "$ref": "#/$defs/unit" }, "lightning": { "$ref": "#/$defs/unit" },
+        "humidity": { "$ref": "#/$defs/unit" },
+        "nextWeatherChange": { "type": "number", "minimum": -1 }
+      },
+      "additionalProperties": false
+    },
+    "unit": { "type": "number", "minimum": 0, "maximum": 1 },
+    "timeAstronomy": {
+      "type": "object",
+      "required": ["sampledAt", "readiness"],
+      "allOf": [{ "if": { "properties": { "readiness": { "enum": ["ready", "stale"] } } }, "then": { "required": ["missionDate", "daytime", "elapsedMissionTime", "timeMultiplier", "moonPhase", "sunOrMoon"] } }],
+      "properties": {
+        "sampledAt": { "type": "number", "minimum": 0 }, "readiness": { "$ref": "#/$defs/readiness" },
+        "missionDate": { "type": "array", "minItems": 5, "maxItems": 5, "items": { "type": "integer" } },
+        "daytime": { "type": "number", "minimum": 0, "maximum": 24 }, "elapsedMissionTime": { "type": "number", "minimum": 0 },
+        "timeMultiplier": { "type": "number", "minimum": 0.1, "maximum": 120 }, "moonPhase": { "$ref": "#/$defs/unit" },
+        "sunOrMoon": { "$ref": "#/$defs/unit" }
+      },
+      "additionalProperties": false
+    },
+    "magazine": {
+      "type": "object", "required": ["class", "displayName", "rounds", "loaded", "container"],
+      "properties": { "class": { "$ref": "#/$defs/text" }, "displayName": { "$ref": "#/$defs/text" }, "rounds": { "type": "integer", "minimum": 0, "maximum": 100000 }, "loaded": { "type": "boolean" }, "container": { "type": "string", "maxLength": 64 } },
+      "additionalProperties": false
+    },
+    "magazineTotal": {
+      "type": "object", "required": ["class", "displayName", "magazineCount", "rounds"],
+      "properties": { "class": { "$ref": "#/$defs/text" }, "displayName": { "$ref": "#/$defs/text" }, "magazineCount": { "type": "integer", "minimum": 0, "maximum": 10000 }, "rounds": { "type": "integer", "minimum": 0, "maximum": 100000 } },
+      "additionalProperties": false
+    },
+    "container": {
+      "type": "object", "required": ["container", "items", "weaponClasses"],
+      "properties": { "container": { "enum": ["uniform", "vest", "backpack"] }, "items": { "$ref": "#/$defs/stringArray64" }, "weaponClasses": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/text" } } },
+      "additionalProperties": false
+    },
+    "stringArray64": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/text" } },
+    "loadout": {
+      "type": "object",
+      "required": ["sampledAt", "readiness"],
+      "allOf": [{ "if": { "properties": { "readiness": { "enum": ["ready", "stale"] } } }, "then": { "required": ["primaryWeapon", "launcher", "handgun", "selectedWeapon", "selectedWeaponDisplayName", "muzzle", "fireMode", "currentMagazine", "loadedRounds", "opticsAndAttachments", "binocular", "magazines", "magazineTotals", "grenadeCount", "throwableCount", "mineCount", "explosiveCount", "assignedItems", "uniformClass", "vestClass", "backpackClass", "containerContents", "loadoutHash"] } }],
+      "properties": {
+        "sampledAt": { "type": "number", "minimum": 0 }, "readiness": { "$ref": "#/$defs/readiness" },
+        "primaryWeapon": { "$ref": "#/$defs/text" }, "launcher": { "$ref": "#/$defs/text" }, "handgun": { "$ref": "#/$defs/text" },
+        "selectedWeapon": { "$ref": "#/$defs/text" }, "selectedWeaponDisplayName": { "$ref": "#/$defs/text" }, "muzzle": { "$ref": "#/$defs/text" },
+        "fireMode": { "$ref": "#/$defs/text" }, "currentMagazine": { "$ref": "#/$defs/text" }, "loadedRounds": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "opticsAndAttachments": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/text" } }, "binocular": { "$ref": "#/$defs/text" },
+        "magazines": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/magazine" } },
+        "magazineTotals": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/magazineTotal" } },
+        "grenadeCount": { "$ref": "#/$defs/count" }, "throwableCount": { "$ref": "#/$defs/count" }, "mineCount": { "$ref": "#/$defs/count" }, "explosiveCount": { "$ref": "#/$defs/count" },
+        "assignedItems": { "$ref": "#/$defs/stringArray64" }, "uniformClass": { "$ref": "#/$defs/text" }, "vestClass": { "$ref": "#/$defs/text" },
+        "backpackClass": { "$ref": "#/$defs/text" }, "containerContents": { "type": "array", "maxItems": 3, "items": { "$ref": "#/$defs/container" } },
+        "loadoutHash": { "type": "string", "maxLength": 128 }
+      },
+      "additionalProperties": false
+    },
+    "count": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "waypoint": {
+      "type": "object", "required": ["index", "position", "type"],
+      "properties": { "index": { "type": "integer", "minimum": 0 }, "position": { "$ref": "#/$defs/vector" }, "type": { "$ref": "#/$defs/text" } },
+      "additionalProperties": false
+    },
+    "group": {
+      "type": "object", "required": ["sourceId", "callsign", "leaderSourceId", "memberSourceIds", "leaderPosition", "leaderSpeedKph", "behaviour", "combatMode", "formation", "waypoint", "expectedDestination", "assignedTargetSourceIds"],
+      "properties": { "sourceId": { "$ref": "#/$defs/id" }, "callsign": { "type": "string", "maxLength": 160 }, "leaderSourceId": { "type": "string", "maxLength": 128 }, "memberSourceIds": { "type": "array", "maxItems": 512, "items": { "$ref": "#/$defs/id" } }, "leaderPosition": { "$ref": "#/$defs/vector" }, "leaderSpeedKph": { "type": "number", "minimum": 0, "maximum": 2000 }, "behaviour": { "$ref": "#/$defs/text" }, "combatMode": { "$ref": "#/$defs/text" }, "formation": { "$ref": "#/$defs/text" }, "waypoint": { "$ref": "#/$defs/waypoint" }, "expectedDestination": { "$ref": "#/$defs/vector" }, "assignedTargetSourceIds": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/id" } } },
+      "additionalProperties": false
+    },
+    "friendlyUnit": {
+      "type": "object", "required": ["sourceId", "groupSourceId", "class", "displayRole", "position", "alive", "lifeState", "mobile", "damage", "currentCommand", "assignedTargetSourceId", "vehicleSourceId", "vehicleRole"],
+      "properties": { "sourceId": { "$ref": "#/$defs/id" }, "groupSourceId": { "$ref": "#/$defs/id" }, "class": { "$ref": "#/$defs/text" }, "displayRole": { "$ref": "#/$defs/text" }, "position": { "$ref": "#/$defs/vector" }, "alive": { "type": "boolean" }, "lifeState": { "$ref": "#/$defs/text" }, "mobile": { "type": "boolean" }, "damage": { "$ref": "#/$defs/unit" }, "currentCommand": { "$ref": "#/$defs/text" }, "assignedTargetSourceId": { "type": "string", "maxLength": 128 }, "vehicleSourceId": { "type": "string", "maxLength": 128 }, "vehicleRole": { "type": "string", "maxLength": 64 } },
+      "additionalProperties": false
+    },
+    "friendlyForces": {
+      "type": "object", "required": ["sampledAt", "readiness"],
+      "allOf": [{ "if": { "properties": { "readiness": { "enum": ["ready", "stale"] } } }, "then": { "required": ["groups", "units"] } }],
+      "properties": { "sampledAt": { "type": "number", "minimum": 0 }, "readiness": { "$ref": "#/$defs/readiness" }, "groups": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/group" } }, "units": { "type": "array", "maxItems": 512, "items": { "$ref": "#/$defs/friendlyUnit" } } },
+      "additionalProperties": false
+    },
+    "contact": {
+      "type": "object", "required": ["sourceId", "class", "displayName", "contactType", "perceivedSide", "relationship", "estimatedPosition", "positionErrorMeters", "lastSeenAgeSeconds", "lastThreatAgeSeconds", "observerGroupSourceIds"],
+      "properties": { "sourceId": { "$ref": "#/$defs/id" }, "class": { "$ref": "#/$defs/text" }, "displayName": { "$ref": "#/$defs/optionalText" }, "contactType": { "enum": ["person", "ground-vehicle", "air", "naval", "static-weapon", "unmanned-ground", "unmanned-air"] }, "perceivedSide": { "enum": ["WEST", "EAST", "GUER", "CIV", "ENEMY", "UNKNOWN"] }, "relationship": { "enum": ["friendly", "hostile", "unknown", "neutral", "civilian"] }, "estimatedPosition": { "$ref": "#/$defs/vector" }, "positionErrorMeters": { "type": "number", "minimum": 0, "maximum": 100000 }, "lastSeenAgeSeconds": { "type": "number", "minimum": -1, "maximum": 600 }, "lastThreatAgeSeconds": { "type": "number", "minimum": -1, "maximum": 600 }, "observerGroupSourceIds": { "type": "array", "minItems": 1, "maxItems": 128, "items": { "$ref": "#/$defs/id" } } },
+      "additionalProperties": false
+    },
+    "knownContacts": { "type": "object", "required": ["sampledAt", "readiness"], "allOf": [{ "if": { "properties": { "readiness": { "enum": ["ready", "stale"] } } }, "then": { "required": ["contacts"] } }], "properties": { "sampledAt": { "type": "number", "minimum": 0 }, "readiness": { "$ref": "#/$defs/readiness" }, "contacts": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/contact" } } }, "additionalProperties": false },
+    "task": {
+      "type": "object", "required": ["sourceId", "title", "description", "destination", "type", "status", "parentSourceId", "active"],
+      "properties": { "sourceId": { "$ref": "#/$defs/id" }, "title": { "type": "string", "maxLength": 512 }, "description": { "type": "string", "maxLength": 1024 }, "destination": { "$ref": "#/$defs/vector" }, "type": { "$ref": "#/$defs/text" }, "status": { "$ref": "#/$defs/text" }, "parentSourceId": { "type": "string", "maxLength": 128 }, "active": { "type": "boolean" } },
+      "additionalProperties": false
+    },
+    "tasks": { "type": "object", "required": ["sampledAt", "readiness"], "allOf": [{ "if": { "properties": { "readiness": { "enum": ["ready", "stale"] } } }, "then": { "required": ["tasks"] } }], "properties": { "sampledAt": { "type": "number", "minimum": 0 }, "readiness": { "$ref": "#/$defs/readiness" }, "tasks": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/task" } } }, "additionalProperties": false },
+    "marker": {
+      "type": "object", "required": ["sourceId", "text", "position", "type", "color", "shape", "size", "direction", "alpha", "channel", "polyline"],
+      "properties": { "sourceId": { "$ref": "#/$defs/id" }, "text": { "type": "string", "maxLength": 512 }, "position": { "$ref": "#/$defs/vector" }, "type": { "$ref": "#/$defs/text" }, "color": { "$ref": "#/$defs/text" }, "shape": { "$ref": "#/$defs/text" }, "size": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number", "minimum": 0, "maximum": 100000 } }, "direction": { "type": "number", "minimum": 0, "maximum": 360 }, "alpha": { "$ref": "#/$defs/unit" }, "channel": { "type": "integer", "minimum": -1, "maximum": 9999 }, "polyline": { "type": "array", "maxItems": 128, "items": { "type": "number", "minimum": -10000000, "maximum": 10000000 } } },
+      "additionalProperties": false
+    },
+    "markers": { "type": "object", "required": ["sampledAt", "readiness"], "allOf": [{ "if": { "properties": { "readiness": { "enum": ["ready", "stale"] } } }, "then": { "required": ["markers"] } }], "properties": { "sampledAt": { "type": "number", "minimum": 0 }, "readiness": { "$ref": "#/$defs/readiness" }, "markers": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/marker" } } }, "additionalProperties": false }
+  },
+  "additionalProperties": false
+}
